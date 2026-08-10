@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>TGC Supplier Desk</title>
+<style>
+  :root {
+    --ground: #f6f5f2;
+    --panel: #ffffff;
+    --sunk: #eeece7;
+    --ink: #1d1a16;
+    --ink-soft: #4a453d;
+    --muted: #746d62;
+    --rule: #dedad2;
+    --accent: #8a5a1f;
+    --accent-ink: #ffffff;
+    --accent-soft: #f3e9dc;
+    --high: #a3341f;
+    --high-soft: #f8e6e2;
+    --medium: #8a6410;
+    --low: #4a6b52;
+    --ok: #37674a;
+    --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14120f; --panel: #1c1916; --sunk: #23201c;
+      --ink: #efeae2; --ink-soft: #cdc6ba; --muted: #9b9284; --rule: #332e28;
+      --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
+      --high: #e0846c; --high-soft: #2f1d18; --medium: #d8ab4e; --low: #86b294; --ok: #86b294;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #14120f; --panel: #1c1916; --sunk: #23201c;
+    --ink: #efeae2; --ink-soft: #cdc6ba; --muted: #9b9284; --rule: #332e28;
+    --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
+    --high: #e0846c; --high-soft: #2f1d18; --medium: #d8ab4e; --low: #86b294; --ok: #86b294;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+         font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .app { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1.25rem 5rem;
+         display: flex; flex-direction: column; gap: 1.25rem; }
+
+  .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+         gap: 1rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
+  .top h1 { font-family: var(--display); font-size: 1.6rem; font-weight: 600; margin: 0;
+            letter-spacing: -0.01em; }
+  .top .eyebrow { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.15em;
+                  text-transform: uppercase; color: var(--muted); }
+  .conn { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono);
+          font-size: 0.72rem; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); }
+  .dot.off { background: var(--high); }
+
+  button { font: inherit; background: var(--accent); color: var(--accent-ink);
+           border: 1px solid var(--accent); border-radius: 3px; padding: 0.4rem 0.85rem;
+           cursor: pointer; font-weight: 600; }
+  button.ghost { background: transparent; color: var(--accent); }
+  button.small { padding: 0.2rem 0.5rem; font-size: 0.76rem; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 1.25rem;
+          align-items: start; }
+  @media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+  .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; }
+  .panel-head { padding: 0.8rem 1rem; border-bottom: 1px solid var(--rule); display: flex;
+                align-items: baseline; justify-content: space-between; gap: 0.75rem;
+                flex-wrap: wrap; }
+  .panel-head h2 { font-size: 0.95rem; font-weight: 650; margin: 0; }
+  .panel-head .hint { font-size: 0.78rem; color: var(--muted); }
+  .panel-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem; }
+
+  .clocks { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; }
+  .clock { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
+           padding: 0.7rem 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; }
+  .clock .name { font-size: 0.82rem; font-weight: 600; }
+  .clock .time { font-family: var(--display); font-size: 1.5rem; line-height: 1.1;
+                 font-variant-numeric: tabular-nums; }
+  .clock .state { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08em;
+                  text-transform: uppercase; }
+  .clock .state.open { color: var(--ok); }
+  .clock .state.shut { color: var(--muted); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
+  .table-wrap { overflow-x: auto; }
+  th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule);
+           white-space: nowrap; }
+  th { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.11em;
+       text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  tbody tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .tag { display: inline-block; font-family: var(--mono); font-size: 0.63rem; font-weight: 700;
+         letter-spacing: 0.06em; text-transform: uppercase; padding: 0.1rem 0.36rem;
+         border: 1px solid currentColor; border-radius: 2px; }
+  .st-draft, .st-approved { color: var(--muted); }
+  .st-pending_approval { color: var(--medium); }
+  .st-sent { color: var(--accent); }
+  .st-acknowledged, .st-in_transit { color: var(--ok); }
+  .st-received { color: var(--low); }
+  .st-cancelled { color: var(--high); }
+
+  .issue { border-bottom: 1px solid var(--rule); padding: 0.75rem 1rem; display: flex;
+           flex-direction: column; gap: 0.3rem; }
+  .issue:last-child { border-bottom: none; }
+  .issue .row { display: flex; align-items: baseline; gap: 0.5rem; justify-content: space-between; }
+  .issue .detail { font-size: 0.86rem; }
+  .issue .action { font-size: 0.82rem; color: var(--ink-soft); border-left: 2px solid var(--accent);
+                   padding-left: 0.6rem; }
+  .sev-high { color: var(--high); }
+  .sev-medium { color: var(--medium); }
+  .sev-low { color: var(--low); }
+
+  textarea, input, select { font: inherit; color: inherit; background: var(--panel);
+    border: 1px solid var(--rule); border-radius: 3px; padding: 0.45rem 0.6rem; width: 100%; }
+  textarea { min-height: 120px; resize: vertical; font-family: var(--mono); font-size: 0.8rem; }
+  label.field { display: flex; flex-direction: column; gap: 0.3rem; font-family: var(--mono);
+                font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase;
+                color: var(--muted); }
+  label.field > input, label.field > textarea, label.field > select { font-family: var(--sans);
+    font-size: 0.9rem; letter-spacing: 0; text-transform: none; color: var(--ink); }
+  label.field > textarea { font-family: var(--mono); font-size: 0.8rem; }
+
+  .readout { background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px;
+             padding: 0.7rem 0.85rem; font-family: var(--mono); font-size: 0.76rem;
+             white-space: pre-wrap; word-break: break-word; }
+  .empty { padding: 1.3rem 1rem; text-align: center; color: var(--muted); font-size: 0.86rem; }
+  .bar { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  footer { border-top: 1px solid var(--rule); padding-top: 0.9rem; color: var(--muted);
+           font-size: 0.78rem; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div>
+      <div class="eyebrow">Supplier coordination · Aleena · Rawash · Aynola</div>
+      <h1>Supplier Desk</h1>
+    </div>
+    <div class="conn"><span class="dot" id="dot"></span><span id="connLabel">connecting</span>
+      <button class="ghost small" id="sweep">Run agent sweep</button>
+    </div>
+  </div>
+
+  <div class="clocks" id="clocks"></div>
+
+  <div class="grid">
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Below cover</h2>
+          <span class="hint" id="suggestHint">what the forecast says to buy</span>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Item</th><th>Supplier</th><th class="num">Weeks cover</th>
+            <th class="num">Suggest</th><th class="num">Value</th></tr></thead>
+          <tbody id="suggestions"><tr><td colspan="5" class="empty">loading</td></tr></tbody>
+        </table></div>
+        <div class="panel-body"><div class="bar">
+          <button id="createOrders">Create draft orders</button>
+          <button class="ghost" id="refreshSuggest">Recalculate</button>
+        </div><div class="readout" id="createOut" hidden></div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Purchase orders</h2>
+          <span class="hint" id="orderHint"></span>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Order</th><th>Supplier</th><th>Status</th><th class="num">Value</th>
+            <th>Promised</th><th></th></tr></thead>
+          <tbody id="orders"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      <div class="panel">
+        <div class="panel-head"><h2>Needs a human</h2>
+          <span class="hint" id="issueHint"></span></div>
+        <div id="issues"><div class="empty">loading</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Supplier reply</h2>
+          <span class="hint">paste an email</span></div>
+        <div class="panel-body">
+          <label class="field">From
+            <select id="replyFrom"></select></label>
+          <label class="field">Subject
+            <input id="replySubject" placeholder="Re: PO-5001" /></label>
+          <label class="field">Message
+            <textarea id="replyBody">We confirm the order and will ship on 2026-09-28.</textarea></label>
+          <div class="bar">
+            <button id="sendReply">File it</button>
+            <button class="ghost" id="previewReply">Read only</button>
+          </div>
+          <div class="readout" id="replyOut" hidden></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Demo environment with fabricated suppliers. Orders are queued against each supplier's own
+    working hours, replies are read by rule and anything the rules cannot settle is filed for a
+    person rather than guessed.
+  </footer>
+</div>
+
+<script>
+  const API = "";
+  const $ = (id) => document.getElementById(id);
+  const CANDIDATE_KEYS = ["dev-key-change-me", "tgc-secret-2026"];
+  const state = { key: "", suppliers: [] };
+
+  async function api(path, options = {}) {
+    const res = await fetch(API + path, {
+      ...options,
+      headers: { "X-API-Key": state.key, "Content-Type": "application/json",
+                 ...(options.headers || {}) },
+    });
+    if (!res.ok) {
+      let detail = res.status + " " + res.statusText;
+      try { const b = await res.json(); if (b.detail) detail = b.detail; } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  const money = (v) => Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const day = (v) => (v ? new Date(v).toLocaleDateString("en-GB",
+      { day: "2-digit", month: "short" }) : "—");
+
+  async function loadSuppliers() {
+    const rows = await api("/suppliers");
+    state.suppliers = rows;
+    $("clocks").innerHTML = rows.map((s) => `
+      <div class="clock">
+        <span class="name">${s.name}</span>
+        <span class="time">${s.local_time}</span>
+        <span class="state ${s.open_now ? "open" : "shut"}">
+          ${s.open_now ? "open now" : "opens " + s.next_open_local}</span>
+      </div>`).join("");
+    $("replyFrom").innerHTML = rows
+      .map((s) => `<option value="${s.email}">${s.name} · ${s.email}</option>`).join("");
+  }
+
+  async function loadSuggestions() {
+    const body = await api("/planning/suggest", { method: "POST" });
+    const names = Object.fromEntries(state.suppliers.map((s) => [s.id, s.name]));
+    const rows = body.by_supplier.flatMap((g) =>
+      g.lines.map((l) => ({ ...l, supplier: names[g.supplier_id] || "unknown" })));
+    $("suggestHint").textContent = `${body.count} lines below cover`;
+    $("suggestions").innerHTML = rows.length
+      ? rows.map((l) => `<tr>
+          <td><strong>${l.sku}</strong><br><span style="color:var(--muted)">${l.description}</span></td>
+          <td>${l.supplier}</td>
+          <td class="num">${l.weeks_cover}</td>
+          <td class="num">${l.suggest_quantity}</td>
+          <td class="num">${money(l.line_total)}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="empty">Every line has enough cover</td></tr>`;
+  }
+
+  async function loadOrders() {
+    const rows = await api("/purchase-orders");
+    $("orderHint").textContent = `${rows.length} orders`;
+    $("orders").innerHTML = rows.length ? rows.map((o) => {
+      const promised = o.confirmed_delivery_date || o.expected_delivery_date;
+      const action = o.status === "pending_approval"
+        ? `<button class="small" data-approve="${o.number}">Approve</button>`
+        : (o.status === "approved"
+            ? `<button class="small" data-send="${o.number}">Send</button>` : "");
+      return `<tr>
+        <td><strong>${o.number}</strong>${o.has_open_issue
+            ? ' <span class="tag sev-high">issue</span>' : ""}</td>
+        <td>${o.supplier}<br><span style="color:var(--muted);font-size:0.78rem">${
+            o.supplier_timezone || ""}</span></td>
+        <td><span class="tag st-${o.status}">${o.status.replace(/_/g, " ")}</span>${
+            o.scheduled_send_at && o.status === "approved"
+              ? `<br><span style="color:var(--muted);font-size:0.76rem">queued ${
+                  new Date(o.scheduled_send_at).toLocaleString("en-GB",
+                    { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                }</span>` : ""}</td>
+        <td class="num">${money(o.total_value)} ${o.currency}</td>
+        <td>${day(promised)}${o.confirmed_delivery_date ? "" : " (asked)"}</td>
+        <td>${action}</td></tr>`;
+    }).join("") : `<tr><td colspan="6" class="empty">No orders yet</td></tr>`;
+
+    $("orders").querySelectorAll("[data-approve]").forEach((b) =>
+      b.addEventListener("click", () => act(
+        `/purchase-orders/${b.dataset.approve}/approve`, { approver: "procurement.lead" })));
+    $("orders").querySelectorAll("[data-send]").forEach((b) =>
+      b.addEventListener("click", () => act(`/purchase-orders/${b.dataset.send}/send`)));
+  }
+
+  async function act(path, body) {
+    try {
+      const out = await api(path, { method: "POST", body: JSON.stringify(body || {}) });
+      if (out.delivery && !out.delivery.sent) {
+        show($("createOut"), out.delivery.reason);
+      }
+      await refreshAll();
+    } catch (err) { show($("createOut"), "Failed: " + err.message); }
+  }
+
+  async function loadIssues() {
+    const rows = await api("/issues");
+    $("issueHint").textContent = `${rows.length} open`;
+    $("issues").innerHTML = rows.length ? rows.map((i) => `
+      <div class="issue">
+        <div class="row">
+          <span class="tag sev-${i.severity}">${i.kind.replace(/_/g, " ")}</span>
+          <button class="ghost small" data-resolve="${i.id}">Done</button>
+        </div>
+        <div class="detail">${i.detail}</div>
+        <div class="action">${i.suggested_action}</div>
+      </div>`).join("") : `<div class="empty">Nothing waiting on a person</div>`;
+
+    $("issues").querySelectorAll("[data-resolve]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        await api(`/issues/${b.dataset.resolve}/resolve`,
+          { method: "POST", body: JSON.stringify({ resolution: "handled in the console" }) });
+        await refreshAll();
+      }));
+  }
+
+  function show(el, text) { el.hidden = false; el.textContent = text; }
+
+  $("createOrders").addEventListener("click", async () => {
+    $("createOrders").disabled = true;
+    try {
+      const out = await api("/planning/create-orders", { method: "POST" });
+      show($("createOut"), out.created
+        ? out.orders.map((o) => `${o.number}  ${o.total_value}  ${o.status}` +
+            (o.approval_reason ? `  (${o.approval_reason})` : "")).join("\n")
+        : "Nothing to order, every line has cover");
+      await refreshAll();
+    } catch (err) { show($("createOut"), "Failed: " + err.message); }
+    finally { $("createOrders").disabled = false; }
+  });
+
+  $("refreshSuggest").addEventListener("click", refreshAll);
+
+  $("sweep").addEventListener("click", async () => {
+    const out = await api("/agent/sweep", { method: "POST" });
+    show($("createOut"),
+      `released ${out.released.length} queued order(s), chased ${out.chased.length} supplier(s)`);
+    await refreshAll();
+  });
+
+  $("previewReply").addEventListener("click", async () => {
+    const out = await api("/inbound/preview", { method: "POST", body: JSON.stringify({
+      subject: $("replySubject").value, body: $("replyBody").value }) });
+    show($("replyOut"), JSON.stringify(out, null, 2));
+  });
+
+  $("sendReply").addEventListener("click", async () => {
+    $("sendReply").disabled = true;
+    try {
+      const out = await api("/inbound/email", { method: "POST", body: JSON.stringify({
+        external_id: "console-" + $("replySubject").value + "-" + $("replyBody").value.length +
+                     "-" + performance.now().toFixed(0),
+        from_address: $("replyFrom").value,
+        subject: $("replySubject").value,
+        body: $("replyBody").value,
+      }) });
+      show($("replyOut"),
+        `read as ${out.kind} (confidence ${out.confidence})\n` +
+        `order ${out.purchase_order || "not matched"}\n` +
+        (out.actions || []).map((a) => "- " + a).join("\n"));
+      await refreshAll();
+    } catch (err) { show($("replyOut"), "Failed: " + err.message); }
+    finally { $("sendReply").disabled = false; }
+  });
+
+  async function refreshAll() {
+    await loadSuppliers();
+    await Promise.all([loadSuggestions(), loadOrders(), loadIssues()]);
+  }
+
+  async function connect() {
+    let env = "";
+    try { env = (await (await fetch(API + "/health")).json()).env; }
+    catch { $("dot").className = "dot off"; $("connLabel").textContent = "service not running";
+            return; }
+    for (const key of CANDIDATE_KEYS) {
+      const res = await fetch(API + "/suppliers", { headers: { "X-API-Key": key } });
+      if (res.ok) {
+        state.key = key;
+        $("dot").className = "dot on";
+        $("connLabel").textContent = "connected · " + env;
+        await refreshAll();
+        return;
+      }
+    }
+    $("dot").className = "dot off";
+    $("connLabel").textContent = "no working API key";
+  }
+
+  connect();
+</script>
+</body>
+</html>
