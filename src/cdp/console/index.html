@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>TGC CDP — Console</title>
+<style>
+  :root {
+    --ground: #f4f6f6;
+    --panel: #ffffff;
+    --sunk: #eaeeed;
+    --ink: #12201f;
+    --ink-soft: #3c4d4b;
+    --muted: #667874;
+    --rule: #d7dedd;
+    --accent: #0e6a61;
+    --accent-ink: #ffffff;
+    --accent-soft: #e2efec;
+    --alert: #9d3826;
+    --alert-soft: #f7e8e4;
+    --ok: #16736a;
+    --aleena: #7b4b8f;
+    --rawash: #b1493c;
+    --aynola: #1f6f8b;
+    --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1413; --panel: #151e1d; --sunk: #1b2624;
+      --ink: #e7efec; --ink-soft: #c2d0cc; --muted: #8fa39e; --rule: #2a3735;
+      --accent: #52bfaf; --accent-ink: #08211e; --accent-soft: #17302d;
+      --alert: #e29076; --alert-soft: #2e211c; --ok: #52bfaf;
+      --aleena: #c39ad4; --rawash: #e9927f; --aynola: #8fc3d8;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1413; --panel: #151e1d; --sunk: #1b2624;
+    --ink: #e7efec; --ink-soft: #c2d0cc; --muted: #8fa39e; --rule: #2a3735;
+    --accent: #52bfaf; --accent-ink: #08211e; --accent-soft: #17302d;
+    --alert: #e29076; --alert-soft: #2e211c; --ok: #52bfaf;
+    --aleena: #c39ad4; --rawash: #e9927f; --aynola: #8fc3d8;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { max-width: 1240px; margin: 0 auto; padding: 1.5rem 1.25rem 5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+
+  /* header */
+  .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
+  .brandmark { display: flex; flex-direction: column; gap: 0.15rem; }
+  .brandmark h1 { font-family: var(--display); font-size: 1.6rem; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .brandmark span { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+  .conn { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--ok); }
+  .dot.off { background: var(--alert); }
+  .conn-label { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+
+  input, select, button, textarea { font: inherit; color: inherit; }
+  input, select {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 3px;
+    padding: 0.45rem 0.6rem; width: 100%;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  button {
+    background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent);
+    border-radius: 3px; padding: 0.45rem 0.9rem; cursor: pointer; font-weight: 600;
+  }
+  button.ghost { background: transparent; color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .key-field { width: 210px; }
+
+  /* layout */
+  .grid { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+  .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; display: flex; flex-direction: column; }
+  .panel-head { padding: 0.85rem 1rem; border-bottom: 1px solid var(--rule); display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
+  .panel-head h2 { font-size: 0.95rem; font-weight: 650; margin: 0; }
+  .panel-head .hint { font-size: 0.78rem; color: var(--muted); }
+  .panel-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.85rem; }
+
+  .field { display: flex; flex-direction: column; gap: 0.3rem; }
+  .field label { font-family: var(--mono); font-size: 0.67rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+  .checkline { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; }
+  .checkline input { width: auto; }
+
+  /* source picker */
+  .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 0.4rem; }
+  .src {
+    border: 1px solid var(--rule); background: var(--sunk); border-radius: 3px;
+    padding: 0.5rem 0.4rem; text-align: center; cursor: pointer; font-size: 0.78rem; font-weight: 600;
+    color: var(--ink-soft); line-height: 1.25;
+  }
+  .src small { display: block; font-weight: 400; font-size: 0.68rem; color: var(--muted); }
+  .src[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .src[aria-pressed="true"] small { color: var(--accent-ink); opacity: 0.85; }
+
+  /* result strip */
+  .result { border-radius: 3px; padding: 0.7rem 0.85rem; font-size: 0.85rem; display: none; }
+  .result.show { display: block; }
+  .result.ok { background: var(--accent-soft); border: 1px solid var(--accent); }
+  .result.bad { background: var(--alert-soft); border: 1px solid var(--alert); color: var(--ink); }
+  .result strong { display: block; margin-bottom: 0.15rem; }
+  .result .idline { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); word-break: break-all; }
+
+  /* customer table */
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
+  th, td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th { font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.11em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--sunk); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr.sel { background: var(--accent-soft); }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .name { font-weight: 600; white-space: normal; }
+  .sub { display: block; font-weight: 400; font-size: 0.76rem; color: var(--muted); font-family: var(--mono); }
+
+  .pill { display: inline-block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.03em; padding: 0.1rem 0.4rem; border-radius: 2px; border: 1px solid currentColor; margin-right: 0.2rem; text-transform: capitalize; }
+  .pill.aleena { color: var(--aleena); }
+  .pill.rawash { color: var(--rawash); }
+  .pill.aynola { color: var(--aynola); }
+  .tick { color: var(--ok); font-weight: 700; }
+  .cross { color: var(--alert); font-weight: 700; }
+
+  /* profile drawer */
+  .profile { display: flex; flex-direction: column; gap: 0.9rem; }
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 0.6rem; }
+  .stat { background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px; padding: 0.55rem 0.7rem; }
+  .stat b { display: block; font-family: var(--display); font-size: 1.25rem; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .stat span { font-family: var(--mono); font-size: 0.63rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+  .ids { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .idchip { font-family: var(--mono); font-size: 0.72rem; background: var(--sunk); border: 1px solid var(--rule); border-radius: 2px; padding: 0.15rem 0.4rem; }
+  .idchip em { font-style: normal; color: var(--muted); }
+
+  .timeline { display: flex; flex-direction: column; border-left: 2px solid var(--rule); padding-left: 0.9rem; gap: 0.65rem; }
+  .tl { display: grid; grid-template-columns: 96px 1fr auto; gap: 0.6rem; align-items: baseline; font-size: 0.85rem; position: relative; }
+  .tl::before { content: ""; position: absolute; left: -1.22rem; top: 0.45rem; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .tl.wa::before { background: var(--muted); }
+  .tl time { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+  .tl .what { color: var(--ink-soft); white-space: normal; }
+  .tl .amt { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .tl .detail { color: var(--muted); font-size: 0.82rem; }
+
+  /* Source is the provenance answer: which system sent this, in its own colour. */
+  .srcbadge {
+    display: inline-block; font-family: var(--mono); font-size: 0.63rem;
+    letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700;
+    padding: 0.08rem 0.34rem; border-radius: 2px; margin-right: 0.35rem;
+    border: 1px solid currentColor; white-space: nowrap;
+  }
+  .srcbadge.big { font-size: 0.7rem; padding: 0.2rem 0.45rem; text-transform: none; letter-spacing: 0.02em; }
+  .srcbadge.big b { font-variant-numeric: tabular-nums; }
+  .src-shopify .srcbadge, .srcbadge.src-shopify { color: var(--aleena); }
+  .src-shopify_pos .srcbadge, .srcbadge.src-shopify_pos { color: var(--rawash); }
+  .src-whatsapp .srcbadge, .srcbadge.src-whatsapp { color: var(--ok); }
+  .src-email .srcbadge, .srcbadge.src-email { color: var(--aynola); }
+  .src-activation .srcbadge, .srcbadge.src-activation { color: var(--alert); }
+  .src-ads .srcbadge, .srcbadge.src-ads { color: var(--muted); }
+  .src-support .srcbadge, .srcbadge.src-support { color: var(--muted); }
+  .tl.src-whatsapp::before { background: var(--ok); }
+  .tl.src-email::before { background: var(--aynola); }
+  .tl.src-activation::before { background: var(--alert); }
+  .tl.src-ads::before, .tl.src-support::before { background: var(--muted); }
+  .tl.src-shopify_pos::before { background: var(--rawash); }
+
+  .consent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.5rem; }
+  .cons { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px; padding: 0.4rem 0.6rem; font-size: 0.82rem; }
+  .cons button { padding: 0.2rem 0.5rem; font-size: 0.72rem; }
+
+  /* segments */
+  .seg { border-bottom: 1px solid var(--rule); padding: 0.8rem 1rem; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; justify-content: space-between; }
+  .seg:last-child { border-bottom: none; }
+  .seg-name { font-weight: 600; font-size: 0.88rem; }
+  .seg-key { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); display: block; }
+  .seg-actions { display: flex; align-items: center; gap: 0.4rem; }
+  .seg-size { font-family: var(--display); font-size: 1.2rem; font-variant-numeric: tabular-nums; min-width: 1.4rem; text-align: right; }
+  .seg-out { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); flex-basis: 100%; }
+
+  .empty { padding: 1.4rem 1rem; color: var(--muted); font-size: 0.87rem; text-align: center; }
+  footer { color: var(--muted); font-size: 0.78rem; border-top: 1px solid var(--rule); padding-top: 0.9rem; }
+  .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--rule); border-top-color: var(--accent); border-radius: 50%; animation: sp 0.7s linear infinite; vertical-align: -1px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="top">
+    <div class="brandmark">
+      <span>Customer Data Platform · Aleena · Rawash · Aynola</span>
+      <h1>Customer Console</h1>
+    </div>
+    <div class="conn">
+      <span class="dot" id="dot"></span>
+      <span class="conn-label" id="connLabel">not connected</span>
+      <input class="key-field" id="apiKey" type="password" placeholder="API key" autocomplete="off" hidden />
+      <button id="connect" hidden>Connect</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: capture -->
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Record a touchpoint</h2>
+          <span class="hint">any channel</span>
+        </div>
+        <div class="panel-body">
+          <div class="sources" id="sources">
+            <button class="src" data-src="shopify" aria-pressed="true">Online<small>Shopify</small></button>
+            <button class="src" data-src="shopify_pos" aria-pressed="false">In store<small>POS</small></button>
+            <button class="src" data-src="whatsapp" aria-pressed="false">WhatsApp<small>message</small></button>
+            <button class="src" data-src="activation" aria-pressed="false">Mall<small>activation</small></button>
+            <button class="src" data-src="email" aria-pressed="false">Email<small>opened</small></button>
+          </div>
+
+          <div class="field" id="wrapName">
+            <label for="fName">Customer name</label>
+            <input id="fName" placeholder="Noura Al Qahtani" />
+          </div>
+
+          <div class="row2">
+            <div class="field" id="wrapPhone">
+              <label for="fPhone">Phone</label>
+              <input id="fPhone" placeholder="0501234567" />
+            </div>
+            <div class="field" id="wrapEmail">
+              <label for="fEmail">Email <span style="text-transform:none">(optional)</span></label>
+              <input id="fEmail" placeholder="noura@gmail.com" />
+            </div>
+          </div>
+
+          <div class="row2">
+            <div class="field" id="wrapBrand">
+              <label for="fBrand">Brand</label>
+              <select id="fBrand">
+                <option value="aleena">Aleena — fashion</option>
+                <option value="rawash">Rawash — beauty</option>
+                <option value="aynola">Aynola — fragrance</option>
+              </select>
+            </div>
+            <div class="field" id="wrapAmount">
+              <label for="fAmount">Amount (SAR)</label>
+              <input id="fAmount" type="number" min="0" step="1" value="520" />
+            </div>
+          </div>
+
+          <div class="field" id="wrapProduct">
+            <label for="fProduct">Product</label>
+            <input id="fProduct" placeholder="Embroidered abaya" value="Embroidered abaya" />
+          </div>
+
+          <div class="checkline" id="wrapSale" hidden>
+            <input type="checkbox" id="fSale" />
+            <label for="fSale" style="font-family:var(--sans); font-size:0.86rem; letter-spacing:0; text-transform:none; color:var(--ink)">She bought something — count it as a sale</label>
+          </div>
+
+          <div class="checkline" id="wrapConsent" hidden>
+            <input type="checkbox" id="fConsent" checked />
+            <label for="fConsent" style="font-family:var(--sans); font-size:0.86rem; letter-spacing:0; text-transform:none; color:var(--ink)">She ticked "message me on WhatsApp"</label>
+          </div>
+
+          <button id="submit">Record it</button>
+          <div class="result" id="result"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Audiences</h2>
+          <span class="hint">live rules</span>
+        </div>
+        <div id="segments"><div class="empty">Connect to load audiences.</div></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: customers -->
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Customers</h2>
+          <span class="hint" id="custHint">one row per human</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Customer</th><th>Brands</th><th class="num">Orders</th>
+                <th class="num">Lifetime SAR</th><th>WhatsApp</th>
+              </tr>
+            </thead>
+            <tbody id="customers">
+              <tr><td colspan="5" class="empty">Connect to load customers.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="profilePanel" hidden>
+        <div class="panel-head">
+          <h2 id="profileName">Profile</h2>
+          <span class="hint" id="profileLang"></span>
+        </div>
+        <div class="panel-body profile" id="profileBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Demo environment with fabricated customers. Identity is resolved on phone, email and Shopify customer ID — never on name. Consent is enforced when an audience is built, not at send time.
+  </footer>
+</div>
+
+<script>
+  const API = "";
+  const $ = (id) => document.getElementById(id);
+  const state = { key: "", source: "shopify", selected: null };
+
+  const BRAND_DEFAULTS = {
+    aleena: { product: "Embroidered abaya", amount: 520 },
+    rawash: { product: "Matte lipstick",    amount: 180 },
+    aynola: { product: "Oud eau de parfum", amount: 240 },
+  };
+
+  function setConn(status, text) {
+    $("dot").className = "dot" + (status ? " on" : status === false ? " off" : "");
+    $("connLabel").textContent = text;
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(API + path, {
+      ...options,
+      headers: { "X-API-Key": state.key, "Content-Type": "application/json", ...(options.headers || {}) },
+    });
+    if (!res.ok) {
+      let detail = res.status + " " + res.statusText;
+      try { const b = await res.json(); if (b.detail) detail = typeof b.detail === "string" ? b.detail : JSON.stringify(b.detail); } catch {}
+      throw new Error(detail);
+    }
+    return res.status === 204 ? null : res.json();
+  }
+
+  function show(msg, ok, sub) {
+    const el = $("result");
+    el.className = "result show " + (ok ? "ok" : "bad");
+    el.innerHTML = "<strong></strong><span class='idline'></span>";
+    el.querySelector("strong").textContent = msg;
+    el.querySelector(".idline").textContent = sub || "";
+  }
+
+  /* ---------- source picker ---------- */
+  // A sale is an order_paid event, and any source can raise one — WhatsApp
+  // commerce and cash at a mall stand are as real as a Shopify checkout. Sources
+  // that are always a sale show the money fields; the rest offer a "was a sale"
+  // tick that reveals them.
+  const ALWAYS_SALE = new Set(["shopify", "shopify_pos"]);
+  const FIELDS = {
+    shopify:     ["name", "phone", "email", "brand", "amount", "product", "consent"],
+    shopify_pos: ["name", "phone", "email", "brand", "amount", "product", "consent"],
+    whatsapp:    ["phone", "product", "sale", "consent"],
+    activation:  ["name", "phone", "brand", "product", "consent", "sale"],
+    email:       ["email", "brand", "sale", "consent"],
+  };
+
+  // Consent is per purpose, not one master switch. Subscribing to the newsletter
+  // is not agreeing to WhatsApp, so each channel writes its own permission and
+  // records where the opt in was given: consent with no evidence is indefensible.
+  const CONSENT_RULE = {
+    shopify:     ["marketing_whatsapp", "shopify_checkout", "checkout opt in checkbox",
+                  'She ticked "message me on WhatsApp" at checkout'],
+    shopify_pos: ["marketing_whatsapp", "pos_terminal", "asked at the till",
+                  "She agreed to WhatsApp updates at the till"],
+    whatsapp:    ["marketing_whatsapp", "whatsapp_reply", "replied to the opt in prompt",
+                  "She agreed to receive WhatsApp marketing"],
+    activation:  ["marketing_whatsapp", "activation_form", "activation capture form",
+                  'She ticked "message me on WhatsApp"'],
+    email:       ["marketing_email", "email_signup", "newsletter sign up",
+                  "She subscribed to the newsletter"],
+  };
+  const WRAP = { name: "wrapName", phone: "wrapPhone", email: "wrapEmail", brand: "wrapBrand", amount: "wrapAmount", product: "wrapProduct", consent: "wrapConsent", sale: "wrapSale" };
+
+  function isSale() {
+    return ALWAYS_SALE.has(state.source) || $("fSale").checked;
+  }
+
+  function applySource(src) {
+    state.source = src;
+    document.querySelectorAll(".src").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.src === src)));
+    const on = new Set(FIELDS[src]);
+    Object.entries(WRAP).forEach(([f, id]) => { $(id).hidden = !on.has(f); });
+    $("fSale").checked = false;
+    $("fConsent").nextElementSibling.textContent = CONSENT_RULE[src][3];
+    refreshMoneyFields();
+    $("fProduct").previousElementSibling.textContent = src === "whatsapp" ? "Asking about" : "Product";
+    $("submit").textContent = { shopify: "Record order", shopify_pos: "Record in-store sale", whatsapp: "Record message", activation: "Capture lead", email: "Record email open" }[src];
+  }
+
+  function refreshMoneyFields() {
+    const sale = isSale();
+    const on = new Set(FIELDS[state.source]);
+    $("wrapAmount").hidden = !(on.has("amount") || sale);
+    $("wrapBrand").hidden = !(on.has("brand") || sale);
+    if (!ALWAYS_SALE.has(state.source)) {
+      const verb = { whatsapp: "message", activation: "lead", email: "email open" }[state.source];
+      $("submit").textContent = sale ? "Record sale" : "Record " + verb;
+    }
+  }
+
+  $("fSale").addEventListener("change", refreshMoneyFields);
+
+  $("sources").addEventListener("click", (e) => {
+    const btn = e.target.closest(".src");
+    if (btn) applySource(btn.dataset.src);
+  });
+
+  $("fBrand").addEventListener("change", () => {
+    const d = BRAND_DEFAULTS[$("fBrand").value];
+    $("fProduct").value = d.product;
+    $("fAmount").value = d.amount;
+  });
+
+  /* ---------- submit ---------- */
+  function stamp() {
+    // Event time, in the shape the API expects. Unique per submit so repeated
+    // demo entries are distinct events rather than silent duplicates.
+    return new Date().toISOString();
+  }
+
+  async function record() {
+    const name = $("fName").value.trim();
+    const phone = $("fPhone").value.trim();
+    const email = $("fEmail").value.trim();
+    const brand = $("fBrand").value;
+    const amount = $("fAmount").value;
+    const product = $("fProduct").value.trim();
+    const src = state.source;
+    const need = FIELDS[src];
+
+    if (need.includes("phone") && !phone && !email) return show("A phone number is needed to know who this is.", false);
+    if (src === "email" && !email) return show("An email address is needed for an email event.", false);
+
+    $("submit").disabled = true;
+    try {
+      let result;
+      const sale = isSale();
+
+      // The mall form owns consent, so a capture always goes through its own
+      // endpoint; a cash sale at the stand is then a second, ordinary event.
+      if (src === "activation") {
+        result = await api("/ingest/activation-capture", {
+          method: "POST",
+          body: JSON.stringify({
+            phone, name: name || null,
+            event_name: "riyadh_park_popup",
+            brand_interest: brand,
+            language: "ar",
+            consent_marketing_whatsapp: $("fConsent").checked,
+          }),
+        });
+      }
+
+      if (src !== "activation" || sale) {
+        const now = stamp();
+        const eventName = sale
+          ? "order_paid"
+          : src === "whatsapp" ? "message_in" : src === "email" ? "email_opened" : "order_paid";
+        const channel = { shopify: "online", shopify_pos: "retail" }[src] || src;
+        const body = {
+          source: src,
+          name: eventName,
+          dedupe_key: `console:${src}:${eventName}:${phone || email}:${now}`,
+          occurred_at: now,
+          identifiers: { phone: phone || null, email: email || null },
+          channel,
+          display_name: name || null,
+          payload: { product: product || null, entered_via: "console" },
+        };
+        if (sale) {
+          body.value_amount = amount;
+          body.currency = "SAR";
+          body.brands = { [brand]: amount };
+        }
+        result = await api("/ingest/event", { method: "POST", body: JSON.stringify(body) });
+      }
+
+      // The mall endpoint writes its own consent. Every other source records the
+      // permission for its own channel. Leaving the box unticked records nothing
+      // rather than revoking: a sale should never silently cancel an opt in the
+      // customer gave somewhere else. Revoking is done on her profile.
+      if (src !== "activation" && $("fConsent").checked && result.person_id) {
+        const [purpose, csource, evidence] = CONSENT_RULE[src];
+        await api(`/persons/${result.person_id}/consent`, {
+          method: "POST",
+          body: JSON.stringify({ purpose, granted: true, source: csource, evidence }),
+        });
+      }
+
+      if (result.duplicate) {
+        show("Already recorded — ignored.", true, "Identical event; the store refuses to double count it.");
+      } else {
+        const merged = (result.merged_person_ids || []).length;
+        show(
+          merged ? "Recorded — and merged with an existing customer." : "Recorded.",
+          true,
+          "Resolved to person " + (result.person_id || "").slice(0, 8) + (merged ? ` · ${merged} profile(s) merged` : "")
+        );
+        if (result.person_id) state.selected = result.person_id;
+      }
+      await Promise.all([loadCustomers(), loadSegments()]);
+      if (state.selected) openProfile(state.selected);
+    } catch (err) {
+      show("Could not record it: " + err.message, false);
+    } finally {
+      $("submit").disabled = false;
+    }
+  }
+  $("submit").addEventListener("click", record);
+
+  /* ---------- customers ---------- */
+  const money = (v) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+  async function loadCustomers() {
+    const tbody = $("customers");
+    tbody.innerHTML = "<tr><td colspan='5' class='empty'><span class='spin'></span> loading…</td></tr>";
+    try {
+      const rows = await api("/persons?limit=200");
+      $("custHint").textContent = rows.length + " people · one row per human";
+      if (!rows.length) { tbody.innerHTML = "<tr><td colspan='5' class='empty'>No customers yet.</td></tr>"; return; }
+      tbody.innerHTML = "";
+      rows.forEach((r) => {
+        const tr = document.createElement("tr");
+        tr.dataset.id = r.person_id;
+        if (r.person_id === state.selected) tr.className = "sel";
+        const brands = r.brands.length
+          ? r.brands.map((b) => `<span class="pill ${b}">${b}</span>`).join("")
+          : "<span style='color:var(--muted)'>—</span>";
+        tr.innerHTML =
+          `<td class="name">${r.display_name || "Unnamed"}<span class="sub">${r.phone || r.email || ""}</span></td>` +
+          `<td>${brands}</td>` +
+          `<td class="num">${r.order_count}</td>` +
+          `<td class="num">${money(r.ltv)}</td>` +
+          `<td>${r.consent_marketing_whatsapp ? "<span class='tick'>opted in</span>" : "<span class='cross'>no consent</span>"}</td>`;
+        tr.addEventListener("click", () => openProfile(r.person_id));
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan='5' class='empty'>Could not load customers: ${err.message}</td></tr>`;
+    }
+  }
+
+  /* ---------- profile ---------- */
+  const EVENT_LABEL = {
+    order_paid: "Order paid", message_in: "WhatsApp message in", message_out: "WhatsApp message out",
+    lead_captured: "Captured at activation", email_opened: "Email opened", email_clicked: "Email clicked",
+    checkout_started: "Checkout started", product_viewed: "Product viewed",
+  };
+  const SOURCE_LABEL = { shopify: "Online store", shopify_pos: "Retail POS", whatsapp: "WhatsApp", activation: "Mall activation", email: "Email", ads: "Ads", support: "Support" };
+
+  // Each source sends a different shape, so the interesting field differs too.
+  // This is the "what did they actually give us" line under each event.
+  function detailOf(e) {
+    const p = e.payload || {};
+    const bits = [
+      p.text, p.product, p.subject,
+      p.campaign && "campaign " + p.campaign,
+      p.link && "clicked " + p.link,
+      p.store && "at " + p.store,
+      p.platform && "via " + p.platform,
+      p.event_name && p.event_name.replace(/_/g, " "),
+      p.brand_interest && "interested in " + p.brand_interest,
+      p.order_id && "order " + p.order_id,
+    ].filter(Boolean);
+    return bits.length ? ` <span class="detail">— ${bits.slice(0, 2).join(" · ")}</span>` : "";
+  }
+
+  async function openProfile(id) {
+    state.selected = id;
+    document.querySelectorAll("#customers tr").forEach((tr) => tr.classList.toggle("sel", tr.dataset.id === id));
+    const panel = $("profilePanel"), body = $("profileBody");
+    panel.hidden = false;
+    body.innerHTML = "<div class='empty'><span class='spin'></span> loading…</div>";
+    try {
+      const p = await api("/persons/" + id);
+      $("profileName").textContent = p.display_name || "Unnamed customer";
+      $("profileLang").textContent = [p.preferred_language === "ar" ? "prefers Arabic" : p.preferred_language === "en" ? "prefers English" : "", p.preferred_channel].filter(Boolean).join(" · ");
+      const t = p.traits || {};
+
+      const stats = [
+        ["Lifetime SAR", money(t.ltv || 0)], ["Avg order", money(t.aov || 0)],
+        ["Orders", t.order_count ?? 0], ["Brands", t.brands_purchased ?? 0],
+        ["Days since order", t.recency_days ?? "—"], ["Touchpoints", t.event_count ?? 0],
+      ].map(([label, val]) => `<div class="stat"><b>${val}</b><span>${label}</span></div>`).join("");
+
+      const idchips = Object.entries(p.identifiers).flatMap(([kind, vals]) =>
+        vals.map((v) => `<span class="idchip"><em>${kind.replace(/_/g, " ")}</em> ${v}</span>`)).join("");
+
+      const consent = Object.entries(p.consent).map(([purpose, granted]) =>
+        `<div class="cons"><span>${purpose.replace(/_/g, " ")} ${granted ? "<span class='tick'>✓</span>" : "<span class='cross'>✕</span>"}</span>
+         <button class="ghost" data-purpose="${purpose}" data-grant="${!granted}">${granted ? "Revoke" : "Grant"}</button></div>`).join("");
+
+      const tl = p.timeline.map((e) => {
+        const d = new Date(e.occurred_at);
+        const when = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+        const amt = e.value_amount ? `${money(e.value_amount)} ${e.currency || ""}` : "";
+        return `<div class="tl src-${e.source}"><time>${when}</time>
+          <span class="what"><span class="srcbadge">${SOURCE_LABEL[e.source] || e.source}</span>
+            ${EVENT_LABEL[e.name] || e.name}${detailOf(e)}</span>
+          <span class="amt">${amt}</span></div>`;
+      }).join("");
+
+      const bySource = {};
+      p.timeline.forEach((e) => { bySource[e.source] = (bySource[e.source] || 0) + 1; });
+      const channelRow = Object.entries(bySource)
+        .sort((a, b) => b[1] - a[1])
+        .map(([s, n]) => `<span class="srcbadge big src-${s}">${SOURCE_LABEL[s] || s} <b>${n}</b></span>`)
+        .join("");
+
+      body.innerHTML =
+        `<div class="stat-row">${stats}</div>` +
+        `<div><div style="font-family:var(--mono); font-size:0.65rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:0.35rem">Known as</div><div class="ids">${idchips}</div></div>` +
+        `<div><div style="font-family:var(--mono); font-size:0.65rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:0.35rem">Permissions</div><div class="consent-grid">${consent}</div></div>` +
+        `<div><div style="font-family:var(--mono); font-size:0.65rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:0.35rem">Systems that have touched her</div><div class="ids">${channelRow}</div></div>` +
+        `<div><div style="font-family:var(--mono); font-size:0.65rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:0.5rem">Everything she has done</div><div class="timeline">${tl}</div></div>`;
+
+      body.querySelectorAll("[data-purpose]").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          try {
+            await api("/persons/" + id + "/consent", {
+              method: "POST",
+              body: JSON.stringify({
+                purpose: btn.dataset.purpose,
+                granted: btn.dataset.grant === "true",
+                source: btn.dataset.grant === "true" ? "console" : "whatsapp_stop",
+                evidence: btn.dataset.grant === "true" ? "granted in console" : "replied STOP",
+              }),
+            });
+            await Promise.all([openProfile(id), loadCustomers(), loadSegments()]);
+          } catch (err) { show("Consent change failed: " + err.message, false); btn.disabled = false; }
+        }));
+    } catch (err) {
+      body.innerHTML = `<div class='empty'>Could not load profile: ${err.message}</div>`;
+    }
+  }
+
+  /* ---------- segments ---------- */
+  async function loadSegments() {
+    const host = $("segments");
+    try {
+      const segs = await api("/segments");
+      if (!segs.length) { host.innerHTML = "<div class='empty'>No audiences yet.</div>"; return; }
+      host.innerHTML = "";
+      segs.forEach((s) => {
+        const row = document.createElement("div");
+        row.className = "seg";
+        row.innerHTML =
+          `<div><span class="seg-name">${s.name}</span><span class="seg-key">${s.key}${s.required_consent ? " · needs " + s.required_consent.replace(/_/g, " ") : ""}</span></div>` +
+          `<div class="seg-actions"><span class="seg-size" data-size>–</span>
+             <button class="ghost" data-act="evaluate">Count</button>
+             <button data-act="activate">Send</button></div>` +
+          `<div class="seg-out" data-out></div>`;
+        const size = row.querySelector("[data-size]"), out = row.querySelector("[data-out]");
+        row.querySelector("[data-act='evaluate']").addEventListener("click", async () => {
+          out.textContent = "counting…";
+          try {
+            const r = await api(`/segments/${s.key}/evaluate`, { method: "POST" });
+            size.textContent = r.size;
+            out.textContent = r.size === 0 ? "nobody matches right now" : `${r.size} customer(s) match this rule`;
+          } catch (e) { out.textContent = "failed: " + e.message; }
+        });
+        row.querySelector("[data-act='activate']").addEventListener("click", async () => {
+          out.textContent = "sending…";
+          try {
+            const r = await api(`/segments/${s.key}/activate?destination=mock`, { method: "POST" });
+            size.textContent = r.requested;
+            out.textContent = `sent to ${r.delivered} of ${r.requested}${r.skipped_no_consent ? ` · ${r.skipped_no_consent} skipped for consent` : ""} · run ${r.run_id.slice(0, 8)}`;
+          } catch (e) { out.textContent = "failed: " + e.message; }
+        });
+        host.appendChild(row);
+      });
+    } catch (err) {
+      host.innerHTML = `<div class='empty'>Could not load audiences: ${err.message}</div>`;
+    }
+  }
+
+  /* ---------- connect ----------
+     Demo convenience: the console tries the known demo keys itself so nobody has
+     to type one in front of a client. Acceptable only because auth here is a
+     single shared key over fabricated data — replace with a real login before
+     this points at anything belonging to a customer. */
+  // Injected by the API when SCA_ENV is local, so development never types a key.
+  // No hardcoded candidates: this page is served publicly, so anything listed
+  // here is readable by anyone who opens it.
+  const CANDIDATE_KEYS = [window.__SCA_DEV_KEY__].filter(Boolean);
+
+  async function tryKey(key) {
+    const res = await fetch(API + "/segments", { headers: { "X-API-Key": key } });
+    return res.ok;
+  }
+
+  async function connect(explicit) {
+    setConn(null, "connecting…");
+    const typed = $("apiKey").value.trim();
+    const saved = localStorage.getItem("tgc_cdp_key");
+    const tries = [...new Set([explicit ? typed : null, typed, saved, ...CANDIDATE_KEYS].filter(Boolean))];
+
+    // The key entry only appears when the console cannot get in by itself —
+    // in front of a client it is noise, and on a failure it is the fix.
+    const askForKey = (show) => { $("apiKey").hidden = !show; $("connect").hidden = !show; };
+
+    let env = "";
+    try {
+      env = (await (await fetch(API + "/health")).json()).env;
+    } catch {
+      setConn(false, "service not running");
+      askForKey(true);
+      return;
+    }
+
+    for (const key of tries) {
+      let ok = false;
+      try { ok = await tryKey(key); } catch { ok = false; }
+      if (ok) {
+        state.key = key;
+        localStorage.setItem("tgc_cdp_key", key);
+        $("apiKey").value = key;
+        askForKey(false);
+        setConn(true, "connected · " + env);
+        await Promise.all([loadCustomers(), loadSegments()]);
+        return;
+      }
+    }
+    setConn(false, "no working API key — type one");
+    askForKey(true);
+  }
+
+  $("connect").addEventListener("click", () => connect(true));
+  $("apiKey").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(true); });
+
+  applySource("shopify");
+  connect(false);
+</script>
+</body>
+</html>

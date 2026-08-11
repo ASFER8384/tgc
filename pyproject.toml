@@ -37,6 +37,7 @@ where = ["src"]
 # installed alongside the code rather than left behind in the source tree.
 [tool.setuptools.package-data]
 sca = ["console/*.html"]
+cdp = ["console/*.html"]
 
 # setuptools is the build backend; this repeats the src layout for Poetry, which
 # does not read the key above. Some hosts autodetect Poetry whenever they see a

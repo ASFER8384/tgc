@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sca.models.base import Base, JSONType, TimestampMixin, UTCDateTime, new_id
@@ -49,13 +49,22 @@ class Issue(Base, TimestampMixin):
 
 class AuditLog(Base, TimestampMixin):
     """Who did what, including the automation. An agent that acts on your behalf
-    is only acceptable if every action it took can be listed afterwards."""
+    is only acceptable if every action it took can be listed afterwards.
+
+    Shared by both halves of the platform. The customer side records profile
+    *reads* here as well as writes, because under PDPL who looked at someone's
+    contact details is itself an accountability question, and an auditor asking
+    "what happened to this person" should not have to know which module answered.
+    The columns take the wider of the two original definitions, and entity_id is
+    nullable because not every recorded action has a subject.
+    """
 
     __tablename__ = "audit_log"
+    __table_args__ = (Index("ix_audit_log_entity", "entity", "entity_id"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
-    actor: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
-    entity: Mapped[str] = mapped_column(String(32), nullable=False)
-    entity_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_id: Mapped[str | None] = mapped_column(String(64))
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
