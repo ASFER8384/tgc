@@ -217,6 +217,21 @@
         </div><div class="readout" id="createOut" hidden></div></div>
       </div>
 
+      <!-- Every item, not only the ones below cover. Demand measured from sales
+           is most useful on the lines that are *not* being bought yet: it is
+           where a stale typed forecast shows up while there is still time. -->
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Demand</h2>
+          <span class="hint" id="demandHint">what we sell, against what we planned to</span>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Item</th><th class="num">Entered</th><th class="num">Sold</th>
+            <th class="num">Weeks cover</th><th>Driving the plan</th></tr></thead>
+          <tbody id="demand"><tr><td colspan="5" class="empty">loading</td></tr></tbody>
+        </table></div>
+      </div>
+
       <div class="panel">
         <div class="panel-head">
           <h2>Purchase orders</h2>
@@ -467,6 +482,32 @@
           await refreshAll();
         } catch (err) { show($("createOut"), "Failed: " + err.message); }
       })));
+  }
+
+  async function loadDemand() {
+    const rows = await api("/items");
+    const measured = rows.filter((i) => i.observed_weekly !== null).length;
+    $("demandHint").textContent = measured
+      ? `${measured} of ${rows.length} items measured from customer orders`
+      : `${rows.length} items · no sales recorded yet`;
+    $("demand").innerHTML = rows.length ? rows.map((i) => {
+      // "Entered" and "Sold" are shown side by side even when the entered
+      // figure is the one being used. Seeing them disagree is the point.
+      const sold = i.observed_weekly === null
+        ? `<span style="color:var(--muted)">—</span>`
+        : `${i.observed_weekly}`;
+      const driver = i.forecast_source === "sales"
+        ? `<span title="No forecast was entered, so recent sales are driving it">sales</span>`
+        : i.forecast_source === "manual"
+          ? `<span style="color:var(--muted)">entered</span>`
+          : `<span style="color:var(--muted)">nothing — not planned</span>`;
+      return `<tr>
+        <td><strong>${i.sku}</strong><br><span style="color:var(--muted)">${i.name}</span></td>
+        <td class="num">${i.weekly_forecast || "—"}</td>
+        <td class="num">${sold}</td>
+        <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}</td>
+        <td>${driver}</td></tr>`;
+    }).join("") : `<tr><td colspan="5" class="empty">No items yet</td></tr>`;
   }
 
   async function loadOrders() {
@@ -906,7 +947,7 @@
 
   async function refreshAll() {
     await loadSuppliers();
-    await Promise.all([loadSuggestions(), loadOrders(), loadIssues()]);
+    await Promise.all([loadSuggestions(), loadDemand(), loadOrders(), loadIssues()]);
   }
 
   // Failures are shown, success is not. A green light saying everything is fine
