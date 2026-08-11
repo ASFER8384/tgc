@@ -7,6 +7,7 @@ buyer already thinks in.
 
 import math
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sca.config import get_settings
 from sca.models import Item, StockSnapshot, Supplier
+from sca.planning.demand import Demand, weekly_demand
 
 
 @dataclass
@@ -26,6 +28,12 @@ class Suggestion:
     unit_cost: Decimal
     line_total: Decimal
     reason: str
+    # Where the demand number came from. Carried all the way to the console
+    # because a buyer approving spend is entitled to know whether the figure
+    # behind it was typed by a colleague or measured from sales.
+    forecast_source: str
+    weekly_demand: float
+    observed: Demand | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -37,6 +45,9 @@ class Suggestion:
             "unit_cost": str(self.unit_cost),
             "line_total": str(self.line_total),
             "reason": self.reason,
+            "forecast_source": self.forecast_source,
+            "weekly_demand": round(self.weekly_demand, 1),
+            "observed": self.observed.as_dict() if self.observed else None,
         }
 
 
@@ -45,10 +56,12 @@ class PlanningService:
         self.session = session
         self.settings = get_settings()
 
-    async def suggest(self) -> list[Suggestion]:
+    async def suggest(self, *, now: datetime | None = None) -> list[Suggestion]:
+        now = now or datetime.now(UTC)
         items = {i.sku: i for i in await self.session.scalars(select(Item))}
         stock = {s.sku: s for s in await self.session.scalars(select(StockSnapshot))}
         suppliers = {s.id: s for s in await self.session.scalars(select(Supplier))}
+        observed = await weekly_demand(self.session, now=now)
 
         out: list[Suggestion] = []
         for sku, item in items.items():
@@ -59,11 +72,22 @@ class PlanningService:
             if supplier is None or not supplier.active:
                 continue
 
+            # A typed forecast wins. Someone who sets one knows something the
+            # sales history does not — a launch, a campaign, a season that has
+            # not happened yet — and silently overruling them with an average of
+            # the past is exactly how a buyer stops trusting the tool. Measured
+            # demand fills the silence instead of arguing with the statement.
             weekly = float(snapshot.weekly_forecast or 0)
+            source = "manual"
+            measured = observed.get(sku)
+            if weekly <= 0 and measured and measured.weekly > 0:
+                weekly, source = measured.weekly, "sales"
+
             available = snapshot.on_hand + snapshot.on_order
             if weekly <= 0:
-                # No forecast means no opinion. Suggesting anything here would be
-                # inventing demand, which is how automation loses trust.
+                # No forecast and nothing sold means no opinion. Suggesting
+                # anything here would be inventing demand, which is how
+                # automation loses trust.
                 continue
 
             weeks_cover = available / weekly
@@ -94,7 +118,16 @@ class PlanningService:
                     reason=(
                         f"{weeks_cover:.1f} weeks of cover against a "
                         f"{supplier.lead_time_days} day lead time"
+                        + (
+                            f", on {measured.units} sold in "
+                            f"{measured.weeks:.0f} weeks"
+                            if source == "sales" and measured
+                            else ""
+                        )
                     ),
+                    forecast_source=source,
+                    weekly_demand=weekly,
+                    observed=measured,
                 )
             )
         out.sort(key=lambda s: s.weeks_cover)

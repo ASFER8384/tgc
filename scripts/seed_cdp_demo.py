@@ -20,6 +20,8 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import httpx
 
@@ -69,6 +71,40 @@ CUSTOMERS = [
         "ar-SA",
         [("Aleena", "890.00", "2026-02-18T17:45:00+03:00")],
     ),
+]
+
+# Real catalogue SKUs, so a seeded sale lands on stock the supplier side buys.
+# Without this the orders are brand-level only and demand cannot be measured —
+# which is the whole point of the two halves sharing a database.
+SKU_BY_BRAND = {
+    "Aleena": "ALN-SILK-NVY",
+    "Rawash": "RWS-LIP-TUBE",
+    "Aynola": "AYN-BOX-LUX",
+}
+
+BRAND_BY_SKU = {
+    "ALN-SILK-NVY": "Aleena",
+    "ALN-ABAYA-01": "Aleena",
+    "RWS-LIP-TUBE": "Rawash",
+    "AYN-BOX-LUX": "Aynola",
+}
+
+# Repeat purchases inside the demand window, by the same women, so the supplier
+# side has something recent to measure. Anchored to midnight rather than to the
+# moment the script runs: the dedupe key is built from the timestamp, so a second
+# run on the same day is a no-op instead of doubling everyone's lifetime value.
+#
+# (customer index, sku, unit price, quantity, days ago)
+RECENT_SALES = [
+    (0, "ALN-SILK-NVY", "260.00", 3, 5),
+    (0, "RWS-LIP-TUBE", "90.00", 2, 19),
+    (1, "RWS-LIP-TUBE", "90.00", 4, 11),
+    (2, "ALN-SILK-NVY", "260.00", 2, 8),
+    (2, "ALN-ABAYA-01", "420.00", 1, 26),
+    (3, "AYN-BOX-LUX", "150.00", 3, 15),
+    (3, "RWS-LIP-TUBE", "90.00", 5, 33),
+    (4, "ALN-SILK-NVY", "260.00", 4, 22),
+    (4, "ALN-ABAYA-01", "420.00", 2, 40),
 ]
 
 SEGMENTS = [
@@ -176,6 +212,8 @@ class Seeder:
                             },
                         )
 
+            await self._recent_sales(client)
+
             # An offline mall capture, the touchpoint that is invisible without a form.
             await client.post(
                 "/ingest/activation-capture",
@@ -195,6 +233,45 @@ class Seeder:
                 evaluated = await client.post(f"/segments/{segment['key']}/evaluate")
                 print(f"{segment['key']:>24}: {evaluated.json()['size']} members")
 
+    async def _recent_sales(self, client: httpx.AsyncClient) -> None:
+        """Recent repeat orders, carrying the SKU the supplier side stocks.
+
+        These are what the planner measures demand from. Kept separate from the
+        history above so the two intents stay legible: that block exists to make
+        the segments mean something, this one to make the forecast mean something.
+        """
+        anchor = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+        order_id = 8500
+        for index, sku, unit_price, quantity, days_ago in RECENT_SALES:
+            order_id += 1
+            name, email, phone, locale, _ = CUSTOMERS[index]
+            when = (anchor - timedelta(days=days_ago)).isoformat()
+            brand = BRAND_BY_SKU[sku]
+            total = str(Decimal(unit_price) * quantity)
+            payload = self._order(
+                order_id, 9500 + index, name, email, phone, locale, brand, total, when
+            )
+            payload["line_items"] = [
+                {
+                    "vendor": brand,
+                    "sku": sku,
+                    "price": unit_price,
+                    "quantity": quantity,
+                    "title": sku,
+                }
+            ]
+            body, mac = self._signed(payload)
+            response = await client.post(
+                "/ingest/shopify",
+                content=body,
+                headers={
+                    "X-Shopify-Topic": "orders/paid",
+                    "X-Shopify-Hmac-Sha256": mac,
+                    "Content-Type": "application/json",
+                },
+            )
+            response.raise_for_status()
+
     def _order(
         self,
         order_id: int,
@@ -208,6 +285,12 @@ class Seeder:
         when: str,
     ) -> dict:
         first, _, last = name.partition(" ")
+        # A basket is rarely one piece. Quantity is derived from the basket value
+        # and the unit price back-solved from it, so line value still sums to the
+        # order total — a split that did not reconcile would corrupt every
+        # lifetime-value number the segments are built on.
+        quantity = max(1, int(Decimal(amount) // 200))
+        unit_price = str((Decimal(amount) / quantity).quantize(Decimal("0.01")))
         return {
             "id": order_id,
             "email": email,
@@ -229,7 +312,13 @@ class Seeder:
             },
             "shipping_address": {"phone": phone, "city": "Riyadh", "country_code": "SA"},
             "line_items": [
-                {"vendor": brand, "price": amount, "quantity": 1, "title": f"{brand} item"}
+                {
+                    "vendor": brand,
+                    "sku": SKU_BY_BRAND.get(brand, ""),
+                    "price": unit_price,
+                    "quantity": quantity,
+                    "title": f"{brand} item",
+                }
             ],
         }
 

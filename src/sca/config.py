@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     reorder_cover_weeks: float = 4.0
     target_cover_weeks: float = 8.0
 
+    # How far back to look when demand is measured from actual customer orders
+    # rather than typed in. Long enough to survive a quiet fortnight, short
+    # enough that last season stops voting on this season's buying.
+    demand_window_weeks: float = 8.0
+
     # Approval gates. Anything at or above this value, or with a supplier that has
     # never completed an order, needs a human before it leaves the building.
     approval_threshold_sar: float = 25000.0

@@ -445,7 +445,10 @@
       ? rows.map((l) => `<tr>
           <td><strong>${l.sku}</strong><br><span style="color:var(--muted)">${l.description}</span></td>
           <td>${l.supplier}</td>
-          <td class="num">${l.weeks_cover}</td>
+          <td class="num">${l.weeks_cover}<br><span style="color:var(--muted);font-size:0.75em">${
+            l.forecast_source === "sales"
+              ? `${l.weekly_demand}/wk from sales`
+              : `${l.weekly_demand}/wk entered`}</span></td>
           <td class="num">${l.suggest_quantity}</td>
           <td class="num">${money(l.line_total)}</td>
           <td><button class="small" data-draft="${l.sku}">Draft</button></td></tr>`).join("")

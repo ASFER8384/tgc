@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from sca.api.deps import ActorDep, SessionDep
 from sca.models import Item, StockSnapshot, Supplier
+from sca.planning.demand import weekly_demand
 from sca.scheduling.windows import WorkingHours, is_open, local_now, next_open
 
 router = APIRouter(tags=["catalog"])
@@ -98,10 +99,15 @@ async def upsert_item(body: ItemIn, session: SessionDep, actor: ActorDep) -> dic
 async def list_items(session: SessionDep, actor: ActorDep) -> list[dict]:
     items = await session.scalars(select(Item).order_by(Item.sku))
     stock = {s.sku: s for s in await session.scalars(select(StockSnapshot))}
+    # Both numbers, always: the typed forecast is what drives buying, and the
+    # measured one is what lets someone notice the typed figure has gone stale.
+    observed = await weekly_demand(session, now=datetime.now(UTC))
     out = []
     for item in items:
         snapshot = stock.get(item.sku)
-        weekly = float(snapshot.weekly_forecast) if snapshot else 0.0
+        manual = float(snapshot.weekly_forecast) if snapshot else 0.0
+        measured = observed.get(item.sku)
+        weekly = manual if manual > 0 else (measured.weekly if measured else 0.0)
         available = (snapshot.on_hand + snapshot.on_order) if snapshot else 0
         out.append({
             "sku": item.sku,
@@ -113,6 +119,8 @@ async def list_items(session: SessionDep, actor: ActorDep) -> list[dict]:
             "on_hand": snapshot.on_hand if snapshot else 0,
             "on_order": snapshot.on_order if snapshot else 0,
             "weekly_forecast": weekly,
+            "forecast_source": "manual" if manual > 0 else ("sales" if weekly else "none"),
+            "observed_weekly": round(measured.weekly, 1) if measured else None,
             "weeks_cover": round(available / weekly, 1) if weekly else None,
         })
     return out
