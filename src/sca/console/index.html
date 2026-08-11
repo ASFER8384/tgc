@@ -189,6 +189,10 @@
            anything but a demo. Unhide either to get it back. -->
       <button class="ghost small" id="changeKey" hidden>API key</button>
       <button class="ghost small" id="pollMail">Check mailbox</button>
+      <!-- Worth a button again now the service is deployed: the database is
+           shared, so the page can go stale because of something that happened
+           somewhere else entirely. -->
+      <button class="ghost small" id="refreshSuggest">Refresh</button>
       <button class="ghost small" id="sweep" hidden>Run agent sweep</button>
     </div>
   </div>
@@ -210,9 +214,6 @@
         <div class="panel-body"><div class="bar">
           <button id="createOrders">Draft every line</button>
           <button class="ghost" id="loadSample">Add a test item</button>
-          <!-- Every action on this page refreshes the page afterwards, so a
-               manual recalculate only ever repeated what had just happened. -->
-          <button class="ghost" id="refreshSuggest" hidden>Recalculate</button>
         </div><div class="readout" id="createOut" hidden></div></div>
       </div>
 
