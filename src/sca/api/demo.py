@@ -41,10 +41,10 @@ async def load_sample_data(session: SessionDep, actor: ActorDep) -> dict:
     there and no existing line is quietly overwritten.
     """
     settings = get_settings()
-    if settings.env != "local":
+    if not settings.allow_sample_data:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "sample data is refused outside a local environment",
+            "sample data is switched off: set SCA_ALLOW_SAMPLE_DATA to enable it",
         )
 
     suppliers = list(await session.scalars(select(Supplier).order_by(Supplier.name)))

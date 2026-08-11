@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     # reprocess the entire mailbox.
     mail_imap_search: str = "UNSEEN"
 
+    # The sample data button. On while this is a demonstration, including on the
+    # deployed service, because a demo nobody can put data into demonstrates
+    # nothing. A single switch rather than a test against the environment name,
+    # so turning it off before real supplier data arrives is one variable and not
+    # a code change.
+    allow_sample_data: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:
