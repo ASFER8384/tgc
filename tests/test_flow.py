@@ -215,11 +215,214 @@ async def test_silent_supplier_is_chased_once(session, supplier_payload):
     sent_at = datetime(2026, 8, 10, 2, 0, tzinfo=UTC)
     await service.send(order, now=sent_at)
 
-    raised = await service.sweep_unacknowledged(now=sent_at + timedelta(hours=30))
+    # Thirty hours later is only sixteen working hours for a mill that closes at
+    # 18:00: their own night is not a delay, and chasing here would be chasing a
+    # supplier who is not late.
+    assert await service.sweep_unacknowledged(now=sent_at + timedelta(hours=30)) == []
+
+    # Fifty two hours is exactly twenty four of their working hours.
+    raised = await service.sweep_unacknowledged(now=sent_at + timedelta(hours=52))
     assert len(raised) == 1
     assert raised[0].kind == "no_acknowledgement"
+    assert raised[0].context["working_hours_waited"] == 24.0
     # Once, not on every sweep, or the buyer learns to ignore them.
-    assert await service.sweep_unacknowledged(now=sent_at + timedelta(hours=54)) == []
+    assert await service.sweep_unacknowledged(now=sent_at + timedelta(hours=76)) == []
+
+
+async def _sent_order(client, supplier_payload):
+    supplier = await _setup(client, supplier_payload)
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 260, "on_order": 0, "weekly_forecast": "90",
+    })
+    created = (await client.post("/planning/create-orders")).json()
+    order = created["orders"][0]
+    number = order["number"]
+    await client.post(f"/purchase-orders/{number}/approve", json={"approver": "buyer"})
+    await client.post(f"/purchase-orders/{number}/send")
+    return supplier, number, float(order["total_value"])
+
+
+async def test_confirming_at_a_different_value_is_raised_before_the_invoice(
+    client, supplier_payload
+):
+    """A supplier repricing at acknowledgement is the expensive quiet case: the
+    order has not shipped, so the difference is still negotiable."""
+    supplier, number, ordered = await _sent_order(client, supplier_payload)
+    result = (await client.post("/inbound/email", json={
+        "external_id": "msg-reprice",
+        "from_address": supplier["email"],
+        # Currency after the number, the way suppliers usually write it.
+        "subject": f"Re: {number}",
+        "body": f"We confirm {number} and will ship on 2026-09-28. {ordered + 300:,.2f} CNY",
+    })).json()
+    assert result["kind"] == "acknowledgement"
+    assert "confirmed value differs from the order" in result["actions"]
+
+    issues = (await client.get("/issues")).json()
+    priced = [i for i in issues if i["kind"] == "price_mismatch"]
+    assert len(priced) == 1
+    assert priced[0]["severity"] == "medium"
+
+
+async def test_a_confirmation_quoting_the_right_total_and_a_deposit_is_silent(
+    client, supplier_payload
+):
+    """Several amounts in one reply must not trip the check when one of them is
+    the agreed total. Matching only the largest would flag every deposit."""
+    supplier, number, ordered = await _sent_order(client, supplier_payload)
+    result = (await client.post("/inbound/email", json={
+        "external_id": "msg-deposit",
+        "from_address": supplier["email"],
+        "subject": f"Re: {number}",
+        "body": (
+            f"We confirm {number}, total {ordered:,.2f} CNY, "
+            f"30% deposit of {ordered * 0.3:,.2f} CNY due before production."
+        ),
+    })).json()
+    assert "confirmed value differs from the order" not in result["actions"]
+    issues = (await client.get("/issues")).json()
+    assert [i for i in issues if i["kind"] == "price_mismatch"] == []
+
+
+async def test_ordering_a_line_stops_it_being_suggested_again(client, supplier_payload):
+    """The duplicate order bug: cover is on hand plus on order, so an order that
+    leaves on order at zero suggests the same purchase on every refresh."""
+    await _setup(client, supplier_payload)
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 260, "on_order": 0, "weekly_forecast": "90",
+    })
+    assert (await client.post("/planning/suggest")).json()["count"] == 1
+
+    created = (await client.post("/planning/create-orders")).json()
+    number = created["orders"][0]["number"]
+    # The need is covered by a draft that exists, so it is no longer a need.
+    assert (await client.post("/planning/suggest")).json()["count"] == 0
+
+    # And cancelling puts it back, which is the point of cancelling.
+    await client.post(f"/purchase-orders/{number}/cancel", json={"reason": "too expensive"})
+    assert (await client.post("/planning/suggest")).json()["count"] == 1
+
+
+async def test_receiving_moves_stock_from_on_order_to_on_hand(client, supplier_payload):
+    await _setup(client, supplier_payload)
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 260, "on_order": 0, "weekly_forecast": "90",
+    })
+    created = (await client.post("/planning/create-orders")).json()
+    number = created["orders"][0]["number"]
+    await client.post(f"/purchase-orders/{number}/approve", json={"approver": "buyer"})
+    await client.post(f"/purchase-orders/{number}/send")
+    await client.post("/inbound/email", json={
+        "external_id": "msg-stock", "from_address": supplier_payload["email"],
+        "subject": f"Re: {number}", "body": f"We confirm {number}.",
+    })
+    await client.post(f"/purchase-orders/{number}/receive", json={"received": {}})
+
+    items = (await client.get("/items")).json()
+    row = next(i for i in items if i["sku"] == "ALN-SILK-NVY")
+    # 260 on hand plus the 500 ordered, and nothing still outstanding.
+    assert row["on_hand"] == 760
+    assert row["on_order"] == 0
+
+
+async def test_revising_a_repriced_order_reopens_it_and_closes_the_issue(
+    client, supplier_payload
+):
+    """The negotiation loop: they reprice, we counter, the order is live again."""
+    supplier, number, ordered = await _sent_order(client, supplier_payload)
+    await client.post("/inbound/email", json={
+        "external_id": "msg-reprice-2",
+        "from_address": supplier["email"],
+        "subject": f"Re: {number}",
+        "body": f"We confirm {number} and will ship on 2026-09-28. {ordered + 5000:,.2f} CNY",
+    })
+    assert any(i["kind"] == "price_mismatch" for i in (await client.get("/issues")).json())
+
+    detail = (await client.get(f"/purchase-orders/{number}")).json()
+    line = detail["lines"][0]
+    revised = (await client.post(f"/purchase-orders/{number}/revise", json={
+        "lines": [{
+            "sku": line["sku"], "quantity": line["quantity"],
+            "unit_price": str(round(float(line["unit_price"]) * 0.95, 2)),
+        }],
+        "reason": "countered their increase, holding last agreed price less 5%",
+    })).json()
+
+    assert revised["revision"] == 1
+    assert float(revised["total_value"]) < ordered
+    # Sendable again, and everything the supplier said about the old price is gone.
+    assert revised["status"] in ("approved", "pending_approval")
+    assert revised["acknowledged_at"] is None
+    assert revised["confirmed_delivery_date"] is None
+    # The exception is answered, not left to be re-read every morning.
+    assert [i for i in (await client.get("/issues")).json()
+            if i["kind"] == "price_mismatch"] == []
+
+
+async def test_a_revision_that_crosses_the_threshold_needs_approval_again(
+    client, supplier_payload
+):
+    """The person who approved the original never saw the new number."""
+    supplier, number, _ = await _sent_order(client, supplier_payload)
+    detail = (await client.get(f"/purchase-orders/{number}")).json()
+    line = detail["lines"][0]
+    revised = (await client.post(f"/purchase-orders/{number}/revise", json={
+        "lines": [{"sku": line["sku"], "quantity": line["quantity"], "unit_price": "900.00"}],
+        "reason": "accepted their raw material surcharge",
+    })).json()
+    assert revised["status"] == "pending_approval"
+    assert "approval threshold" in revised["approval_reason"]
+
+
+async def test_an_unacceptable_price_can_be_walked_away_from(client, supplier_payload):
+    supplier, number, _ = await _sent_order(client, supplier_payload)
+    cancelled = (await client.post(f"/purchase-orders/{number}/cancel", json={
+        "reason": "price increase rejected, sourcing elsewhere",
+    })).json()
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["cancel_reason"].startswith("price increase rejected")
+
+    # A cancelled order is final: nothing further may be done to it.
+    assert (await client.post(f"/purchase-orders/{number}/send")).status_code == 409
+
+
+async def test_a_received_order_cannot_be_revised(client, supplier_payload):
+    supplier, number, _ = await _sent_order(client, supplier_payload)
+    await client.post("/inbound/email", json={
+        "external_id": "msg-ack-final", "from_address": supplier["email"],
+        "subject": f"Re: {number}", "body": f"We confirm {number}.",
+    })
+    await client.post(f"/purchase-orders/{number}/receive", json={"received": {}})
+    blocked = await client.post(f"/purchase-orders/{number}/revise", json={
+        "lines": [{"sku": "ALN-SILK-NVY", "quantity": 1, "unit_price": "1.00"}],
+        "reason": "too late",
+    })
+    assert blocked.status_code == 409
+
+
+async def test_the_supplier_message_names_their_timezone_and_the_revision(
+    client, supplier_payload
+):
+    """A buyer has to be able to read the exact text before it goes anywhere."""
+    supplier, number, _ = await _sent_order(client, supplier_payload)
+    first = (await client.get(f"/purchase-orders/{number}/message")).json()
+    assert first["to"] == supplier["email"]
+    assert number in first["subject"]
+    assert "Rev" not in first["subject"]
+    # The deadline is stated in the supplier's own zone, named, or it is ambiguous.
+    assert "working hours" in first["body"]
+    assert supplier["name"] in first["body"]
+
+    detail = (await client.get(f"/purchase-orders/{number}")).json()
+    line = detail["lines"][0]
+    await client.post(f"/purchase-orders/{number}/revise", json={
+        "lines": [{"sku": line["sku"], "quantity": line["quantity"], "unit_price": "40.00"}],
+        "reason": "held to the agreed price",
+    })
+    revised = (await client.get(f"/purchase-orders/{number}/message")).json()
+    assert "Rev 1" in revised["subject"]
+    assert "held to the agreed price" in revised["body"]
+    assert "replaces our earlier" in revised["body"]
 
 
 async def test_shipment_tracking_moves_the_order_in_transit(client, supplier_payload):

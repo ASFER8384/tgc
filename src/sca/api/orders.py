@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -9,7 +10,9 @@ from sqlalchemy import select
 
 from sca.api.deps import ActorDep, SessionDep
 from sca.carriers.base import get_carrier
+from sca.config import get_settings
 from sca.models import Issue, PurchaseOrder, PurchaseOrderLine, Shipment, Supplier
+from sca.orders.compose import compose_order_email
 from sca.orders.service import OrderError, OrderService
 from sca.planning.service import PlanningService
 
@@ -44,6 +47,22 @@ class ShipmentIn(BaseModel):
     tracking_number: str
 
 
+class SendIn(BaseModel):
+    # An edited message. Composed text is a starting point, not a rule: the buyer
+    # who is mid negotiation knows things the template does not.
+    subject: str | None = None
+    body: str | None = None
+
+
+class ReviseIn(BaseModel):
+    lines: list[LineIn]
+    reason: str
+
+
+class CancelIn(BaseModel):
+    reason: str
+
+
 # ------------------------------------------------------------------- planning
 @router.post("/planning/suggest")
 async def suggest(session: SessionDep, actor: ActorDep) -> dict:
@@ -66,11 +85,23 @@ async def suggest(session: SessionDep, actor: ActorDep) -> dict:
     }
 
 
+class CreateOrdersIn(BaseModel):
+    # Which lines to buy. Empty means everything below cover, which is the
+    # morning routine; naming one is the buyer who wants that line and not the
+    # rest, usually because the rest is still being argued about.
+    skus: list[str] = []
+
+
 @router.post("/planning/create-orders", status_code=status.HTTP_201_CREATED)
-async def create_from_suggestions(session: SessionDep, actor: ActorDep) -> dict:
+async def create_from_suggestions(
+    session: SessionDep, actor: ActorDep, body: CreateOrdersIn | None = None
+) -> dict:
     """One draft per supplier, not one per line: a buyer sends an order, not a
     stream of individual requests, and consolidating is what earns the freight."""
+    wanted = set(body.skus) if body and body.skus else None
     suggestions = await PlanningService(session).suggest()
+    if wanted is not None:
+        suggestions = [s for s in suggestions if s.sku in wanted]
     service = OrderService(session, actor=actor)
     grouped: dict[str, list[dict]] = {}
     for suggestion in suggestions:
@@ -139,6 +170,7 @@ async def list_orders(session: SessionDep, actor: ActorDep, status_filter: str |
             "expected_delivery_date": o.expected_delivery_date,
             "confirmed_delivery_date": o.confirmed_delivery_date,
             "has_open_issue": o.id in open_issues,
+            "revision": o.revision,
         }
         for o in orders
     ]
@@ -163,7 +195,9 @@ async def approve_order(
 
 
 @router.post("/purchase-orders/{number}/send")
-async def send_order(number: str, session: SessionDep, actor: ActorDep) -> dict:
+async def send_order(
+    number: str, session: SessionDep, actor: ActorDep, body: SendIn | None = None
+) -> dict:
     order = await _by_number(session, number)
     if order.status == "pending_approval":
         raise HTTPException(
@@ -171,11 +205,125 @@ async def send_order(number: str, session: SessionDep, actor: ActorDep) -> dict:
             f"{order.number} needs approval first: {order.approval_reason}",
         )
     try:
-        result = await OrderService(session, actor=actor).send(order)
+        result = await OrderService(session, actor=actor).send(
+            order,
+            subject=body.subject if body else None,
+            message=body.body if body else None,
+        )
     except OrderError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     detail = await _order_detail(session, order)
     return detail | {"delivery": result}
+
+
+@router.get("/purchase-orders/{number}/message")
+async def order_message(number: str, session: SessionDep, actor: ActorDep) -> dict:
+    """The exact text that would go to the supplier, before anything is sent.
+
+    A GET, deliberately: reading the message must never change the order. Until a
+    mail connector exists this is also how the message actually reaches anyone —
+    a buyer copies it — which makes it worth getting right rather than treating
+    it as a preview.
+    """
+    order = await _by_number(session, number)
+    supplier = await session.get(Supplier, order.supplier_id)
+    if supplier is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "order has no supplier")
+    lines = list(
+        await session.scalars(
+            select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+        )
+    )
+    return compose_order_email(
+        order, supplier, lines,
+        ack_deadline_hours=get_settings().ack_reminder_hours,
+        now=datetime.now(UTC),
+    )
+
+
+class MessagePreviewIn(BaseModel):
+    # Lines as they stand in the editor, which is not what the database holds:
+    # the whole point is to read the message before committing to the change.
+    lines: list[LineIn] = []
+    reason: str | None = None
+
+
+@router.post("/purchase-orders/{number}/message")
+async def preview_message(
+    number: str, body: MessagePreviewIn, session: SessionDep, actor: ActorDep
+) -> dict:
+    """The message as it would read if these figures were saved.
+
+    Nothing is written. The draft is assembled as plain values rather than by
+    editing the order, because touching the loaded object would let autoflush
+    persist a revision the buyer has not agreed to yet.
+    """
+    order = await _by_number(session, number)
+    supplier = await session.get(Supplier, order.supplier_id)
+    if supplier is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "order has no supplier")
+
+    if body.lines:
+        lines = [
+            SimpleNamespace(
+                sku=line.sku,
+                description=line.description or line.sku,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                line_total=(line.unit_price * line.quantity).quantize(Decimal("0.01")),
+            )
+            for line in body.lines
+        ]
+    else:
+        lines = list(
+            await session.scalars(
+                select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+            )
+        )
+
+    total = sum((Decimal(str(line.line_total)) for line in lines), Decimal("0.00"))
+    draft = SimpleNamespace(
+        number=order.number,
+        # A preview of a revision shows the revision it would become.
+        revision=order.revision + 1 if body.lines else order.revision,
+        revision_reason=body.reason or order.revision_reason,
+        total_value=total,
+        currency=order.currency,
+        confirmed_delivery_date=order.confirmed_delivery_date,
+        expected_delivery_date=order.expected_delivery_date,
+    )
+    return compose_order_email(
+        draft, supplier, lines,
+        ack_deadline_hours=get_settings().ack_reminder_hours,
+        now=datetime.now(UTC),
+    )
+
+
+@router.post("/purchase-orders/{number}/revise")
+async def revise_order(
+    number: str, body: ReviseIn, session: SessionDep, actor: ActorDep
+) -> dict:
+    """Counter a supplier's price or quantity, and put the order back in play."""
+    order = await _by_number(session, number)
+    try:
+        await OrderService(session, actor=actor).revise(
+            order, [line.model_dump() for line in body.lines], reason=body.reason
+        )
+    except OrderError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return await _order_detail(session, order)
+
+
+@router.post("/purchase-orders/{number}/cancel")
+async def cancel_order(
+    number: str, body: CancelIn, session: SessionDep, actor: ActorDep
+) -> dict:
+    order = await _by_number(session, number)
+    try:
+        await OrderService(session, actor=actor).cancel(order, reason=body.reason)
+    except OrderError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return await _order_detail(session, order)
 
 
 @router.post("/purchase-orders/{number}/receive")
@@ -335,6 +483,9 @@ async def _order_detail(session, order: PurchaseOrder) -> dict:
         "acknowledged_at": order.acknowledged_at,
         "expected_delivery_date": order.expected_delivery_date,
         "confirmed_delivery_date": order.confirmed_delivery_date,
+        "revision": order.revision,
+        "revision_reason": order.revision_reason,
+        "cancel_reason": order.cancel_reason,
         "lines": [
             {
                 "sku": line.sku, "description": line.description, "quantity": line.quantity,

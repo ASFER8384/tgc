@@ -85,6 +85,31 @@ def hours_until_open(hours: WorkingHours, now: datetime) -> float:
     return max(0.0, (next_open(hours, now) - _aware(now)).total_seconds() / 3600)
 
 
+def working_hours_between(hours: WorkingHours, start: datetime, end: datetime) -> float:
+    """How many of the supplier's own working hours passed between two instants.
+
+    A deadline measured in wall clock hours punishes a supplier for their own
+    night and their own weekend: an order sent as Istanbul closes on Friday is
+    twenty four hours old on Saturday, when nobody was ever there to read it.
+    Chasing then is wrong, and it is the kind of wrong that teaches a buyer to
+    ignore the exception list.
+    """
+    start, end = _aware(start), _aware(end)
+    if end <= start:
+        return 0.0
+
+    step = timedelta(minutes=30)
+    # Beyond the lookahead the answer stops being useful — an order this stale is
+    # already past every threshold, and counting further only costs time.
+    limit = start + timedelta(days=MAX_LOOKAHEAD_DAYS * 2)
+    probe, counted = start, 0.0
+    while probe < min(end, limit):
+        if is_open(hours, probe):
+            counted += step.total_seconds() / 3600
+        probe += step
+    return counted
+
+
 def overlap_hours(a: WorkingHours, b: WorkingHours, now: datetime) -> float:
     """How many hours today both parties are at their desks at the same time.
 

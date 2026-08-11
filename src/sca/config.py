@@ -35,6 +35,46 @@ class Settings(BaseSettings):
     # single shared key on fabricated data; narrow before real supplier data.
     cors_allow_origins: tuple[str, ...] = ("*",)
 
+    # Outbound mail. Off by default: this is the only part of the system that can
+    # reach someone outside the building, and switching it on should be a
+    # deliberate act. "console" prints the message, "smtp" actually sends it.
+    mail_provider: str = "none"
+    mail_smtp_host: str = "smtp.gmail.com"
+    mail_smtp_port: int = 587
+    mail_smtp_user: str | None = None
+    # An app password, not the account password: Gmail and Microsoft 365 both
+    # refuse the latter outright.
+    mail_smtp_password: str | None = None
+    mail_smtp_starttls: bool = True
+
+    mail_from: str | None = None
+    mail_from_name: str = "Procurement"
+    # Where supplier replies land, which need not be where we send from. This has
+    # to be a mailbox someone or something actually watches, or the
+    # acknowledgement half of the loop quietly stops working.
+    mail_reply_to: str | None = None
+
+    # Safety rails for anywhere that is not production. A redirect sends every
+    # message to one inbox whatever the order says; an allowlist refuses domains
+    # outside it. The demo suppliers have invented addresses on domains that may
+    # belong to real people, so one of these should always be set outside prod.
+    mail_redirect_to: str | None = None
+    mail_allowed_domains: tuple[str, ...] = ()
+
+    # Inbound. The other half of the loop: replies are read out of a real mailbox
+    # rather than pasted into the console. IMAP because it works against whatever
+    # mailbox the business already has, with no domain, no public URL and no
+    # webhook to register. Credentials fall back to the SMTP ones, since sending
+    # and receiving are normally the same account.
+    mail_imap_host: str = "imap.gmail.com"
+    mail_imap_port: int = 993
+    mail_imap_user: str | None = None
+    mail_imap_password: str | None = None
+    mail_imap_folder: str = "INBOX"
+    # UNSEEN rather than ALL: the read flag is the cursor, so a restart does not
+    # reprocess the entire mailbox.
+    mail_imap_search: str = "UNSEEN"
+
 
 @lru_cache
 def get_settings() -> Settings:

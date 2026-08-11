@@ -122,6 +122,27 @@ class InboundService:
                 issue_ids.append(issue.id)
                 actions.append("date slip raised as an exception")
 
+            restated = self._restated_value(order, found)
+            if restated is not None:
+                priced = Issue(
+                    purchase_order_id=order.id,
+                    supplier_id=order.supplier_id,
+                    kind="price_mismatch",
+                    severity="medium",
+                    detail=(
+                        f"{order.number} confirmed at {restated:,.2f} against an ordered "
+                        f"value of {float(order.total_value):,.2f}"
+                    ),
+                    suggested_action=(
+                        "Query the difference before the order ships, not at invoice"
+                    ),
+                    context={"confirmed": restated, "ordered": float(order.total_value)},
+                )
+                self.session.add(priced)
+                await self.session.flush()
+                issue_ids.append(priced.id)
+                actions.append("confirmed value differs from the order")
+
             if found.kind == "delay" and issue is None:
                 # A supplier saying "delayed" without a date is worse than one that
                 # gives a late date, because nothing downstream can be replanned.
@@ -176,6 +197,42 @@ class InboundService:
             actions.append("read, no action needed")
 
         return actions, issue_ids
+
+    # Tighter than the 2% allowed on an invoice, and deliberately so: an invoice
+    # legitimately carries freight and rounding, while an acknowledgement is the
+    # supplier reading our own order back to us. Drift there is a decision, not
+    # arithmetic, and it is far cheaper to query before the goods move.
+    CONFIRM_TOLERANCE = 0.005
+
+    @staticmethod
+    def _restated_value(order: PurchaseOrder, found: parser.Extraction) -> float | None:
+        """The confirmed total when it disagrees with ours, otherwise None.
+
+        A reply routinely quotes several figures — a deposit, freight, a unit
+        price. Matching against all of them rather than the largest means a
+        supplier who states the right total is silent even when they also mention
+        a 30% advance, and only a genuine restatement raises anything.
+        """
+        ordered = float(order.total_value or 0)
+        if not ordered or not found.amounts:
+            return None
+        if any(
+            abs(amount - ordered) / ordered <= InboundService.CONFIRM_TOLERANCE
+            for amount in found.amounts
+        ):
+            return None
+        # No amount agreed. Report the nearest, which is the one a buyer will
+        # recognise as the supplier's version of the total.
+        return min(found.amounts, key=lambda amount: abs(amount - ordered))
+
+    async def match_supplier(self, from_address: str | None) -> Supplier | None:
+        """Public because the mailbox poller has to ask before it ingests.
+
+        A message pasted into the console is there because a person decided it was
+        a supplier reply. A message pulled out of a mailbox has had no such
+        decision made about it, and that mailbox also holds the owner's own mail.
+        """
+        return await self._match_supplier(from_address)
 
     async def _match_supplier(self, from_address: str | None) -> Supplier | None:
         if not from_address:

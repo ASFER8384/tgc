@@ -16,7 +16,14 @@ from datetime import date, datetime
 
 PO_PATTERN = re.compile(r"\bPO[-\s]?(\d{4,8})\b", re.IGNORECASE)
 QTY_PATTERN = re.compile(r"\b(\d{1,6})\s*(?:pcs|pieces|units|yards|metres|meters|m)\b", re.I)
-MONEY_PATTERN = re.compile(r"\b(?:SAR|USD|CNY|EUR)\s?([\d,]+(?:\.\d{1,2})?)\b", re.I)
+# Currency either side of the number: a supplier writing "88,800 CNY" means the
+# same as "CNY 88,800", and only one of the two was being read. The currency is
+# still required, so a quantity or a date fragment is never mistaken for money.
+MONEY_PATTERN = re.compile(
+    r"(?:\b(?:SAR|USD|CNY|EUR)\s?([\d,]+(?:\.\d{1,2})?)\b"
+    r"|\b([\d,]+(?:\.\d{1,2})?)\s?(?:SAR|USD|CNY|EUR)\b)",
+    re.I,
+)
 
 ISO_DATE = re.compile(r"\b(20\d{2})-(\d{1,2})-(\d{1,2})\b")
 DMY_DATE = re.compile(r"\b(\d{1,2})[/.](\d{1,2})[/.](20\d{2})\b")
@@ -36,8 +43,12 @@ KIND_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
                "unable to ship", "reschedul")),
     ("invoice", ("invoice", "proforma", "payment due", "bank details", "remittance")),
     ("packing_list", ("packing list", "packing slip", "carton list", "shipping marks")),
-    ("acknowledgement", ("confirm", "confirmed", "acknowledge", "accepted", "we will ship",
-                         "order received", "booked")),
+    # Stems rather than whole words: a supplier writes "we accept", "accepted",
+    # "acceptance is confirmed" and means the same thing each time, and a list of
+    # exact forms only ever covers the ones somebody thought of. "accept" alone
+    # missed "I accept this order", which is about as plain as agreement gets.
+    ("acknowledgement", ("confirm", "acknowledg", "accept", "agree", "we will ship",
+                         "order received", "booked", "will proceed", "proceeding with")),
     ("quote", ("quotation", "quote", "price list", "offer")),
     ("question", ("please clarify", "could you", "question", "confirm the address", "?" )),
 )
@@ -63,8 +74,45 @@ class Extraction:
         }
 
 
+# Where a reply stops being the supplier writing and starts being our own email
+# quoted back at us. Every mail client marks the boundary differently, and none
+# of them agree.
+QUOTE_MARKERS = (
+    # The attribution line wraps. Gmail routinely breaks it before "wrote:", and
+    # a pattern anchored to one line then leaves the date in it behind: "On Tue,
+    # 11 Aug 2026 at 13:52, ..." was read as the promised delivery date.
+    re.compile(r"^[ \t>]*On\b[\s\S]{0,240}?\bwrote:", re.I | re.M),
+    re.compile(r"^\s*-{2,}\s*Original Message\s*-{2,}\s*$", re.I | re.M),
+    re.compile(r"^\s*_{5,}\s*$", re.M),
+    re.compile(r"^\s*From:\s.+$", re.M),
+)
+
+
+def strip_quoted(body: str) -> str:
+    """Only what the supplier actually wrote this time.
+
+    A reply carries our own order underneath it, and our own order states the
+    total, the PO number and the delivery date we asked for. Reading those back
+    as if the supplier had said them is how a price increase disappears: the
+    quoted original agrees with our figure, so the disagreement above it never
+    gets noticed.
+    """
+    text = body or ""
+    cut = len(text)
+    for marker in QUOTE_MARKERS:
+        found = marker.search(text)
+        if found:
+            cut = min(cut, found.start())
+    text = text[:cut]
+    # Whatever survived, minus the conventional quote prefix. Some clients indent
+    # rather than announce, so this catches what the markers above miss.
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith(">")
+    )
+
+
 def parse(subject: str | None, body: str, *, received_at: datetime | None = None) -> Extraction:
-    text = f"{subject or ''}\n{body or ''}"
+    text = f"{subject or ''}\n{strip_quoted(body)}"
     lowered = text.lower()
 
     out = Extraction()
@@ -76,7 +124,11 @@ def parse(subject: str | None, body: str, *, received_at: datetime | None = None
     out.kind = _classify(lowered)
     out.promised_date = _first_date(text, received_at)
     out.quantities = [int(q) for q in QTY_PATTERN.findall(text)][:5]
-    out.amounts = [float(a.replace(",", "")) for a in MONEY_PATTERN.findall(text)][:5]
+    # Two capture groups, one per currency position; exactly one is filled.
+    out.amounts = [
+        float((before or after).replace(",", ""))
+        for before, after in MONEY_PATTERN.findall(text)
+    ][:5]
 
     # Confidence is deliberately crude and deliberately conservative. It exists to
     # decide "act" against "ask a human", not to be a probability.

@@ -61,6 +61,16 @@ class PurchaseOrder(Base, TimestampMixin):
     expected_delivery_date: Mapped[datetime | None] = mapped_column(UTCDateTime)
     confirmed_delivery_date: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
+    # A revision is the negotiation made visible: the supplier came back with a
+    # different price, we countered, and this is which round we are on. Kept on
+    # the order rather than derived from the audit log because it is printed on
+    # the document the supplier receives.
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    revision_reason: Mapped[str | None] = mapped_column(String(200))
+
+    cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    cancel_reason: Mapped[str | None] = mapped_column(String(200))
+
     notes: Mapped[str | None] = mapped_column(String(500))
 
 

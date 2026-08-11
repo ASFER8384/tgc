@@ -65,6 +65,41 @@
   button.ghost { background: transparent; color: var(--accent); }
   button.small { padding: 0.2rem 0.5rem; font-size: 0.76rem; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* A spinner in place of the label, so the button keeps its width and the row
+     does not reflow while a request is in flight. */
+  button.busy { color: transparent; position: relative; }
+  button.busy::after {
+    content: ""; position: absolute; inset: 0; margin: auto;
+    width: 0.85em; height: 0.85em; border-radius: 50%;
+    border: 2px solid currentcolor; border-top-color: transparent;
+    color: var(--accent-ink); animation: spin 0.6s linear infinite;
+  }
+  button.ghost.busy::after { color: var(--accent); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  dialog { border: 1px solid var(--rule); border-radius: 4px; background: var(--panel);
+           color: var(--ink); padding: 0; max-width: min(1040px, 96vw); width: 100%; }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+  dialog .panel-head { padding: 0.9rem 1.2rem; }
+  dialog .panel-body { padding: 0 1.2rem 1.2rem; display: flex; flex-direction: column;
+                       gap: 0.8rem; max-height: 78vh; overflow-y: auto; }
+  /* Labels once, in a header, rather than repeated over every row: four lines of
+     "QTY  UNIT PRICE" is four times the reading for the same information. */
+  .line-row { display: grid; grid-template-columns: minmax(0, 1fr) 6rem 8rem 9rem;
+              gap: 0.6rem; align-items: center; padding: 0.4rem 0;
+              border-bottom: 1px solid var(--rule); }
+  .line-head { display: grid; grid-template-columns: minmax(0, 1fr) 6rem 8rem 9rem;
+               gap: 0.6rem; font-family: var(--mono); font-size: 0.7rem;
+               letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+               padding-bottom: 0.3rem; border-bottom: 1px solid var(--rule); }
+  .line-row .sku { font-family: var(--mono); font-size: 0.76rem; color: var(--muted); }
+  .line-row input { width: 100%; }
+  .line-row .line-total { font-family: var(--mono); font-size: 0.82rem; text-align: right; }
+  @media (max-width: 720px) {
+    .line-head { display: none; }
+    .line-row { grid-template-columns: minmax(0, 1fr) 5rem 6rem; }
+    .line-row .line-total { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { button.busy::after { animation: none; } }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 1.25rem;
@@ -146,8 +181,15 @@
       <div class="eyebrow">Supplier coordination · Aleena · Rawash · Aynola</div>
       <h1>Supplier Desk</h1>
     </div>
-    <div class="conn"><span class="dot" id="dot"></span><span id="connLabel">connecting</span>
-      <button class="ghost small" id="sweep">Run agent sweep</button>
+    <!-- The connection state is only worth a person's attention when it is bad,
+         so the dot and the label stay hidden until something fails. -->
+    <div class="conn"><span class="dot" id="dot" hidden></span><span id="connLabel" hidden></span>
+      <!-- Kept in the page, out of the way. The key is injected locally so the
+           button has nothing to do here, and the sweep runs on a schedule in
+           anything but a demo. Unhide either to get it back. -->
+      <button class="ghost small" id="changeKey" hidden>API key</button>
+      <button class="ghost small" id="pollMail">Check mailbox</button>
+      <button class="ghost small" id="sweep" hidden>Run agent sweep</button>
     </div>
   </div>
 
@@ -162,12 +204,15 @@
         </div>
         <div class="table-wrap"><table>
           <thead><tr><th>Item</th><th>Supplier</th><th class="num">Weeks cover</th>
-            <th class="num">Suggest</th><th class="num">Value</th></tr></thead>
-          <tbody id="suggestions"><tr><td colspan="5" class="empty">loading</td></tr></tbody>
+            <th class="num">Suggest</th><th class="num">Value</th><th></th></tr></thead>
+          <tbody id="suggestions"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
         </table></div>
         <div class="panel-body"><div class="bar">
-          <button id="createOrders">Create draft orders</button>
-          <button class="ghost" id="refreshSuggest">Recalculate</button>
+          <button id="createOrders">Draft every line</button>
+          <button class="ghost" id="loadSample">Add a test item</button>
+          <!-- Every action on this page refreshes the page afterwards, so a
+               manual recalculate only ever repeated what had just happened. -->
+          <button class="ghost" id="refreshSuggest" hidden>Recalculate</button>
         </div><div class="readout" id="createOut" hidden></div></div>
       </div>
 
@@ -191,7 +236,74 @@
         <div id="issues"><div class="empty">loading</div></div>
       </div>
 
+      <!-- Supplier and item master data belongs in an ERP, and in a real
+           deployment this system reads it rather than owning it. These forms
+           exist because a demo has to start somewhere, and because "where do
+           suppliers come from" is the first question anyone asks. -->
       <div class="panel">
+        <div class="panel-head"><h2>New supplier</h2>
+          <span class="hint">who we buy from</span></div>
+        <div class="panel-body">
+          <label class="field">Code
+            <input id="supCode" placeholder="GZ-TEX" /></label>
+          <label class="field">Name
+            <input id="supName" placeholder="Guangzhou Silk Mill" /></label>
+          <label class="field">Email
+            <input id="supEmail" placeholder="orders@supplier.com" /></label>
+          <label class="field">Time zone
+            <select id="supTz">
+              <option value="Asia/Shanghai">Asia/Shanghai</option>
+              <option value="Asia/Riyadh">Asia/Riyadh</option>
+              <option value="Asia/Kolkata">Asia/Kolkata</option>
+              <option value="Europe/Istanbul">Europe/Istanbul</option>
+              <option value="Europe/London">Europe/London</option>
+              <option value="America/New_York">America/New_York</option>
+            </select></label>
+          <label class="field">Working days
+            <select id="supDays">
+              <option value="1,2,3,4,5">Mon to Fri</option>
+              <option value="1,2,3,4,5,6">Mon to Sat</option>
+              <option value="7,1,2,3,4">Sun to Thu (Gulf)</option>
+            </select></label>
+          <label class="field">Working hours
+            <input id="supHours" value="9-18" placeholder="9-18" /></label>
+          <label class="field">Lead time, days
+            <input id="supLead" type="number" value="21" /></label>
+          <label class="field">Currency
+            <input id="supCurrency" value="SAR" maxlength="3" /></label>
+          <div class="bar"><button id="addSupplier">Add supplier</button></div>
+          <div class="readout" id="supOut" hidden></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>New item</h2>
+          <span class="hint">what we buy, and how much is left</span></div>
+        <div class="panel-body">
+          <label class="field">Supplier
+            <select id="itemSupplier"></select></label>
+          <label class="field">SKU
+            <input id="itemSku" placeholder="ALN-SILK-NVY" /></label>
+          <label class="field">Description
+            <input id="itemName" placeholder="Navy silk, 140cm" /></label>
+          <label class="field">Unit cost
+            <input id="itemCost" placeholder="42.00" /></label>
+          <label class="field">Minimum order / pack size
+            <input id="itemMoq" value="300 / 50" placeholder="300 / 50" /></label>
+          <label class="field">On hand / on order
+            <input id="itemStock" value="260 / 0" placeholder="260 / 0" /></label>
+          <label class="field">Weekly forecast
+            <input id="itemForecast" value="90" placeholder="90" /></label>
+          <div class="bar"><button id="addItem">Add item</button></div>
+          <div class="readout" id="itemOut" hidden></div>
+        </div>
+      </div>
+
+      <!-- Replies now arrive through the mailbox poller rather than by hand, so
+           this panel is hidden. Kept in place rather than deleted because it is
+           the only manual route in if IMAP is down or a reply reaches someone's
+           personal address and has to be forwarded. Unhide to get it back. -->
+      <div class="panel" hidden>
         <div class="panel-head"><h2>Supplier reply</h2>
           <span class="hint">paste an email</span></div>
         <div class="panel-body">
@@ -218,10 +330,58 @@
   </footer>
 </div>
 
+<!-- One dialog, reused. The counter offer and the message that carries it are
+     the same decision, so they are edited in the same place: a buyer who revises
+     a price and then sends a template that does not mention it has told the
+     supplier nothing. -->
+<!-- Read only. The message for an order that has already gone is history, not a
+     draft: showing it in an editable box would invite changes that reach nobody. -->
+<dialog id="emailDialog">
+  <form method="dialog">
+    <div class="panel-head"><h2 id="emailTitle">Message</h2>
+      <span class="hint" id="emailTo"></span></div>
+    <div class="panel-body">
+      <div class="readout" id="emailWhy" hidden></div>
+      <label class="field">Subject
+        <input id="emailSubject" readonly /></label>
+      <label class="field">Body
+        <textarea id="emailBody" style="min-height:340px" readonly></textarea></label>
+      <div class="bar">
+        <button type="button" id="emailCopy">Copy</button>
+        <button type="button" class="ghost" id="emailClose">Close</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="reviseDialog">
+  <form method="dialog">
+    <div class="panel-head"><h2 id="reviseTitle">Revise</h2>
+      <span class="hint" id="reviseHint"></span></div>
+    <div class="panel-body">
+      <div id="reviseLines"></div>
+      <label class="field">Why, in one line. The supplier reads this.
+        <input id="reviseReason" placeholder="Holding the agreed price pending justification" />
+      </label>
+      <label class="field">Message to the supplier
+        <textarea id="reviseBody" style="min-height:220px"></textarea></label>
+      <div class="readout" id="reviseOut" hidden></div>
+      <div class="bar">
+        <button type="button" id="reviseSend">Save and send</button>
+        <button type="button" class="ghost" id="reviseSave">Save without sending</button>
+        <button type="button" class="ghost" id="reviseCancel">Close</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
 <script>
   const API = "";
   const $ = (id) => document.getElementById(id);
-  const CANDIDATE_KEYS = ["dev-key-change-me", "tgc-secret-2026"];
+  // The key is asked for and kept in localStorage, never baked into this file:
+  // the API serves this page publicly, so anything hardcoded here is readable by
+  // anyone who opens it.
+  const KEY_STORAGE = "sca.apiKey";
   const state = { key: "", suppliers: [] };
 
   async function api(path, options = {}) {
@@ -254,6 +414,24 @@
       </div>`).join("");
     $("replyFrom").innerHTML = rows
       .map((s) => `<option value="${s.email}">${s.name} · ${s.email}</option>`).join("");
+    // Keep the chosen supplier across a refresh, so adding three items in a row
+    // does not mean reselecting the supplier three times.
+    const chosen = $("itemSupplier").value;
+    $("itemSupplier").innerHTML = rows
+      .map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
+    if (chosen) $("itemSupplier").value = chosen;
+  }
+
+  // "300 / 50" and "9-18" are two numbers in one box: fewer fields to cross, and
+  // the pair is how a buyer says it out loud anyway.
+  function pair(value, separator, fallback) {
+    const parts = String(value).split(separator).map((p) => p.trim());
+    const first = Number(parts[0]);
+    const second = Number(parts[1]);
+    return [
+      Number.isFinite(first) ? first : fallback[0],
+      Number.isFinite(second) ? second : fallback[1],
+    ];
   }
 
   async function loadSuggestions() {
@@ -268,8 +446,23 @@
           <td>${l.supplier}</td>
           <td class="num">${l.weeks_cover}</td>
           <td class="num">${l.suggest_quantity}</td>
-          <td class="num">${money(l.line_total)}</td></tr>`).join("")
-      : `<tr><td colspan="5" class="empty">Every line has enough cover</td></tr>`;
+          <td class="num">${money(l.line_total)}</td>
+          <td><button class="small" data-draft="${l.sku}">Draft</button></td></tr>`).join("")
+      : `<tr><td colspan="6" class="empty">Every line has enough cover</td></tr>`;
+
+    $("suggestions").querySelectorAll("[data-draft]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, async () => {
+        try {
+          const out = await api("/planning/create-orders", {
+            method: "POST", body: JSON.stringify({ skus: [b.dataset.draft] }),
+          });
+          show($("createOut"), out.created
+            ? out.orders.map((o) => `${o.number}  ${o.total_value}  ${o.status}` +
+                (o.approval_reason ? `  (${o.approval_reason})` : "")).join("\n")
+            : "Nothing to order for that line");
+          await refreshAll();
+        } catch (err) { show($("createOut"), "Failed: " + err.message); }
+      })));
   }
 
   async function loadOrders() {
@@ -277,13 +470,28 @@
     $("orderHint").textContent = `${rows.length} orders`;
     $("orders").innerHTML = rows.length ? rows.map((o) => {
       const promised = o.confirmed_delivery_date || o.expected_delivery_date;
-      const action = o.status === "pending_approval"
-        ? `<button class="small" data-approve="${o.number}">Approve</button>`
-        : (o.status === "approved"
-            ? `<button class="small" data-send="${o.number}">Send</button>` : "");
+      const REVISABLE = ["draft", "pending_approval", "approved", "sent", "acknowledged"];
+      const buttons = [];
+      if (o.status === "pending_approval") {
+        buttons.push(`<button class="small" data-approve="${o.number}">Approve</button>`);
+      } else if (o.status === "approved") {
+        buttons.push(`<button class="small" data-send="${o.number}">Send</button>`);
+      } else if (o.status === "acknowledged" || o.status === "in_transit") {
+        // Goods arriving, not the supplier confirming. This is what closes an
+        // order, and until it happens the supplier counts as never having
+        // completed one, so every order to them keeps needing approval.
+        buttons.push(`<button class="small" data-receive="${o.number}">Receive</button>`);
+      }
+      buttons.push(`<button class="ghost small" data-message="${o.number}">Email</button>`);
+      if (REVISABLE.includes(o.status)) {
+        buttons.push(`<button class="ghost small" data-revise="${o.number}">Revise</button>`);
+        buttons.push(`<button class="ghost small" data-cancel="${o.number}">Cancel</button>`);
+      }
+      const action = buttons.join(" ");
       return `<tr>
-        <td><strong>${o.number}</strong>${o.has_open_issue
-            ? ' <span class="tag sev-high">issue</span>' : ""}</td>
+        <td><strong>${o.number}</strong>${o.revision
+            ? `<span style="color:var(--muted);font-size:0.76rem"> Rev ${o.revision}</span>` : ""}${
+            o.has_open_issue ? ' <span class="tag sev-high">issue</span>' : ""}</td>
         <td>${o.supplier}<br><span style="color:var(--muted);font-size:0.78rem">${
             o.supplier_timezone || ""}</span></td>
         <td><span class="tag st-${o.status}">${o.status.replace(/_/g, " ")}</span>${
@@ -298,11 +506,226 @@
     }).join("") : `<tr><td colspan="6" class="empty">No orders yet</td></tr>`;
 
     $("orders").querySelectorAll("[data-approve]").forEach((b) =>
-      b.addEventListener("click", () => act(
-        `/purchase-orders/${b.dataset.approve}/approve`, { approver: "procurement.lead" })));
+      b.addEventListener("click", () => busy(b, () => act(
+        `/purchase-orders/${b.dataset.approve}/approve`, { approver: "procurement.lead" }))));
     $("orders").querySelectorAll("[data-send]").forEach((b) =>
-      b.addEventListener("click", () => act(`/purchase-orders/${b.dataset.send}/send`)));
+      b.addEventListener("click", () => busy(b, () => act(
+        `/purchase-orders/${b.dataset.send}/send`))));
+    $("orders").querySelectorAll("[data-message]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, async () => {
+        try {
+          const number = b.dataset.message;
+          const [m, detail] = await Promise.all([
+            api(`/purchase-orders/${number}/message`),
+            api(`/purchase-orders/${number}`),
+          ]);
+          $("emailTitle").textContent =
+            `${number}${detail.revision ? ` Rev ${detail.revision}` : ""} message`;
+          $("emailTo").textContent =
+            `to ${m.to || "no address on file"} · ${detail.status.replace(/_/g, " ")}`;
+          // Why the order is in the state it is in, above the message that says
+          // so. A revision reason and an approval reason answer different
+          // questions and a buyer opening this may want either.
+          const why = [
+            detail.revision_reason && `Revised: ${detail.revision_reason}`,
+            detail.cancel_reason && `Cancelled: ${detail.cancel_reason}`,
+            detail.requires_approval && detail.approval_reason
+              && `Needs approval: ${detail.approval_reason}`,
+          ].filter(Boolean);
+          if (why.length) {
+            show($("emailWhy"), why.join("\n"));
+          } else {
+            $("emailWhy").hidden = true;
+          }
+          $("emailSubject").value = m.subject;
+          $("emailBody").value = m.body;
+          $("emailDialog").showModal();
+        } catch (err) { show($("createOut"), "Failed: " + err.message); }
+      })));
+    $("orders").querySelectorAll("[data-receive]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, async () => {
+        try {
+          // Everything in full unless told otherwise, which is the common case.
+          // A short delivery is entered per line, and raises its own exception.
+          const out = await api(`/purchase-orders/${b.dataset.receive}/receive`, {
+            method: "POST", body: JSON.stringify({ received: {} }),
+          });
+          show($("createOut"), `${out.number} received and closed.` +
+            (out.issues_raised && out.issues_raised.length
+              ? "\n" + out.issues_raised.join("\n") : ""));
+          await refreshAll();
+        } catch (err) { show($("createOut"), "Failed: " + err.message); }
+      })));
+    $("orders").querySelectorAll("[data-revise]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, () => revise(b.dataset.revise))));
+    $("orders").querySelectorAll("[data-cancel]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, async () => {
+        const reason = (prompt(`Cancel ${b.dataset.cancel}. Why?`) || "").trim();
+        if (!reason) return;
+        await act(`/purchase-orders/${b.dataset.cancel}/cancel`, { reason });
+      })));
   }
+
+  // The order the dialog is currently editing. One dialog, one order at a time.
+  let revising = null;
+
+  async function revise(number) {
+    const detail = await api(`/purchase-orders/${number}`);
+    revising = { number, currency: detail.currency, lines: detail.lines };
+    resetDialogFields();
+
+    $("reviseTitle").textContent = `Revise ${number}`;
+    $("reviseHint").textContent =
+      `${detail.status.replace(/_/g, " ")} · ${money(detail.total_value)} ${detail.currency}`;
+    // Prefilled with what the order says now, because a revision is almost always
+    // a change to one number and an agreement to leave the rest alone.
+    $("reviseLines").innerHTML =
+      `<div class="line-head"><span>Item</span><span>Qty</span><span>Unit price</span>
+        <span style="text-align:right">Line total</span></div>` +
+      detail.lines.map((l, i) => `
+      <div class="line-row">
+        <div><strong>${l.description || l.sku}</strong><div class="sku">${l.sku}</div></div>
+        <input data-qty="${i}" type="number" value="${l.quantity}" />
+        <input data-price="${i}" value="${l.unit_price}" />
+        <div class="line-total" data-total="${i}">${money(l.line_total)}</div>
+      </div>`).join("");
+
+    // Recalculated as you type, so the counter offer is a number you can see
+    // rather than one you find out about after saving.
+    const retotal = () => {
+      let sum = 0;
+      detail.lines.forEach((l, i) => {
+        const qty = Number($("reviseLines").querySelector(`[data-qty="${i}"]`).value) || 0;
+        const price = Number($("reviseLines").querySelector(`[data-price="${i}"]`).value) || 0;
+        const line = qty * price;
+        sum += line;
+        $("reviseLines").querySelector(`[data-total="${i}"]`).textContent = money(line);
+      });
+      $("reviseHint").textContent =
+        `${detail.status.replace(/_/g, " ")} · ${money(sum)} ${detail.currency}` +
+        (Math.round(sum) !== Math.round(Number(detail.total_value))
+          ? ` (was ${money(detail.total_value)})` : "");
+    };
+
+    // The message follows the figures. A body still quoting the old price is
+    // worse than no body at all: it is a letter that contradicts the order it
+    // is carrying. Once the buyer types in it themselves it stops being
+    // regenerated, because their words outrank the template.
+    let bodyEdited = false;
+    let pending = null;
+    const recompose = async () => {
+      if (bodyEdited) return;
+      try {
+        const message = await api(`/purchase-orders/${number}/message`, {
+          method: "POST",
+          body: JSON.stringify({ lines: revisedLines(), reason: $("reviseReason").value.trim() }),
+        });
+        if (!bodyEdited) $("reviseBody").value = message.body;
+      } catch { /* leave the last good draft in place */ }
+    };
+    const scheduleRecompose = () => {
+      // Debounced: every keystroke in a price field would otherwise be a request.
+      clearTimeout(pending);
+      pending = setTimeout(recompose, 350);
+    };
+
+    $("reviseBody").addEventListener("input", () => { bodyEdited = true; });
+    $("reviseReason").addEventListener("input", scheduleRecompose);
+    $("reviseLines").querySelectorAll("input").forEach((input) =>
+      input.addEventListener("input", () => { retotal(); scheduleRecompose(); }));
+    $("reviseReason").value = detail.revision_reason || "";
+    $("reviseOut").hidden = true;
+
+    // The message as it stands, so the buyer edits a draft rather than facing a
+    // blank box.
+    try {
+      const message = await api(`/purchase-orders/${number}/message`);
+      $("reviseBody").value = message.body;
+    } catch { $("reviseBody").value = ""; }
+    $("reviseDialog").showModal();
+  }
+
+  // Listeners are attached once per open, so they must not stack up across
+  // opens. Replacing the node drops every handler bound to the old one.
+  function resetDialogFields() {
+    for (const id of ["reviseBody", "reviseReason"]) {
+      const node = $(id);
+      node.replaceWith(node.cloneNode(true));
+    }
+  }
+
+  function revisedLines() {
+    return revising.lines.map((l, i) => ({
+      sku: l.sku,
+      description: l.description,
+      quantity: Number($("reviseLines").querySelector(`[data-qty="${i}"]`).value) || l.quantity,
+      unit_price: $("reviseLines").querySelector(`[data-price="${i}"]`).value.trim(),
+    }));
+  }
+
+  async function saveRevision() {
+    const reason = $("reviseReason").value.trim();
+    if (!reason) {
+      show($("reviseOut"), "A reason is required. The supplier sees it.");
+      throw new Error("reason missing");
+    }
+    return api(`/purchase-orders/${revising.number}/revise`, {
+      method: "POST",
+      body: JSON.stringify({ lines: revisedLines(), reason }),
+    });
+  }
+
+  $("reviseSave").addEventListener("click", () => busy($("reviseSave"), async () => {
+    try {
+      const out = await saveRevision();
+      $("reviseDialog").close();
+      show($("createOut"),
+        `${out.number} is now Rev ${out.revision}, ${out.total_value} ${out.currency}, ` +
+        `${out.status.replace(/_/g, " ")}. Not sent yet.`);
+      await refreshAll();
+    } catch (err) { show($("reviseOut"), "Failed: " + err.message); }
+  }));
+
+  $("reviseSend").addEventListener("click", () => busy($("reviseSend"), async () => {
+    try {
+      const saved = await saveRevision();
+      if (saved.status === "pending_approval") {
+        show($("reviseOut"),
+          `Saved as Rev ${saved.revision}, but it needs approval first: ${saved.approval_reason}`);
+        await refreshAll();
+        return;
+      }
+      // The edited text is what goes out, not the recomposed template.
+      const sent = await api(`/purchase-orders/${revising.number}/send`, {
+        method: "POST",
+        body: JSON.stringify({ body: $("reviseBody").value }),
+      });
+      $("reviseDialog").close();
+      const delivery = sent.delivery && sent.delivery.delivery;
+      show($("createOut"), `${sent.number} Rev ${sent.revision} sent. ` +
+        (delivery && delivery.delivered
+          ? `Emailed to ${delivery.recipient}.`
+          : (sent.delivery && sent.delivery.reason) || "Not emailed: mail is not configured."));
+      await refreshAll();
+    } catch (err) { show($("reviseOut"), "Failed: " + err.message); }
+  }));
+
+  $("reviseCancel").addEventListener("click", () => $("reviseDialog").close());
+  $("emailClose").addEventListener("click", () => $("emailDialog").close());
+  $("emailCopy").addEventListener("click", async () => {
+    // Until a mailbox is wired up on every environment, copying the text out is
+    // how the message actually reaches a supplier. Worth one button.
+    const text = `Subject: ${$("emailSubject").value}\n\n${$("emailBody").value}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      $("emailCopy").textContent = "Copied";
+    } catch {
+      // Clipboard access is refused on insecure origins and in some browsers.
+      $("emailBody").select();
+      $("emailCopy").textContent = "Selected, press Ctrl+C";
+    }
+    setTimeout(() => { $("emailCopy").textContent = "Copy"; }, 2000);
+  });
 
   async function act(path, body) {
     try {
@@ -328,17 +751,31 @@
       </div>`).join("") : `<div class="empty">Nothing waiting on a person</div>`;
 
     $("issues").querySelectorAll("[data-resolve]").forEach((b) =>
-      b.addEventListener("click", async () => {
+      b.addEventListener("click", () => busy(b, async () => {
         await api(`/issues/${b.dataset.resolve}/resolve`,
           { method: "POST", body: JSON.stringify({ resolution: "handled in the console" }) });
         await refreshAll();
-      }));
+      })));
   }
 
   function show(el, text) { el.hidden = false; el.textContent = text; }
 
-  $("createOrders").addEventListener("click", async () => {
-    $("createOrders").disabled = true;
+  // Every button goes through this. The guard matters more than the spinner: a
+  // second click on "Create draft orders" while the first is still running is
+  // how you end up with two of the same purchase order.
+  async function busy(button, work) {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.classList.add("busy");
+    try {
+      return await work();
+    } finally {
+      button.disabled = false;
+      button.classList.remove("busy");
+    }
+  }
+
+  $("createOrders").addEventListener("click", () => busy($("createOrders"), async () => {
     try {
       const out = await api("/planning/create-orders", { method: "POST" });
       show($("createOut"), out.created
@@ -347,26 +784,106 @@
         : "Nothing to order, every line has cover");
       await refreshAll();
     } catch (err) { show($("createOut"), "Failed: " + err.message); }
-    finally { $("createOrders").disabled = false; }
-  });
+  }));
 
-  $("refreshSuggest").addEventListener("click", refreshAll);
+  $("refreshSuggest").addEventListener("click", () =>
+    busy($("refreshSuggest"), refreshAll));
 
-  $("sweep").addEventListener("click", async () => {
-    const out = await api("/agent/sweep", { method: "POST" });
-    show($("createOut"),
-      `released ${out.released.length} queued order(s), chased ${out.chased.length} supplier(s)`);
-    await refreshAll();
-  });
+  $("loadSample").addEventListener("click", () => busy($("loadSample"), async () => {
+    try {
+      const out = await api("/demo/sample-data", { method: "POST" });
+      show($("createOut"), out.written
+        .map((w) => `${w.sku} added for ${w.supplier}, ${out.weeks_cover} weeks of cover`)
+        .join("\n"));
+      await refreshAll();
+    } catch (err) { show($("createOut"), "Failed: " + err.message); }
+  }));
 
-  $("previewReply").addEventListener("click", async () => {
-    const out = await api("/inbound/preview", { method: "POST", body: JSON.stringify({
-      subject: $("replySubject").value, body: $("replyBody").value }) });
-    show($("replyOut"), JSON.stringify(out, null, 2));
-  });
+  $("addSupplier").addEventListener("click", () => busy($("addSupplier"), async () => {
+    const [start, end] = pair($("supHours").value, "-", [9, 18]);
+    try {
+      const out = await api("/suppliers", { method: "POST", body: JSON.stringify({
+        code: $("supCode").value.trim(),
+        name: $("supName").value.trim(),
+        email: $("supEmail").value.trim(),
+        timezone: $("supTz").value,
+        working_days: $("supDays").value,
+        work_start_hour: start,
+        work_end_hour: end,
+        lead_time_days: Number($("supLead").value) || 21,
+        currency: ($("supCurrency").value || "SAR").toUpperCase(),
+      }) });
+      show($("supOut"),
+        `${out.name} added. ${out.local_time} their time, ` +
+        `${out.open_now ? "open now" : "opens " + out.next_open_local}.`);
+      ["supCode", "supName", "supEmail"].forEach((id) => { $(id).value = ""; });
+      await refreshAll();
+    } catch (err) { show($("supOut"), "Failed: " + err.message); }
+  }));
 
-  $("sendReply").addEventListener("click", async () => {
-    $("sendReply").disabled = true;
+  $("addItem").addEventListener("click", () => busy($("addItem"), async () => {
+    const sku = $("itemSku").value.trim();
+    const [moq, pack] = pair($("itemMoq").value, "/", [1, 1]);
+    const [onHand, onOrder] = pair($("itemStock").value, "/", [0, 0]);
+    try {
+      await api("/items", { method: "POST", body: JSON.stringify({
+        sku,
+        name: $("itemName").value.trim() || sku,
+        supplier_id: $("itemSupplier").value,
+        category: "general",
+        brand: "aleena",
+        unit: "pcs",
+        moq, pack_size: pack,
+        unit_cost: $("itemCost").value.trim(),
+      }) });
+      // Stock is a second call because an item and what is left of it are
+      // different facts with different lifetimes: the item is set up once, the
+      // count changes every day.
+      await api("/stock", { method: "POST", body: JSON.stringify({
+        sku, on_hand: onHand, on_order: onOrder,
+        weekly_forecast: $("itemForecast").value.trim() || "0",
+      }) });
+      show($("itemOut"), `${sku} added with ${onHand} on hand. ` +
+        "Recalculate to see whether it needs buying.");
+      ["itemSku", "itemName", "itemCost"].forEach((id) => { $(id).value = ""; });
+      await refreshAll();
+    } catch (err) { show($("itemOut"), "Failed: " + err.message); }
+  }));
+
+  $("pollMail").addEventListener("click", () => busy($("pollMail"), async () => {
+    try {
+      const out = await api("/inbound/poll", { method: "POST" });
+      show($("createOut"), out.from_suppliers
+        ? `read ${out.read} message(s), ${out.from_suppliers} from suppliers, ` +
+          `applied ${out.applied}\n\n` +
+          out.messages.map((m) =>
+            `${m.from}  ${m.subject}\n  read as ${m.kind} (confidence ${m.confidence})\n` +
+            (m.actions || []).map((a) => "  - " + a).join("\n")).join("\n\n")
+        : `read ${out.read} message(s), none from a supplier. ` +
+          `${out.skipped_not_a_supplier} left untouched.`);
+      await refreshAll();
+    } catch (err) { show($("createOut"), "Failed: " + err.message); }
+  }));
+
+  $("sweep").addEventListener("click", () => busy($("sweep"), async () => {
+    try {
+      const out = await api("/agent/sweep", { method: "POST" });
+      show($("createOut"),
+        `released ${out.released.length} queued order(s), ` +
+        `chased ${out.chased.length} supplier(s)`);
+      await refreshAll();
+    } catch (err) { show($("createOut"), "Failed: " + err.message); }
+  }));
+
+  $("previewReply").addEventListener("click", () => busy($("previewReply"), async () => {
+    try {
+      const out = await api("/inbound/preview", { method: "POST", body: JSON.stringify({
+        subject: $("replySubject").value, body: $("replyBody").value }) });
+      show($("replyOut"), JSON.stringify(out, null, 2));
+    } catch (err) { show($("replyOut"), "Failed: " + err.message); }
+  }));
+
+  $("sendReply").addEventListener("click", () => busy($("sendReply"), async () => {
     try {
       const out = await api("/inbound/email", { method: "POST", body: JSON.stringify({
         external_id: "console-" + $("replySubject").value + "-" + $("replyBody").value.length +
@@ -381,32 +898,57 @@
         (out.actions || []).map((a) => "- " + a).join("\n"));
       await refreshAll();
     } catch (err) { show($("replyOut"), "Failed: " + err.message); }
-    finally { $("sendReply").disabled = false; }
-  });
+  }));
 
   async function refreshAll() {
     await loadSuppliers();
     await Promise.all([loadSuggestions(), loadOrders(), loadIssues()]);
   }
 
+  // Failures are shown, success is not. A green light saying everything is fine
+  // is noise on a page that would plainly be empty if it were not.
+  function connectionProblem(text) {
+    $("dot").hidden = false;
+    $("connLabel").hidden = false;
+    $("dot").className = "dot off";
+    $("connLabel").textContent = text;
+  }
+
   async function connect() {
     let env = "";
     try { env = (await (await fetch(API + "/health")).json()).env; }
-    catch { $("dot").className = "dot off"; $("connLabel").textContent = "service not running";
-            return; }
-    for (const key of CANDIDATE_KEYS) {
+    catch { connectionProblem("service not running"); return; }
+    // Try the stored key first, then ask. A wrong stored key is cleared rather
+    // than retried, so a rotated key needs no browser surgery to recover from.
+    // Injected by the API when SCA_ENV is local, so development never prompts.
+    let key = window.__SCA_DEV_KEY__ || localStorage.getItem(KEY_STORAGE) || "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!key) {
+        key = (prompt("API key for the supplier desk (SCA_API_KEY):") || "").trim();
+        if (!key) break;
+      }
       const res = await fetch(API + "/suppliers", { headers: { "X-API-Key": key } });
       if (res.ok) {
         state.key = key;
-        $("dot").className = "dot on";
-        $("connLabel").textContent = "connected · " + env;
+        localStorage.setItem(KEY_STORAGE, key);
+        $("dot").hidden = true;
+        $("connLabel").hidden = true;
         await refreshAll();
         return;
       }
+      localStorage.removeItem(KEY_STORAGE);
+      key = "";
     }
-    $("dot").className = "dot off";
-    $("connLabel").textContent = "no working API key";
+    connectionProblem("no working API key");
+    // Only surfaced when there is nothing else to try. Locally the key is
+    // injected, so seeing this button at all means something is wrong.
+    $("changeKey").hidden = false;
   }
+
+  $("changeKey").addEventListener("click", () => {
+    localStorage.removeItem(KEY_STORAGE);
+    connect();
+  });
 
   connect();
 </script>

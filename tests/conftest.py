@@ -10,11 +10,15 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from sca.config import get_settings
 from sca.db import session_dep
 from sca.main import create_app
 from sca.models import Base
 
-API_KEY = "dev-key-change-me"
+# Read from settings rather than hardcoded: the app authenticates against
+# whatever SCA_API_KEY is configured, so a literal here turns every rotation of
+# the key into a suite-wide 401 that surfaces as a confusing KeyError.
+API_KEY = get_settings().api_key
 
 
 @pytest_asyncio.fixture
