@@ -201,35 +201,26 @@
 
   <div class="grid">
     <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      <!-- One table, not two. What we sell and what to buy were split across
+           separate panels, and the second was a subset of the first showing the
+           same numbers — which read as duplication rather than as detail. Every
+           item lives here; the ones that need ordering are marked, and only
+           those carry a Draft button. -->
       <div class="panel">
         <div class="panel-head">
-          <h2>Below cover</h2>
-          <span class="hint" id="suggestHint">what the forecast says to buy</span>
+          <h2>Items</h2>
+          <span class="hint" id="suggestHint">what we sell, and what to buy</span>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Item</th><th>Supplier</th><th class="num">Weeks cover</th>
-            <th class="num">Suggest</th><th class="num">Value</th><th></th></tr></thead>
-          <tbody id="suggestions"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
+          <thead><tr><th>Item</th><th class="num">Sold</th><th class="num">Stock</th>
+            <th class="num">Weeks cover</th><th class="num">Buy</th>
+            <th class="num">Value</th><th></th></tr></thead>
+          <tbody id="suggestions"><tr><td colspan="7" class="empty">loading</td></tr></tbody>
         </table></div>
         <div class="panel-body"><div class="bar">
           <button id="createOrders">Draft every line</button>
-          <button class="ghost" id="loadSample">Add a test item</button>
+          <button class="ghost" id="loadSample">Run one item low</button>
         </div><div class="readout" id="createOut" hidden></div></div>
-      </div>
-
-      <!-- Every item, not only the ones below cover. Demand measured from sales
-           is most useful on the lines that are *not* being bought yet: it is
-           where a stale typed forecast shows up while there is still time. -->
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Demand</h2>
-          <span class="hint" id="demandHint">what we sell, against what we planned to</span>
-        </div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Item</th><th class="num">Entered</th><th class="num">Sold</th>
-            <th class="num">Weeks cover</th><th>Driving the plan</th></tr></thead>
-          <tbody id="demand"><tr><td colspan="5" class="empty">loading</td></tr></tbody>
-        </table></div>
       </div>
 
       <div class="panel">
@@ -451,23 +442,45 @@
   }
 
   async function loadSuggestions() {
-    const body = await api("/planning/suggest", { method: "POST" });
-    const names = Object.fromEntries(state.suppliers.map((s) => [s.id, s.name]));
-    const rows = body.by_supplier.flatMap((g) =>
-      g.lines.map((l) => ({ ...l, supplier: names[g.supplier_id] || "unknown" })));
-    $("suggestHint").textContent = `${body.count} lines below cover`;
-    $("suggestions").innerHTML = rows.length
-      ? rows.map((l) => `<tr>
-          <td><strong>${l.sku}</strong><br><span style="color:var(--muted)">${l.description}</span></td>
-          <td>${l.supplier}</td>
-          <td class="num">${l.weeks_cover}<br><span style="color:var(--muted);font-size:0.75em">${
-            l.forecast_source === "sales"
-              ? `${l.weekly_demand}/wk from sales`
-              : `${l.weekly_demand}/wk entered`}</span></td>
-          <td class="num">${l.suggest_quantity}</td>
-          <td class="num">${money(l.line_total)}</td>
-          <td><button class="small" data-draft="${l.sku}">Draft</button></td></tr>`).join("")
-      : `<tr><td colspan="6" class="empty">Every line has enough cover</td></tr>`;
+    // Both calls, one table. The plan knows what to buy but only reports the
+    // lines that need buying; the catalogue knows everything but not what to do
+    // about it. Joined on SKU here rather than in the API, because each endpoint
+    // is right on its own and neither should learn about the other for a layout.
+    const [items, plan] = await Promise.all([
+      api("/items"),
+      api("/planning/suggest", { method: "POST" }),
+    ]);
+    const buy = {};
+    plan.by_supplier.forEach((g) => g.lines.forEach((l) => { buy[l.sku] = l; }));
+
+    const measured = items.filter((i) => i.observed_weekly !== null).length;
+    $("suggestHint").textContent =
+      `${plan.count} of ${items.length} need ordering · ${measured} measured from customer orders`;
+
+    // Lowest cover first: the row that needs a decision soonest is the row a
+    // buyer should be looking at, whether or not it has crossed the line yet.
+    const rows = [...items].sort((a, b) =>
+      (a.weeks_cover === null ? 1e9 : a.weeks_cover) - (b.weeks_cover === null ? 1e9 : b.weeks_cover));
+
+    $("suggestions").innerHTML = rows.length ? rows.map((i) => {
+      const line = buy[i.sku];
+      const sold = i.observed_weekly === null
+        ? `<span style="color:var(--muted)" title="Nobody has bought this yet">—</span>`
+        : `${i.observed_weekly}<span style="color:var(--muted)">/wk</span>`;
+      // A typed forecast is called out only where one exists. Silence means the
+      // number beside it came from real orders, which is the normal case now.
+      const typed = i.forecast_source === "manual"
+        ? `<br><span style="color:var(--muted);font-size:0.75em">${i.entered_weekly}/wk typed, used instead</span>`
+        : "";
+      return `<tr${line ? ' style="background:rgba(150,90,40,0.07)"' : ""}>
+        <td><strong>${i.sku}</strong><br><span style="color:var(--muted)">${i.name}</span></td>
+        <td class="num">${sold}${typed}</td>
+        <td class="num">${i.on_hand}</td>
+        <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}</td>
+        <td class="num">${line ? line.suggest_quantity : "—"}</td>
+        <td class="num">${line ? money(line.line_total) : "—"}</td>
+        <td>${line ? `<button class="small" data-draft="${i.sku}">Draft</button>` : ""}</td></tr>`;
+    }).join("") : `<tr><td colspan="7" class="empty">No items yet</td></tr>`;
 
     $("suggestions").querySelectorAll("[data-draft]").forEach((b) =>
       b.addEventListener("click", () => busy(b, async () => {
@@ -482,32 +495,6 @@
           await refreshAll();
         } catch (err) { show($("createOut"), "Failed: " + err.message); }
       })));
-  }
-
-  async function loadDemand() {
-    const rows = await api("/items");
-    const measured = rows.filter((i) => i.observed_weekly !== null).length;
-    $("demandHint").textContent = measured
-      ? `${measured} of ${rows.length} items measured from customer orders`
-      : `${rows.length} items · no sales recorded yet`;
-    $("demand").innerHTML = rows.length ? rows.map((i) => {
-      // "Entered" and "Sold" are shown side by side even when the entered
-      // figure is the one being used. Seeing them disagree is the point.
-      const sold = i.observed_weekly === null
-        ? `<span style="color:var(--muted)">—</span>`
-        : `${i.observed_weekly}`;
-      const driver = i.forecast_source === "sales"
-        ? `<span title="No forecast was entered, so recent sales are driving it">sales</span>`
-        : i.forecast_source === "manual"
-          ? `<span style="color:var(--muted)">entered</span>`
-          : `<span style="color:var(--muted)">nothing — not planned</span>`;
-      return `<tr>
-        <td><strong>${i.sku}</strong><br><span style="color:var(--muted)">${i.name}</span></td>
-        <td class="num">${i.weekly_forecast || "—"}</td>
-        <td class="num">${sold}</td>
-        <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}</td>
-        <td>${driver}</td></tr>`;
-    }).join("") : `<tr><td colspan="5" class="empty">No items yet</td></tr>`;
   }
 
   async function loadOrders() {
@@ -838,7 +825,8 @@
     try {
       const out = await api("/demo/sample-data", { method: "POST" });
       show($("createOut"), out.written
-        .map((w) => `${w.sku} added for ${w.supplier}, ${out.weeks_cover} weeks of cover`)
+        .map((w) => `${w.sku} (${out.name}) drawn down from ${out.was_weeks_cover}`
+          + ` to ${out.weeks_cover} weeks of cover, on ${out.weekly_demand}/wk of real sales`)
         .join("\n"));
       await refreshAll();
     } catch (err) { show($("createOut"), "Failed: " + err.message); }
@@ -947,7 +935,7 @@
 
   async function refreshAll() {
     await loadSuppliers();
-    await Promise.all([loadSuggestions(), loadDemand(), loadOrders(), loadIssues()]);
+    await Promise.all([loadSuggestions(), loadOrders(), loadIssues()]);
   }
 
   // Failures are shown, success is not. A green light saying everything is fine

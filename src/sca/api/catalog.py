@@ -119,6 +119,10 @@ async def list_items(session: SessionDep, actor: ActorDep) -> list[dict]:
             "on_hand": snapshot.on_hand if snapshot else 0,
             "on_order": snapshot.on_order if snapshot else 0,
             "weekly_forecast": weekly,
+            # The effective figure above can be either source, so the typed one
+            # is reported separately. Collapsing them would make a row driven by
+            # sales look like it had a forecast entered that happened to agree.
+            "entered_weekly": manual if manual > 0 else None,
             "forecast_source": "manual" if manual > 0 else ("sales" if weekly else "none"),
             "observed_weekly": round(measured.weekly, 1) if measured else None,
             "weeks_cover": round(available / weekly, 1) if weekly else None,
