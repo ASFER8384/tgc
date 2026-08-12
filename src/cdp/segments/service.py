@@ -20,11 +20,13 @@ class SegmentService:
         *,
         required_consent: str | None = None,
         description: str | None = None,
+        brand: str | None = None,
     ) -> Segment:
         # Compile before storing. A definition that cannot compile is rejected at
         # authoring time, when someone is there to fix it, rather than at 2am when
-        # a campaign job runs.
-        compile_segment(definition, required_consent)
+        # a campaign job runs. That now includes the brand checks, so a segment
+        # that could never be lawfully evaluated cannot be saved at all.
+        compile_segment(definition, required_consent, brand=brand)
 
         segment = await self.session.scalar(select(Segment).where(Segment.key == key))
         if segment is None:
@@ -34,6 +36,7 @@ class SegmentService:
         segment.definition = definition
         segment.required_consent = required_consent
         segment.description = description
+        segment.brand = brand
 
         self.session.add(
             AuditLog(
@@ -41,7 +44,7 @@ class SegmentService:
                 action="segment.upsert",
                 entity="segment",
                 entity_id=key,
-                meta={"required_consent": required_consent},
+                meta={"required_consent": required_consent, "brand": brand},
             )
         )
         await self.session.flush()
@@ -51,7 +54,9 @@ class SegmentService:
         return await self.session.scalar(select(Segment).where(Segment.key == key))
 
     async def member_ids(self, segment: Segment) -> list[str]:
-        query = compile_segment(segment.definition, segment.required_consent)
+        query = compile_segment(
+            segment.definition, segment.required_consent, brand=segment.brand
+        )
         return list(await self.session.scalars(query))
 
     async def evaluate(self, key: str) -> list[str]:

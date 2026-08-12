@@ -50,7 +50,9 @@ class ActivationService:
 
         member_ids = list(
             await self.session.scalars(
-                compile_segment(segment.definition, segment.required_consent)
+                compile_segment(
+                    segment.definition, segment.required_consent, brand=segment.brand
+                )
             )
         )
 
@@ -65,7 +67,10 @@ class ActivationService:
         for person_id in member_ids:
             basis = destination.required_consent
             if basis is not None:
-                state = await self.consent.current(person_id)
+                # The destination's own requirement, checked against the brand
+                # sending the campaign. A segment with no brand cannot clear a
+                # brand-scoped grant, and is skipped rather than waved through.
+                state = await self.consent.current(person_id, segment.brand)
                 if not state.get(basis, False):
                     run.skipped_no_consent += 1
                     self.session.add(

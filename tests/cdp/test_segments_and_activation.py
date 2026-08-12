@@ -47,15 +47,26 @@ async def aleena_only_buyer(client) -> str:
     )
 
 
-async def grant(client, person_id: str, purpose: str, granted: bool = True) -> None:
+async def grant(
+    client, person_id: str, purpose: str, granted: bool = True, brand: str = "aleena"
+) -> None:
     response = await client.post(
         f"/persons/{person_id}/consent",
-        json={"purpose": purpose, "granted": granted, "source": "test"},
+        json={"purpose": purpose, "granted": granted, "source": "test", "brand": brand},
     )
     assert response.status_code == 200, response.text
 
 
-async def create_segment(client, *, required_consent: str | None = "marketing_whatsapp") -> None:
+async def allow_cross_brand(client, person_id: str, brand: str = "aleena") -> None:
+    """The segment below reads Rawash's history to serve Aleena, which is a
+    permission of its own. Granted separately in these tests so the messaging
+    grant and the brand-crossing grant stay visibly distinct."""
+    await grant(client, person_id, "cross_brand_profiling", brand=brand)
+
+
+async def create_segment(
+    client, *, required_consent: str | None = "marketing_whatsapp", brand: str = "aleena"
+) -> None:
     response = await client.post(
         "/segments",
         json={
@@ -63,6 +74,7 @@ async def create_segment(client, *, required_consent: str | None = "marketing_wh
             "name": "Aleena buyers who have never tried Rawash",
             "definition": CROSS_SELL,
             "required_consent": required_consent,
+            "brand": brand,
         },
     )
     assert response.status_code == 201, response.text
@@ -87,6 +99,7 @@ async def test_cross_sell_segment_selects_the_right_customer(client) -> None:
 
     for person in (target,):
         await grant(client, person, "marketing_whatsapp")
+        await allow_cross_brand(client, person)
 
     await create_segment(client)
     result = await client.post("/segments/aleena_no_rawash/evaluate")
@@ -100,7 +113,11 @@ async def test_consent_is_enforced_by_the_query_not_by_discipline(client) -> Non
     # No consent yet: the customer qualifies on behaviour and is still excluded.
     assert (await client.post("/segments/aleena_no_rawash/evaluate")).json()["size"] == 0
 
+    # One of the two grants is not enough — the audience reads Rawash history.
     await grant(client, target, "marketing_whatsapp")
+    assert (await client.post("/segments/aleena_no_rawash/evaluate")).json()["size"] == 0
+
+    await allow_cross_brand(client, target)
     assert (await client.post("/segments/aleena_no_rawash/evaluate")).json()["size"] == 1
 
     # The demo kill-switch: revoke, and she falls out immediately.
@@ -111,6 +128,7 @@ async def test_consent_is_enforced_by_the_query_not_by_discipline(client) -> Non
 async def test_activation_delivers_and_logs_per_person(client, session) -> None:
     target = await aleena_only_buyer(client)
     await grant(client, target, "marketing_whatsapp")
+    await allow_cross_brand(client, target)
     await create_segment(client)
 
     destination = MockDestination()
@@ -133,6 +151,7 @@ async def test_destination_reasserts_its_own_consent_purpose(client, session) ->
     that needs another. The skip is counted, not hidden."""
     target = await aleena_only_buyer(client)
     await grant(client, target, "personalization")
+    await allow_cross_brand(client, target)
     await create_segment(client, required_consent="personalization")
 
     destination = MockDestination()  # requires marketing_whatsapp
@@ -147,6 +166,7 @@ async def test_destination_reasserts_its_own_consent_purpose(client, session) ->
 async def test_unconfigured_real_destination_fails_loudly(client, session) -> None:
     target = await aleena_only_buyer(client)
     await grant(client, target, "marketing_whatsapp")
+    await allow_cross_brand(client, target)
     await create_segment(client)
 
     run = await ActivationService(
@@ -180,6 +200,7 @@ async def test_merged_person_is_counted_once(client, session) -> None:
 
     survivor = (await client.get(f"/persons/{instore}")).json()["person_id"]
     await grant(client, survivor, "marketing_whatsapp")
+    await allow_cross_brand(client, survivor)
     await create_segment(client)
 
     result = (await client.post("/segments/aleena_no_rawash/evaluate")).json()

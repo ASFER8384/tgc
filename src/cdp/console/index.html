@@ -176,6 +176,8 @@
   .tl.src-shopify_pos::before { background: var(--rawash); }
 
   .consent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.5rem; }
+  .consbrand { border: 1px solid var(--line); border-radius: 4px; padding: 0.5rem 0.6rem; }
+  .consbrand h4 { margin: 0 0 0.4rem; font-size: 0.7rem; font-weight: 500; }
   .cons { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px; padding: 0.4rem 0.6rem; font-size: 0.82rem; }
   .cons button { padding: 0.2rem 0.5rem; font-size: 0.72rem; }
 
@@ -466,6 +468,8 @@
           body: JSON.stringify({
             phone, name: name || null,
             event_name: "riyadh_park_popup",
+            // Whose stand she was standing at, which is who she agreed with.
+            brand: brand || "aleena",
             brand_interest: brand,
             language: "ar",
             consent_marketing_whatsapp: $("fConsent").checked,
@@ -505,7 +509,12 @@
         const [purpose, csource, evidence] = CONSENT_RULE[src];
         await api(`/persons/${result.person_id}/consent`, {
           method: "POST",
-          body: JSON.stringify({ purpose, granted: true, source: csource, evidence }),
+          // The brand on the form is the brand she agreed with. A WhatsApp
+          // opt-in during an Aleena order is an Aleena permission, and Rawash
+          // cannot lean on it.
+          body: JSON.stringify({
+            purpose, granted: true, source: csource, evidence, brand: brand || "aleena",
+          }),
         });
       }
 
@@ -553,7 +562,11 @@
           `<td>${brands}</td>` +
           `<td class="num">${r.order_count}</td>` +
           `<td class="num">${money(r.ltv)}</td>` +
-          `<td>${r.consent_marketing_whatsapp ? "<span class='tick'>opted in</span>" : "<span class='cross'>no consent</span>"}</td>`;
+          // Which brands may message her, not whether "we" may. Naming them is
+          // the only honest summary when the answer differs per brand.
+          `<td>${r.consent_whatsapp_brands.length
+            ? r.consent_whatsapp_brands.map((b) => `<span class="pill ${b}">${b}</span>`).join("")
+            : "<span class='cross'>no consent</span>"}</td>`;
         tr.addEventListener("click", () => openProfile(r.person_id));
         tbody.appendChild(tr);
       });
@@ -608,9 +621,14 @@
       const idchips = Object.entries(p.identifiers).flatMap(([kind, vals]) =>
         vals.map((v) => `<span class="idchip"><em>${kind.replace(/_/g, " ")}</em> ${v}</span>`)).join("");
 
-      const consent = Object.entries(p.consent).map(([purpose, granted]) =>
-        `<div class="cons"><span>${purpose.replace(/_/g, " ")} ${granted ? "<span class='tick'>✓</span>" : "<span class='cross'>✕</span>"}</span>
-         <button class="ghost" data-purpose="${purpose}" data-grant="${!granted}">${granted ? "Revoke" : "Grant"}</button></div>`).join("");
+      // Grouped by brand, because there is no company-wide answer to "may we
+      // contact her" — only one answer per brand, and they routinely differ.
+      const consent = Object.entries(p.consent).map(([brand, purposes]) =>
+        `<div class="consbrand"><h4><span class="pill ${brand}">${brand}</span></h4>` +
+        Object.entries(purposes).map(([purpose, granted]) =>
+          `<div class="cons"><span>${purpose.replace(/_/g, " ")} ${granted ? "<span class='tick'>✓</span>" : "<span class='cross'>✕</span>"}</span>
+           <button class="ghost" data-brand="${brand}" data-purpose="${purpose}" data-grant="${!granted}">${granted ? "Revoke" : "Grant"}</button></div>`
+        ).join("") + `</div>`).join("");
 
       const tl = p.timeline.map((e) => {
         const d = new Date(e.occurred_at);
@@ -643,6 +661,7 @@
             await api("/persons/" + id + "/consent", {
               method: "POST",
               body: JSON.stringify({
+                brand: btn.dataset.brand,
                 purpose: btn.dataset.purpose,
                 granted: btn.dataset.grant === "true",
                 source: btn.dataset.grant === "true" ? "console" : "whatsapp_stop",

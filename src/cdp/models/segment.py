@@ -24,6 +24,10 @@ class Segment(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text)
     definition: Mapped[dict] = mapped_column(JSONType, nullable=False)
     required_consent: Mapped[str | None] = mapped_column(String(32))
+    # Which brand this audience is *for*. Consent is granted per brand, so an
+    # audience with no brand cannot have its consent evaluated at all — this is
+    # the field that turns a stored query into an answerable one.
+    brand: Mapped[str | None] = mapped_column(String(64))
 
 
 class SegmentMember(Base):

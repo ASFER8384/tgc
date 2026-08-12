@@ -43,7 +43,10 @@ class PersonProfile(BaseModel):
     identifiers: dict[str, list[str]]
     traits: dict[str, object]
     brands: list[BrandStat]
-    consent: dict[str, bool]
+    # Brand -> purpose -> granted. Nested rather than flat because a flat map
+    # would have to answer "does she consent to WhatsApp" with one value, and
+    # that question has three different answers.
+    consent: dict[str, dict[str, bool]]
     timeline: list[TimelineEntry]
 
 
@@ -59,7 +62,7 @@ class PersonSummary(BaseModel):
     order_count: int
     ltv: Decimal
     brands: list[str]
-    consent_marketing_whatsapp: bool
+    consent_whatsapp_brands: list[str]
     last_order_at: datetime | None
 
 
@@ -113,7 +116,12 @@ async def list_persons(
                 order_count=trait.order_count if trait else 0,
                 ltv=trait.ltv if trait else Decimal("0"),
                 brands=brands.get(person.id, []),
-                consent_marketing_whatsapp=current.get("marketing_whatsapp", False),
+                # The list column answers "can anyone reach her", which is the
+                # useful question when scanning hundreds of rows. Which brand
+                # may is on the profile, where a decision actually gets made.
+                consent_whatsapp_brands=sorted(
+                    b for b, purposes in current.items() if purposes["marketing_whatsapp"]
+                ),
                 last_order_at=trait.last_order_at if trait else None,
             )
         )
@@ -204,19 +212,32 @@ async def get_person(person_id: str, session: SessionDep, actor: ActorDep) -> Pe
 class ConsentIn(BaseModel):
     purpose: str
     granted: bool
+    # No default. Recording which brand she agreed with is the whole point, and
+    # a default would silently attribute every console entry to one of them.
+    brand: str
     source: str = "console"
     evidence: str | None = None
 
 
-@router.post("/{person_id}/consent", response_model=dict[str, bool])
+@router.post("/{person_id}/consent", response_model=dict)
 async def set_consent(
     person_id: str, body: ConsentIn, session: SessionDep, actor: ActorDep
-) -> dict[str, bool]:
+) -> dict:
+    """Record a grant or a withdrawal, and return the state brand by brand.
+
+    The response is a table rather than a flat map because there is no single
+    answer to "may we contact her" — only three, one per brand.
+    """
     service = ConsentService(session, actor=actor)
     canonical_id = await IdentityService(session, actor=actor).canonical_id(person_id)
     try:
         await service.record(
-            canonical_id, body.purpose, body.granted, source=body.source, evidence=body.evidence
+            canonical_id,
+            body.purpose,
+            body.granted,
+            brand=body.brand,
+            source=body.source,
+            evidence=body.evidence,
         )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

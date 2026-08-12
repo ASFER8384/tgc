@@ -36,7 +36,16 @@ class IngestService:
             select(RawEvent).where(RawEvent.dedupe_key == event.dedupe_key)
         )
         if existing is not None:
-            return IngestResult(accepted=True, duplicate=True)
+            # A redelivery is not an unknown. The person this event resolved to
+            # the first time is recorded, so return it rather than nothing —
+            # otherwise a caller retrying a webhook loses the ability to act on
+            # the customer, and cannot tell "already seen" from "unresolvable".
+            # Read from the stored row rather than re-resolving: resolution
+            # creates and merges, and a duplicate must not do either.
+            person_id = await self.session.scalar(
+                select(Event.person_id).where(Event.raw_event_id == existing.id).limit(1)
+            )
+            return IngestResult(accepted=True, duplicate=True, person_id=person_id)
 
         raw = RawEvent(
             source=event.source,

@@ -116,6 +116,7 @@ async def test_activation_capture_records_consent_with_evidence(client, session)
             "phone": "0561234567",
             "name": "Latifa",
             "event_name": "riyadh_park_popup",
+            "brand": "rawash",
             "brand_interest": "rawash",
             "language": "ar",
             "consent_marketing_whatsapp": True,
@@ -133,20 +134,25 @@ async def test_activation_capture_records_consent_with_evidence(client, session)
     }
     assert rows["marketing_whatsapp"].granted is True
     assert rows["marketing_email"].granted is False
-    # "Prove she agreed" is the question a regulator asks.
+    # "Prove she agreed" is the question a regulator asks — and the answer has
+    # to name the brand she agreed with, not the company she never met.
     assert rows["marketing_whatsapp"].source == "activation_form"
+    assert rows["marketing_whatsapp"].brand == "rawash"
     assert "riyadh_park_popup" in rows["marketing_whatsapp"].evidence
 
     profile = (await client.get(f"/persons/{person_id}")).json()
     assert profile["identifiers"]["phone"] == ["+966561234567"]
-    assert profile["consent"]["marketing_whatsapp"] is True
-    assert profile["consent"]["personalization"] is False
+    assert profile["consent"]["rawash"]["marketing_whatsapp"] is True
+    assert profile["consent"]["rawash"]["personalization"] is False
+    # She stood at the Rawash stand. Aleena was not part of that conversation.
+    assert profile["consent"]["aleena"]["marketing_whatsapp"] is False
 
 
 async def test_unknown_consent_purpose_is_rejected(client) -> None:
     person_id = (await ingest(client, shopify_order(order_id=7030)))["person_id"]
     response = await client.post(
-        f"/persons/{person_id}/consent", json={"purpose": "sell_to_anyone", "granted": True}
+        f"/persons/{person_id}/consent",
+        json={"purpose": "sell_to_anyone", "granted": True, "brand": "aleena"},
     )
     assert response.status_code == 400
 

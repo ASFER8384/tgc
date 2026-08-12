@@ -2,7 +2,7 @@
 registers metadata for Alembic autogenerate and for the test schema builder."""
 
 from cdp.models.base import Base, JSONType, TimestampMixin, new_id
-from cdp.models.consent import PURPOSES, ConsentEvent
+from cdp.models.consent import BRANDS, PURPOSES, ConsentEvent
 from cdp.models.event import AuditLog, Event, RawEvent
 from cdp.models.person import (
     STRONG_KINDS,
@@ -21,6 +21,7 @@ from cdp.models.segment import (
 )
 
 __all__ = [
+    "BRANDS",
     "PURPOSES",
     "STRONG_KINDS",
     "WEAK_KINDS",

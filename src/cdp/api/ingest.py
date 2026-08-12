@@ -63,6 +63,10 @@ class ActivationCapture(BaseModel):
     name: str | None = None
     email: str | None = None
     event_name: str = Field(default="mall_activation")
+    # Which brand's stand she stood at. It is the brand she agreed with, so it
+    # is required now rather than optional: a tick on a form with no brand on it
+    # is not a grant anybody can rely on later.
+    brand: str
     brand_interest: str | None = None
     language: str | None = None
     consent_marketing_whatsapp: bool = False
@@ -88,7 +92,11 @@ async def activation_capture(
         channel="activation",
         language=body.language,
         display_name=body.name,
-        payload={"event_name": body.event_name, "brand_interest": body.brand_interest},
+        payload={
+            "event_name": body.event_name,
+            "brand": body.brand,
+            "brand_interest": body.brand_interest,
+        },
     )
     service = IngestService(session, actor=actor, country_code=settings.default_country_code)
     result = await service.ingest(event)
@@ -103,6 +111,7 @@ async def activation_capture(
                 result.person_id,
                 purpose,
                 granted,
+                brand=body.brand,
                 source="activation_form",
                 evidence=f"{body.event_name} capture form",
                 occurred_at=now,

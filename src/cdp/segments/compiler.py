@@ -4,7 +4,11 @@ from typing import Any
 from sqlalchemy import Select, and_, exists, or_, select, true
 
 from cdp.consent.service import latest_consent_subquery
-from cdp.models import PURPOSES, Person, PersonBrandStat, ProfileTraits
+from cdp.models import BRANDS, PURPOSES, Person, PersonBrandStat, ProfileTraits
+
+# The grant that lets one brand read another brand's behaviour. Named here
+# because the compiler, not the campaign, decides when it is required.
+CROSS_BRAND_PURPOSE = "cross_brand_profiling"
 
 
 class SegmentDefinitionError(ValueError):
@@ -103,19 +107,72 @@ def _is_group(node: Any) -> bool:
     return isinstance(node, dict) and bool({"all", "any", "none"} & set(node))
 
 
-def compile_segment(definition: dict[str, Any], required_consent: str | None) -> Select:
-    """Compile a stored definition into a person-id query.
+def referenced_brands(definition: Any) -> set[str]:
+    """Every brand whose behaviour a definition reads.
 
-    Two invariants are enforced here rather than left to callers:
+    ``brand_not_purchased`` counts as much as ``brand_purchased``. Knowing that
+    she has *never* bought Rawash is still a fact derived from Rawash's data,
+    and the whole cross-brand upsell rests on it — treating the negative as
+    harmless would leave the most common cross-brand audience ungated.
+    """
+    found: set[str] = set()
+    if isinstance(definition, list):
+        for node in definition:
+            found |= referenced_brands(node)
+        return found
+    if not isinstance(definition, dict):
+        return found
+    for key in ("brand_purchased", "brand_not_purchased"):
+        if key in definition:
+            found.add(str(definition[key]).lower())
+    for key in ("all", "any", "none"):
+        if key in definition:
+            found |= referenced_brands(definition[key])
+    return found
+
+
+def compile_segment(
+    definition: dict[str, Any], required_consent: str | None, *, brand: str | None = None
+) -> Select:
+    """Compile a stored definition into a person-id query, for one asking brand.
+
+    Three invariants are enforced here rather than left to callers:
 
     1. merged-away persons are excluded, so a merge can never double-count a
        customer in an audience;
     2. when the segment declares a consent purpose, the gate is part of the WHERE
-       clause. There is no code path that produces the member list without it, so
-       "we forgot to filter opt-outs" is not an available mistake.
+       clause, scoped to the asking brand. There is no code path that produces
+       the member list without it, so "we forgot to filter opt-outs" is not an
+       available mistake;
+    3. when the definition reads another brand's behaviour, a second gate
+       requires that brand-crossing to have been agreed to as well.
+
+    The gates are conditions in the query, not a filter applied to its results.
+    Someone who did not agree is never selected, so the audience containing her
+    is never built — which is a stronger property than removing her afterwards,
+    and the one the whole design exists to provide.
     """
     if required_consent is not None and required_consent not in PURPOSES:
         raise SegmentDefinitionError(f"unknown consent purpose: {required_consent!r}")
+    if brand is not None and brand not in BRANDS:
+        raise SegmentDefinitionError(f"unknown brand: {brand!r}")
+
+    crossed = referenced_brands(definition) - ({brand} if brand else set())
+
+    # Refusing here rather than returning nobody. An unscoped request that reads
+    # brand data has no answer, right or empty: without knowing who is asking,
+    # there is no consent to evaluate. An empty list would read as "no matching
+    # customers" when the truth is "this question cannot be asked".
+    if crossed and brand is None:
+        raise SegmentDefinitionError(
+            "a definition that reads brand behaviour must name the brand it is for: "
+            f"referenced {sorted(crossed)}"
+        )
+    if required_consent is not None and brand is None:
+        raise SegmentDefinitionError(
+            f"consent purpose {required_consent!r} is granted per brand, so the "
+            "asking brand must be named"
+        )
 
     query = (
         select(Person.id)
@@ -125,6 +182,11 @@ def compile_segment(definition: dict[str, Any], required_consent: str | None) ->
     )
 
     if required_consent is not None:
-        query = query.where(latest_consent_subquery(required_consent, Person.id).is_(True))
+        query = query.where(latest_consent_subquery(required_consent, Person.id, brand).is_(True))
+
+    if crossed:
+        query = query.where(
+            latest_consent_subquery(CROSS_BRAND_PURPOSE, Person.id, brand).is_(True)
+        )
 
     return query

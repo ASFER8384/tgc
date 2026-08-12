@@ -257,17 +257,27 @@ class Seeder:
                     if person.shopify_id % 10 < 8:
                         person_id = response.json().get("person_id")
                         if person_id:
-                            for purpose in ("marketing_whatsapp", "personalization"):
-                                await self._post(
-                                    client,
-                                    f"/persons/{person_id}/consent",
-                                    json={
-                                        "purpose": purpose,
-                                        "granted": True,
-                                        "source": "shopify_checkout",
-                                        "evidence": "checkout opt-in checkbox",
-                                    },
-                                )
+                            # One grant per brand she bought from — the checkout
+                            # box belongs to that brand's checkout. Cross-brand
+                            # profiling goes to a subset, so the audiences that
+                            # need it are visibly smaller than those that do not.
+                            bought = {o["brand"].lower() for o in orders}
+                            purposes = ["marketing_whatsapp", "personalization"]
+                            if person.shopify_id % 2 == 0:
+                                purposes.append("cross_brand_profiling")
+                            for brand in sorted(bought):
+                                for purpose in purposes:
+                                    await self._post(
+                                        client,
+                                        f"/persons/{person_id}/consent",
+                                        json={
+                                            "purpose": purpose,
+                                            "granted": True,
+                                            "brand": brand,
+                                            "source": "shopify_checkout",
+                                            "evidence": "checkout opt-in checkbox",
+                                        },
+                                    )
 
             await asyncio.gather(*(place(p, o) for p, o in plan.items() if o))
 

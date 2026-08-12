@@ -120,6 +120,7 @@ SEGMENTS = [
             ]
         },
         "required_consent": "marketing_whatsapp",
+        "brand": "aleena",
     },
     {
         "key": "lapsing_high_value",
@@ -132,6 +133,7 @@ SEGMENTS = [
             ]
         },
         "required_consent": "marketing_whatsapp",
+        "brand": "aleena",
     },
     {
         "key": "arabic_speaking_repeat",
@@ -143,6 +145,7 @@ SEGMENTS = [
             ]
         },
         "required_consent": "personalization",
+        "brand": "rawash",
     },
 ]
 
@@ -200,17 +203,29 @@ class Seeder:
 
                 # Most, not all, have opted in — a demo where everyone consented
                 # cannot show the consent gate doing anything.
+                #
+                # Granted per brand she actually bought from, because that is
+                # where the checkout box was. And cross-brand profiling goes to
+                # roughly half of them: an audience built from one brand to
+                # serve another needs it, so a demo where everybody had it would
+                # hide the gate that matters most here.
                 if person_id and index != 1:
-                    for purpose in ("marketing_whatsapp", "personalization"):
-                        await client.post(
-                            f"/persons/{person_id}/consent",
-                            json={
-                                "purpose": purpose,
-                                "granted": True,
-                                "source": "shopify_checkout",
-                                "evidence": "checkout opt-in checkbox",
-                            },
-                        )
+                    bought = {brand.lower() for brand, _, _ in orders}
+                    purposes = ["marketing_whatsapp", "personalization"]
+                    if index % 2 == 0:
+                        purposes.append("cross_brand_profiling")
+                    for brand in bought:
+                        for purpose in purposes:
+                            await client.post(
+                                f"/persons/{person_id}/consent",
+                                json={
+                                    "purpose": purpose,
+                                    "granted": True,
+                                    "brand": brand,
+                                    "source": "shopify_checkout",
+                                    "evidence": "checkout opt-in checkbox",
+                                },
+                            )
 
             await self._recent_sales(client)
 
@@ -221,6 +236,7 @@ class Seeder:
                     "phone": "0561234567",
                     "name": "Latifa Al Shammari",
                     "event_name": "riyadh_park_popup",
+                    "brand": "rawash",
                     "brand_interest": "rawash",
                     "language": "ar",
                     "consent_marketing_whatsapp": True,

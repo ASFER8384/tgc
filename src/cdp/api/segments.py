@@ -27,6 +27,10 @@ class SegmentIn(BaseModel):
     )
     required_consent: str | None = "marketing_whatsapp"
     description: str | None = None
+    # Which brand is asking. Required in practice for anything that names a
+    # consent purpose or reads brand behaviour — the compiler refuses without it
+    # rather than quietly answering for the whole company.
+    brand: str | None = None
 
 
 class SegmentOut(BaseModel):
@@ -35,6 +39,7 @@ class SegmentOut(BaseModel):
     definition: dict
     required_consent: str | None
     description: str | None
+    brand: str | None
 
 
 class EvaluationOut(BaseModel):
@@ -62,6 +67,7 @@ async def list_segments(session: SessionDep, actor: ActorDep) -> list[SegmentOut
             definition=s.definition,
             required_consent=s.required_consent,
             description=s.description,
+            brand=s.brand,
         )
         for s in rows
     ]
@@ -76,6 +82,7 @@ async def upsert_segment(body: SegmentIn, session: SessionDep, actor: ActorDep) 
             body.definition,
             required_consent=body.required_consent,
             description=body.description,
+            brand=body.brand,
         )
     except SegmentDefinitionError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
@@ -85,6 +92,7 @@ async def upsert_segment(body: SegmentIn, session: SessionDep, actor: ActorDep) 
         definition=segment.definition,
         required_consent=segment.required_consent,
         description=segment.description,
+        brand=segment.brand,
     )
 
 
