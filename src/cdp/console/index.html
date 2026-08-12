@@ -191,6 +191,11 @@
   .seg-size { font-family: var(--display); font-size: 1.2rem; font-variant-numeric: tabular-nums; min-width: 1.4rem; text-align: right; }
   .seg-out { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); flex-basis: 100%; }
 
+  .cust-tools { display: flex; align-items: center; gap: 0.6rem; }
+  .cust-tools input { width: 210px; font-size: 0.82rem; padding: 0.3rem 0.5rem; }
+  .more { padding: 0.7rem 1rem; border-top: 1px solid var(--rule); text-align: center; }
+  .more button { background: transparent; color: var(--accent); border: none; font-size: 0.82rem; padding: 0; }
+
   /* proof strip — the three questions a sceptic asks, answered from live data */
   .proof { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; }
   .proof .panel-body { gap: 0.35rem; }
@@ -350,7 +355,10 @@
       <div class="panel">
         <div class="panel-head">
           <h2>Customers</h2>
-          <span class="hint" id="custHint">one row per human</span>
+          <div class="cust-tools">
+            <input id="custSearch" placeholder="Search name, phone or email" autocomplete="off" />
+            <span class="hint" id="custHint">one row per human</span>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -364,6 +372,9 @@
               <tr><td colspan="5" class="empty">Connect to load customers.</td></tr>
             </tbody>
           </table>
+        </div>
+        <div class="more" id="custMore" hidden>
+          <button id="custMoreBtn" class="ghost">Show all</button>
         </div>
       </div>
 
@@ -394,7 +405,7 @@
 <script>
   const API = "";
   const $ = (id) => document.getElementById(id);
-  const state = { key: "", source: "shopify", selected: null };
+  const state = { key: "", source: "shopify", selected: null, showAllCustomers: false };
 
   const BRAND_DEFAULTS = {
     aleena: { product: "Embroidered abaya", amount: 520 },
@@ -666,13 +677,32 @@
   /* ---------- customers ---------- */
   const money = (v) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
+  // Eighty-six rows in one scroll is a database dump, not a console. The list
+  // opens on the customers worth the most and gets out of the way; anyone else
+  // is reached by searching for her, which is how she is actually looked up —
+  // somebody is on the phone and gives a name or a number.
+  const CUSTOMERS_SHOWN = 6;
+
   async function loadCustomers() {
     const tbody = $("customers");
     tbody.innerHTML = "<tr><td colspan='5' class='empty'><span class='spin'></span> loading…</td></tr>";
     try {
-      const rows = await api("/persons?limit=200");
-      $("custHint").textContent = rows.length + " people · one row per human";
-      if (!rows.length) { tbody.innerHTML = "<tr><td colspan='5' class='empty'>No customers yet.</td></tr>"; return; }
+      const term = $("custSearch").value.trim();
+      const all = await api("/persons?limit=200" + (term ? "&q=" + encodeURIComponent(term) : ""));
+      const rows = state.showAllCustomers || term ? all : all.slice(0, CUSTOMERS_SHOWN);
+      $("custHint").textContent = term
+        ? `${all.length} match${all.length === 1 ? "" : "es"}`
+        : `${all.length} people · one row per human`;
+      if (!all.length) {
+        tbody.innerHTML = `<tr><td colspan='5' class='empty'>${term ? "Nobody by that name or number." : "No customers yet."}</td></tr>`;
+        $("custMore").hidden = true;
+        return;
+      }
+      // Hidden while searching: the count would be measuring the wrong set.
+      $("custMore").hidden = !!term || all.length <= CUSTOMERS_SHOWN;
+      $("custMoreBtn").textContent = state.showAllCustomers
+        ? "Show top " + CUSTOMERS_SHOWN
+        : `Show all ${all.length}`;
       tbody.innerHTML = "";
       rows.forEach((r) => {
         const tr = document.createElement("tr");
@@ -907,6 +937,20 @@
     setConn(false, "no working API key — type one");
     askForKey(true);
   }
+
+  $("custMoreBtn").addEventListener("click", () => {
+    state.showAllCustomers = !state.showAllCustomers;
+    loadCustomers();
+  });
+
+  // Debounced: the search runs against the identifier table, and firing it on
+  // every keystroke would ask the database a question nobody has finished
+  // asking yet.
+  let searchTimer;
+  $("custSearch").addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadCustomers, 220);
+  });
 
   $("connect").addEventListener("click", () => connect(true));
   $("apiKey").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(true); });

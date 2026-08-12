@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from cdp.api.deps import ActorDep, SessionDep
 from cdp.consent.service import ConsentService
@@ -69,15 +69,34 @@ class PersonSummary(BaseModel):
 
 @router.get("", response_model=list[PersonSummary])
 async def list_persons(
-    session: SessionDep, actor: ActorDep, limit: int = 100
+    session: SessionDep, actor: ActorDep, limit: int = 100, q: str | None = None
 ) -> list[PersonSummary]:
     # Merge losers keep their row and point at the winner; the list shows humans,
     # so those are excluded rather than shown twice.
-    people = list(
-        await session.scalars(
-            select(Person).where(Person.merged_into_id.is_(None)).limit(limit)
+    query = select(Person).where(Person.merged_into_id.is_(None))
+
+    if q:
+        # Searched by whatever the person on the phone actually has to hand: a
+        # name, or the number she is calling from. Matching identifiers rather
+        # than only the display name is the point of resolution — a customer who
+        # gave her email once and her phone another time is found by either.
+        needle = f"%{q.strip().lower()}%"
+        query = query.where(
+            Person.id.in_(
+                select(Identifier.person_id).where(func.lower(Identifier.value).like(needle))
+            )
+            | func.lower(func.coalesce(Person.display_name, "")).like(needle)
         )
+
+    # Ranked in the database, not after the fetch: sorting a page that was itself
+    # chosen arbitrarily would put the biggest customers off the end of the list
+    # as soon as there are more of them than the limit.
+    query = (
+        query.outerjoin(ProfileTraits, ProfileTraits.person_id == Person.id)
+        .order_by(func.coalesce(ProfileTraits.ltv, 0).desc(), Person.id)
+        .limit(limit)
     )
+    people = list(await session.scalars(query))
     ids = [p.id for p in people]
     if not ids:
         return []
@@ -126,7 +145,8 @@ async def list_persons(
                 last_order_at=trait.last_order_at if trait else None,
             )
         )
-    summaries.sort(key=lambda s: (s.ltv, s.order_count), reverse=True)
+    # Already ordered by the query. Re-sorting here would only be a second, and
+    # eventually disagreeing, opinion about what "top customers" means.
     return summaries
 
 
