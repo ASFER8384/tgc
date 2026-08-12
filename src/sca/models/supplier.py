@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Integer, Numeric, String
+from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sca.models.base import Base, TimestampMixin, new_id
@@ -58,6 +58,44 @@ class Item(Base, TimestampMixin):
     moq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     pack_size: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     unit_cost: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+
+
+class SupplierItem(Base, TimestampMixin):
+    """What one supplier will make, and on what terms.
+
+    Price, minimum order, pack size and lead time were never properties of the
+    product — they are properties of buying it from a particular mill. Holding
+    them on the item forced one supplier per SKU, which is not how sourcing
+    works: nobody makes everything, one mill does the abaya and another the
+    packaging, and the same silk can be quoted by two.
+
+    Splitting them here is what makes a comparison possible at all. The item
+    keeps what the thing *is*; this keeps what it costs to get it from them.
+    """
+
+    __tablename__ = "supplier_items"
+    __table_args__ = (
+        UniqueConstraint("supplier_id", "sku", name="uq_supplier_items_supplier_sku"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    supplier_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("suppliers.id"), nullable=False, index=True
+    )
+    sku: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+    unit_cost: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    # Their currency, not ours. Two quotes in different currencies cannot be
+    # compared without saying which is which, and converting on the way in would
+    # bake today's rate into a price that outlives it.
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="SAR")
+    moq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    pack_size: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Per SKU, because a mill that turns packaging in ten days may take
+    # six weeks over a woven abaya. Null falls back to the supplier's own
+    # figure rather than inventing one.
+    lead_time_days: Mapped[int | None] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class StockSnapshot(Base, TimestampMixin):

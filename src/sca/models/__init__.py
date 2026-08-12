@@ -15,7 +15,7 @@ from sca.models.order import (
     PurchaseOrderLine,
     Shipment,
 )
-from sca.models.supplier import CHANNELS, Item, StockSnapshot, Supplier
+from sca.models.supplier import CHANNELS, Item, StockSnapshot, Supplier, SupplierItem
 
 __all__ = [
     "ALLOWED_TRANSITIONS",
@@ -37,6 +37,7 @@ __all__ = [
     "Shipment",
     "StockSnapshot",
     "Supplier",
+    "SupplierItem",
     "TimestampMixin",
     "UTCDateTime",
     "new_id",

@@ -79,8 +79,19 @@ async def suggest(session: SessionDep, actor: ActorDep) -> dict:
     for suggestion in suggestions:
         grouped.setdefault(suggestion.supplier_id, []).append(suggestion.as_dict())
     suppliers = {s.id: s.name for s in await session.scalars(select(Supplier))}
+    settings = get_settings()
     return {
         "count": len(suggestions),
+        # The rule, sent rather than restated in the console. A buyer approving
+        # spend is entitled to know what produced the number, and a copy of these
+        # thresholds written into the page would drift the first time one is
+        # tuned here — leaving the explanation confidently describing a policy
+        # the system no longer follows.
+        "policy": {
+            "demand_window_weeks": settings.demand_window_weeks,
+            "reorder_cover_weeks": settings.reorder_cover_weeks,
+            "target_cover_weeks": settings.target_cover_weeks,
+        },
         "by_supplier": [
             {
                 "supplier_id": supplier_id,
@@ -98,6 +109,10 @@ class CreateOrdersIn(BaseModel):
     # morning routine; naming one is the buyer who wants that line and not the
     # rest, usually because the rest is still being argued about.
     skus: list[str] = []
+    # Where the buyer has overruled the ranking. Cheapest-for-the-quantity is
+    # where the cursor starts, not a verdict: a line covering a launch is worth
+    # paying more to get sooner, and that judgement is theirs.
+    supplier_by_sku: dict[str, str] = {}
 
 
 @router.post("/planning/create-orders", status_code=status.HTTP_201_CREATED)
@@ -107,18 +122,36 @@ async def create_from_suggestions(
     """One draft per supplier, not one per line: a buyer sends an order, not a
     stream of individual requests, and consolidating is what earns the freight."""
     wanted = set(body.skus) if body and body.skus else None
+    picked = dict(body.supplier_by_sku) if body else {}
     suggestions = await PlanningService(session).suggest()
     if wanted is not None:
         suggestions = [s for s in suggestions if s.sku in wanted]
     service = OrderService(session, actor=actor)
     grouped: dict[str, list[dict]] = {}
     for suggestion in suggestions:
-        grouped.setdefault(suggestion.supplier_id, []).append(
+        supplier_id = suggestion.supplier_id
+        quantity = suggestion.suggest_quantity
+        unit_price = suggestion.unit_cost
+        code = picked.get(suggestion.sku)
+        if code:
+            # Their terms, not the ranked one's: switching supplier changes the
+            # minimum order and the pack size, so carrying the old quantity
+            # across would draft something they will reject.
+            option = next((o for o in suggestion.options if o["code"] == code), None)
+            if option is None:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    f"{code} does not supply {suggestion.sku}",
+                )
+            supplier_id = option["supplier_id"]
+            quantity = option["quantity"]
+            unit_price = Decimal(option["unit_cost"])
+        grouped.setdefault(supplier_id, []).append(
             {
                 "sku": suggestion.sku,
                 "description": suggestion.description,
-                "quantity": suggestion.suggest_quantity,
-                "unit_price": suggestion.unit_cost,
+                "quantity": quantity,
+                "unit_price": unit_price,
             }
         )
     created = []
