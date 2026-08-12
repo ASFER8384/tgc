@@ -49,10 +49,44 @@ class Stitching:
     people: int
     merges: int
     open_reviews: int
+    # Counted apart, because they are the only ones the claim is about. A cart
+    # token is a browser session, not a way to reach anybody, and there are
+    # fourteen of them for every phone number — so a ratio taken over all
+    # identifiers describes browsing volume while appearing to describe
+    # resolution. Reported here at 2.9 rather than 17, which is the true and
+    # far less flattering number, and the one that survives being asked about.
+    strong: int = 0
 
     @property
     def identifiers_per_person(self) -> float:
-        return round(self.identifiers / self.people, 2) if self.people else 0.0
+        return round(self.strong / self.people, 2) if self.people else 0.0
+
+    @property
+    def weak(self) -> int:
+        return max(0, self.identifiers - self.strong)
+
+
+@dataclass(frozen=True)
+class CrossBrand:
+    """How many customers are shared between the brands.
+
+    The one number three separate Shopify stores physically cannot produce.
+    Each store knows its own buyers; only something holding all three knows that
+    most of them are the same women.
+    """
+
+    buyers: int
+    two_or_more: int
+    all_three: int
+    # One row per person per brand: what three stores counting independently
+    # would report between them, since each counts her once. Measured rather
+    # than derived — buyers plus multi-brand buyers is not the same number, and
+    # is wrong the moment anybody shops all three.
+    counted_separately: int = 0
+
+    @property
+    def share(self) -> float:
+        return round(self.two_or_more / self.buyers, 3) if self.buyers else 0.0
 
 
 @dataclass(frozen=True)
@@ -114,6 +148,7 @@ class Slice:
 @dataclass(frozen=True)
 class Proof:
     stitching: Stitching
+    cross_brand: CrossBrand
     attribution: Attribution
     refusals: Refusals
     trend: list[Point]
@@ -137,6 +172,7 @@ class ProofService:
     async def collect(self) -> Proof:
         return Proof(
             stitching=await self.stitching(),
+            cross_brand=await self.cross_brand(),
             attribution=await self.attribution(),
             refusals=await self.refusals(),
             trend=await self.trend(),
@@ -216,8 +252,43 @@ class ProofService:
             for source, amount, count in rows
         ]
 
+    async def cross_brand(self) -> CrossBrand:
+        counted = (
+            select(
+                PersonBrandStat.person_id,
+                func.count(func.distinct(PersonBrandStat.brand)).label("brands"),
+            )
+            .group_by(PersonBrandStat.person_id)
+            .subquery()
+        )
+        buyers = await self.session.scalar(select(func.count()).select_from(counted)) or 0
+        two = (
+            await self.session.scalar(
+                select(func.count()).select_from(counted).where(counted.c.brands >= 2)
+            )
+            or 0
+        )
+        three = (
+            await self.session.scalar(
+                select(func.count()).select_from(counted).where(counted.c.brands >= 3)
+            )
+            or 0
+        )
+        separately = (
+            await self.session.scalar(select(func.count()).select_from(PersonBrandStat)) or 0
+        )
+        return CrossBrand(
+            buyers=buyers, two_or_more=two, all_three=three, counted_separately=separately
+        )
+
     async def stitching(self) -> Stitching:
         identifiers = await self.session.scalar(select(func.count(Identifier.id))) or 0
+        strong = (
+            await self.session.scalar(
+                select(func.count(Identifier.id)).where(Identifier.kind.in_(STRONG_KINDS))
+            )
+            or 0
+        )
         people = await self.session.scalar(_live_person()) or 0
         merges = (
             await self.session.scalar(
@@ -232,7 +303,8 @@ class ProofService:
             or 0
         )
         return Stitching(
-            identifiers=identifiers, people=people, merges=merges, open_reviews=open_reviews
+            identifiers=identifiers, people=people, merges=merges,
+            open_reviews=open_reviews, strong=strong,
         )
 
     async def attribution(self) -> Attribution:

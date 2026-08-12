@@ -9,10 +9,22 @@ router = APIRouter(tags=["proof"])
 
 class StitchingOut(BaseModel):
     identifiers: int
+    # The ratio is taken over these, not over everything: a cart token is a
+    # browser session and there are fourteen of them per phone number.
+    strong: int
+    weak: int
     people: int
     identifiers_per_person: float
     merges: int
     open_reviews: int
+
+
+class CrossBrandOut(BaseModel):
+    buyers: int
+    two_or_more: int
+    all_three: int
+    counted_separately: int
+    share: float
 
 
 class AttributionOut(BaseModel):
@@ -45,6 +57,7 @@ class SliceOut(BaseModel):
 
 class ProofOut(BaseModel):
     stitching: StitchingOut
+    cross_brand: CrossBrandOut
     attribution: AttributionOut
     refusals: RefusalsOut
     trend: list[PointOut]
@@ -60,10 +73,19 @@ async def proof(session: SessionDep, actor: ActorDep) -> ProofOut:
     return ProofOut(
         stitching=StitchingOut(
             identifiers=result.stitching.identifiers,
+            strong=result.stitching.strong,
+            weak=result.stitching.weak,
             people=result.stitching.people,
             identifiers_per_person=result.stitching.identifiers_per_person,
             merges=result.stitching.merges,
             open_reviews=result.stitching.open_reviews,
+        ),
+        cross_brand=CrossBrandOut(
+            buyers=result.cross_brand.buyers,
+            two_or_more=result.cross_brand.two_or_more,
+            all_three=result.cross_brand.all_three,
+            counted_separately=result.cross_brand.counted_separately,
+            share=result.cross_brand.share,
         ),
         attribution=AttributionOut(
             currency=result.attribution.currency,

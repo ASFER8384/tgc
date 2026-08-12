@@ -687,8 +687,8 @@
 
     <div class="panel">
       <div class="panel-head">
-        <h2>Revenue with a name on it</h2>
-        <span class="hint">reach</span>
+        <h2>One woman, three brands</h2>
+        <span class="hint">overlap</span>
       </div>
       <div class="panel-body">
         <div class="big" id="pfShare">—</div>
@@ -1148,7 +1148,11 @@
     try { p = await api("/proof"); } catch { return; }
 
     const s = p.stitching;
-    $("pfStitch").innerHTML = `${s.identifiers} <small>records →</small> ${s.people} <small>people</small>`;
+    // Strong records only. Counting cart tokens here would say seventeen
+    // records per customer when fourteen of them are browser sessions nobody
+    // can be reached on — a bigger number that falls apart on the first
+    // question about it.
+    $("pfStitch").innerHTML = `${s.strong} <small>records →</small> ${s.people} <small>people</small>`;
     // The ratio is the claim, not the merge count. Most records land on the
     // right person the moment they arrive, because the phone or email already
     // belongs to her — a merge only happens when two separate profiles had
@@ -1159,21 +1163,26 @@
         + `phone, email, till receipt, WhatsApp. The console shows one woman.`
       : "Each record is still its own customer — nothing has been joined yet.";
     const notes = [];
+    if (s.weak) notes.push(`${s.weak} anonymous browser session(s) held separately`);
     if (s.merges) notes.push(`${s.merges} separate profile(s) later found to be one person`);
     if (s.open_reviews) notes.push(`<span class="warn">${s.open_reviews} too risky to guess — waiting for a human</span>`);
     $("pfStitchSub").innerHTML = notes.join(" · ");
 
+    // Replaces revenue-attached, which could only ever read 100% here because
+    // every seeded order carries a customer. This one is the claim three
+    // separate Shopify stores cannot make at all: each knows its own buyers,
+    // and only something holding all three knows they are the same women.
     const a = p.attribution;
-    const pct = Math.round(a.share * 100);
-    $("pfShare").innerHTML = `${pct}%`;
+    const cb = p.cross_brand;
+    const pct = Math.round(cb.share * 100);
+    $("pfShare").innerHTML = cb.buyers ? `${pct}%` : "—";
     $("pfBar").style.width = pct + "%";
-    $("pfShareSays").textContent = a.total_orders
-      ? `${pct}% of sales are attached to a customer you can name and message. `
-        + `The rest are anonymous — nothing to reach.`
-      : "No sales recorded yet.";
-    $("pfShareSub").textContent = a.total_orders
-      ? `${withCurrency(a.known_amount, a.currency)} of ${withCurrency(a.total_amount, a.currency)} · `
-        + `${a.known_orders} of ${a.total_orders} orders`
+    $("pfShareSays").textContent = cb.buyers
+      ? `${cb.two_or_more} of ${cb.buyers} buyers shop more than one brand. `
+        + `Three separate stores would count them as ${cb.counted_separately} customers.`
+      : "No purchases recorded yet.";
+    $("pfShareSub").textContent = cb.all_three
+      ? `${cb.all_three} buy from all three · one consent decision each, not three`
       : "";
 
     const r = p.refusals;
