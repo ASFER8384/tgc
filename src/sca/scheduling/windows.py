@@ -101,12 +101,17 @@ def working_hours_between(hours: WorkingHours, start: datetime, end: datetime) -
     step = timedelta(minutes=30)
     # Beyond the lookahead the answer stops being useful — an order this stale is
     # already past every threshold, and counting further only costs time.
-    limit = start + timedelta(days=MAX_LOOKAHEAD_DAYS * 2)
+    stop = min(end, start + timedelta(days=MAX_LOOKAHEAD_DAYS * 2))
     probe, counted = start, 0.0
-    while probe < min(end, limit):
+    while probe < stop:
+        # Only the part of this half hour that falls inside the interval. Adding
+        # the whole step made a reply that arrived in one minute count as thirty,
+        # which reported more working time than elapsed time — impossible, and
+        # obviously so on any dashboard showing both.
+        following = min(probe + step, stop)
         if is_open(hours, probe):
-            counted += step.total_seconds() / 3600
-        probe += step
+            counted += (following - probe).total_seconds() / 3600
+        probe = following
     return counted
 
 
