@@ -42,6 +42,10 @@
   }
 
   * { box-sizing: border-box; }
+  /* An author rule beats the browser's own `[hidden] { display: none }` whatever
+     the specificity, so any element carrying both `hidden` and a class that sets
+     `display` — the panels and readouts here do — stays on screen. */
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
          font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
   .app { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1.25rem 5rem;
@@ -177,8 +181,8 @@
 <body>
 <div class="app">
   <div class="top">
+    <!-- No eyebrow: the rail already names the platform and the three brands. -->
     <div>
-      <div class="eyebrow">Supplier coordination · Aleena · Rawash · Aynola</div>
       <h1>Supplier Desk</h1>
     </div>
     <!-- The connection state is only worth a person's attention when it is bad,

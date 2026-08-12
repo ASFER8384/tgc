@@ -30,6 +30,7 @@ from cdp.models import (
     IdentityMerge,
     MergeReview,
     Person,
+    PersonBrandStat,
 )
 
 PURCHASE_EVENT = "order_paid"
@@ -93,10 +94,31 @@ class Refusals:
 
 
 @dataclass(frozen=True)
+class Point:
+    """One week of trade. Weeks rather than days because the shop does not sell
+    evenly across a week, and a daily line would show the weekend rather than
+    the trend."""
+
+    week: str
+    amount: Decimal
+    orders: int
+
+
+@dataclass(frozen=True)
+class Slice:
+    label: str
+    amount: Decimal
+    count: int
+
+
+@dataclass(frozen=True)
 class Proof:
     stitching: Stitching
     attribution: Attribution
     refusals: Refusals
+    trend: list[Point]
+    brands: list[Slice]
+    channels: list[Slice]
 
 
 def _live_person() -> Select:
@@ -117,7 +139,82 @@ class ProofService:
             stitching=await self.stitching(),
             attribution=await self.attribution(),
             refusals=await self.refusals(),
+            trend=await self.trend(),
+            brands=await self.brands(),
+            channels=await self.channels(),
         )
+
+    async def trend(self, weeks: int = 12) -> list[Point]:
+        """Revenue by week, most recent last.
+
+        Grouped in Python rather than SQL: the two databases in play disagree
+        about how to truncate a date, and a chart is not worth a dialect split.
+        The row count here is orders, not events, so it stays small.
+        """
+        rows = (
+            await self.session.execute(
+                select(Event.occurred_at, Event.value_amount).where(
+                    Event.name == PURCHASE_EVENT, Event.value_amount.is_not(None)
+                )
+            )
+        ).all()
+        if not rows:
+            return []
+
+        latest = max(occurred_at for occurred_at, _ in rows)
+        buckets: dict[int, tuple[Decimal, int]] = {}
+        for occurred_at, amount in rows:
+            # Whole weeks back from the most recent order, so the newest bucket
+            # is always complete rather than a partial week that reads as a crash.
+            index = (latest - occurred_at).days // 7
+            if index >= weeks:
+                continue
+            total, count = buckets.get(index, (Decimal(0), 0))
+            buckets[index] = (total + Decimal(amount), count + 1)
+
+        out = []
+        for index in sorted(buckets, reverse=True):
+            total, count = buckets[index]
+            label = "this week" if index == 0 else f"-{index}w"
+            out.append(Point(week=label, amount=total, orders=count))
+        return out
+
+    async def brands(self) -> list[Slice]:
+        rows = (
+            await self.session.execute(
+                select(
+                    PersonBrandStat.brand,
+                    func.coalesce(func.sum(PersonBrandStat.spend), 0),
+                    func.coalesce(func.sum(PersonBrandStat.orders), 0),
+                )
+                .group_by(PersonBrandStat.brand)
+                .order_by(func.sum(PersonBrandStat.spend).desc())
+            )
+        ).all()
+        return [
+            Slice(label=brand, amount=Decimal(spend or 0), count=int(orders or 0))
+            for brand, spend, orders in rows
+        ]
+
+    async def channels(self) -> list[Slice]:
+        """Where the relationship actually happens, counted in touchpoints rather
+        than orders — the messaging and activation channels produce very few
+        orders and a great deal of contact, which is the point of holding them."""
+        rows = (
+            await self.session.execute(
+                select(
+                    Event.source,
+                    func.coalesce(func.sum(Event.value_amount), 0),
+                    func.count(Event.id),
+                )
+                .group_by(Event.source)
+                .order_by(func.count(Event.id).desc())
+            )
+        ).all()
+        return [
+            Slice(label=source, amount=Decimal(amount or 0), count=int(count or 0))
+            for source, amount, count in rows
+        ]
 
     async def stitching(self) -> Stitching:
         identifiers = await self.session.scalar(select(func.count(Identifier.id))) or 0

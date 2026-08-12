@@ -31,10 +31,25 @@ class RefusalsOut(BaseModel):
     risky_identifiers: int
 
 
+class PointOut(BaseModel):
+    week: str
+    amount: str
+    orders: int
+
+
+class SliceOut(BaseModel):
+    label: str
+    amount: str
+    count: int
+
+
 class ProofOut(BaseModel):
     stitching: StitchingOut
     attribution: AttributionOut
     refusals: RefusalsOut
+    trend: list[PointOut]
+    brands: list[SliceOut]
+    channels: list[SliceOut]
 
 
 @router.get("/proof", response_model=ProofOut)
@@ -67,4 +82,13 @@ async def proof(session: SessionDep, actor: ActorDep) -> ProofOut:
             skipped_identifier_risk=result.refusals.skipped_identifier_risk,
             risky_identifiers=result.refusals.risky_identifiers,
         ),
+        trend=[
+            PointOut(week=p.week, amount=str(p.amount), orders=p.orders) for p in result.trend
+        ],
+        brands=[
+            SliceOut(label=s.label, amount=str(s.amount), count=s.count) for s in result.brands
+        ],
+        channels=[
+            SliceOut(label=s.label, amount=str(s.amount), count=s.count) for s in result.channels
+        ],
     )

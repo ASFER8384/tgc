@@ -45,6 +45,12 @@
   }
 
   * { box-sizing: border-box; }
+  /* `hidden` is set from script all over this page — form fields, the profile
+     drawer, the privacy actions — and every one of those elements also carries a
+     class that sets `display`. An author rule beats the browser's own
+     `[hidden] { display: none }` whatever the specificity, so without this the
+     attribute silently does nothing. */
+  [hidden] { display: none !important; }
   body {
     margin: 0; background: var(--ground); color: var(--ink);
     font-family: var(--sans); font-size: 15px; line-height: 1.5;
@@ -96,6 +102,36 @@
   .checkline { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; }
   .checkline input { width: auto; }
 
+  .toast {
+    position: fixed; right: 1rem; bottom: 1rem; z-index: 950; display: none;
+    max-width: min(380px, calc(100vw - 2rem)); padding: 0.75rem 0.95rem;
+    border-radius: 4px; font-size: 0.87rem; background: var(--panel);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18); border: 1px solid var(--rule);
+  }
+  .toast.show { display: block; }
+  .toast.ok { border-color: var(--accent); }
+  .toast.bad { border-color: var(--alert); }
+  .toast strong { display: block; margin-bottom: 0.15rem; }
+  .toast .idline { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); word-break: break-all; }
+
+  /* capture dialog */
+  /* It carries .panel for the styling, and `.panel { display: flex }` is an
+     author rule — which beats the browser's own `dialog:not([open])` whatever
+     the specificity, because author styles outrank the user-agent sheet. Without
+     this the dialog is permanently visible, never modal, and closing it appears
+     to do nothing. */
+  dialog#captureDialog:not([open]) { display: none; }
+  dialog#captureDialog {
+    width: min(680px, calc(100vw - 2rem)); max-height: min(88vh, 760px);
+    padding: 0; border: 1px solid var(--rule); border-radius: 6px;
+    background: var(--panel); color: var(--ink); overflow: auto;
+  }
+  dialog#captureDialog::backdrop { background: rgba(0, 0, 0, 0.42); }
+  dialog#captureDialog .panel-head {
+    position: sticky; top: 0; background: var(--panel); z-index: 1;
+  }
+  .close { border: none; font-size: 1.4rem; line-height: 1; padding: 0 0.2rem; }
+
   /* source picker */
   .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 0.4rem; }
   .src {
@@ -135,7 +171,44 @@
   .tick { color: var(--ok); font-weight: 700; }
   .cross { color: var(--alert); font-weight: 700; }
 
-  /* profile drawer */
+  /* profile drawer — fixed to the right edge, so the list it was opened from
+     stays where it was and keeps its scroll position. */
+  .drawer {
+    position: fixed; top: 0; right: 0; z-index: 900;
+    width: min(460px, 100%); height: 100vh; overflow-y: auto;
+    border-radius: 0; border: none; border-left: 1px solid var(--rule);
+    box-shadow: -18px 0 40px rgba(0, 0, 0, 0.16);
+  }
+  .drawer .panel-head {
+    position: sticky; top: 0; z-index: 1; background: var(--panel);
+    align-items: flex-start;
+  }
+  .drawer .panel-head .hint { display: block; }
+  .drawer .close { margin: -0.2rem 0 0; }
+  .scrim { position: fixed; inset: 0; z-index: 899; background: rgba(0, 0, 0, 0.28); }
+  @media (max-width: 560px) { .drawer { width: 100%; } }
+
+  /* The two rights she can exercise, pinned to the foot of the drawer. Left in
+     the flow they float in the middle of a tall panel, reading as the page's
+     main action rather than its last resort. */
+  .drawer .actions {
+    margin-top: auto; border-top: 1px solid var(--rule);
+    position: sticky; bottom: 0; background: var(--panel); gap: 0.5rem;
+  }
+  .btnrow { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+  /* Placeholder shaped like the content it is waiting for. A spinner alone in a
+     460px column looks like the drawer opened onto nothing. */
+  .skel { display: flex; flex-direction: column; gap: 0.6rem; }
+  .skel span { display: block; height: 12px; border-radius: 3px; background: var(--sunk);
+               border: 1px solid var(--rule); }
+  .skel span:nth-child(1) { height: 46px; }
+  .skel span:nth-child(2) { width: 72%; }
+  .skel span:nth-child(3) { width: 55%; }
+  .skel span:nth-child(4) { height: 46px; }
+  .skel span:nth-child(5) { width: 84%; }
+  .skel span:nth-child(6) { width: 40%; }
+
   .profile { display: flex; flex-direction: column; gap: 0.9rem; }
   .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 0.6rem; }
   .stat { background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px; padding: 0.55rem 0.7rem; }
@@ -176,20 +249,380 @@
   .tl.src-ads::before, .tl.src-support::before { background: var(--muted); }
   .tl.src-shopify_pos::before { background: var(--rawash); }
 
-  .consent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.5rem; }
-  .consbrand { border: 1px solid var(--line); border-radius: 4px; padding: 0.5rem 0.6rem; }
-  .consbrand h4 { margin: 0 0 0.4rem; font-size: 0.7rem; font-weight: 500; }
-  .cons { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px; padding: 0.4rem 0.6rem; font-size: 0.82rem; }
-  .cons button { padding: 0.2rem 0.5rem; font-size: 0.72rem; }
+  /* One brand per row, full width. Two columns inside a 460px drawer left every
+     permission name wrapping onto a second line, which made five short rows read
+     as ten long ones. `--line` was never a token, so the border never drew. */
+  .consent-grid { display: flex; flex-direction: column; gap: 0.7rem; }
+  .consbrand { border: 1px solid var(--rule); border-radius: 4px; padding: 0.55rem 0.65rem; }
+  .consbrand h4 { margin: 0 0 0.45rem; font-size: 0.7rem; font-weight: 500; }
+  .cons {
+    display: grid; grid-template-columns: 1rem 1fr auto; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0; font-size: 0.85rem; border-top: 1px solid var(--rule);
+  }
+  .consbrand .cons:first-of-type { border-top: none; }
+  .cons .mark { font-weight: 700; text-align: center; }
+  .cons.yes .mark { color: var(--ok); }
+  .cons.no .mark { color: var(--muted); }
+  .cons.no .what { color: var(--muted); }
+  .cons .what { min-width: 0; }
+  .cons button { padding: 0.15rem 0.5rem; font-size: 0.72rem; white-space: nowrap; }
 
-  /* segments */
-  .seg { border-bottom: 1px solid var(--rule); padding: 0.8rem 1rem; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; justify-content: space-between; }
-  .seg:last-child { border-bottom: none; }
+  /* broadcast — built to the client's other console rather than to this page's
+     own palette, because that is the screen they already use to send. Its values
+     are literal (#10B981, 16px cards, pill controls) rather than tokens, so the
+     two products look like one; the dark block below only keeps it readable. */
+  .broadcast {
+    --bc-card: #ffffff; --bc-ink: #111827; --bc-soft: #6b7280; --bc-line: #e5e7eb;
+    --bc-line-strong: #d1d5db; --bc-green: #10B981; --bc-sunk: #F6F6F7;
+    font-family: Roboto, "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+    flex-direction: column;
+  }
+  /* Preview on the left at 1 : 1.2, the same ratio as the page it copies. */
+  .bm-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; align-items: stretch; }
+  @media (max-width: 900px) { .bm-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .broadcast {
+      --bc-card: #151e1d; --bc-ink: #e7efec; --bc-soft: #8fa39e; --bc-line: #2a3735;
+      --bc-line-strong: #3a4a47; --bc-green: #34d399; --bc-sunk: #0d1413;
+    }
+  }
+  :root[data-theme="dark"] .broadcast {
+    --bc-card: #151e1d; --bc-ink: #e7efec; --bc-soft: #8fa39e; --bc-line: #2a3735;
+    --bc-line-strong: #3a4a47; --bc-green: #34d399; --bc-sunk: #0d1413;
+  }
+
+  /* pill bar */
+  .bm-tabsrow {
+    display: flex; align-items: center; gap: 8px; background: var(--bc-card);
+    padding: 6px; border-radius: 14px; max-width: fit-content; flex-wrap: wrap;
+    border: 1px solid var(--bc-line);
+  }
+  .bm-tabslabel { font-size: 13px; font-weight: 600; color: var(--bc-soft); padding: 8px 10px; }
+  .bm-tab {
+    display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+    font-size: 14px; font-weight: 600; border-radius: 10px; border: none;
+    background: transparent; color: var(--bc-soft); cursor: pointer; transition: all 0.2s ease;
+  }
+  .bm-tab[aria-pressed="true"] { color: var(--bc-ink); background: var(--bc-sunk); }
+  .bm-tab[disabled] { cursor: not-allowed; opacity: 0.6; }
+  .bm-knob {
+    width: 18px; height: 18px; border-radius: 50%; flex: none;
+    border: 1.5px solid var(--bc-line-strong); background: var(--bc-card);
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s ease;
+  }
+  .bm-tab[aria-pressed="true"] .bm-knob { border-color: var(--bc-green); }
+  .bm-knob::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: transparent; }
+  .bm-tab[aria-pressed="true"] .bm-knob::after { background: var(--bc-green); }
+  .lockpill {
+    margin-left: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+    text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
+    background: #fee2e2; color: #991b1b;
+  }
+  .lockpill.wait { background: #dbeafe; color: #1e40af; }
+
+  .bm-sub { font-size: 14px; color: var(--bc-soft); line-height: 1.5; margin-bottom: 4px; }
+  /* One stripe, two groups. The white card is the bar itself so the channel and
+     the brand read as one decision made in one place, rather than two panels
+     that happen to sit level with each other. */
+  .bm-bar {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+    background: var(--bc-card); border: 1px solid var(--bc-line); border-radius: 14px; padding: 6px;
+  }
+  .bm-bar .bm-tabsrow { background: transparent; border: none; padding: 0; border-radius: 0; }
+  .bm-bar .bm-tabsrow + .bm-tabsrow { border-left: 1px solid var(--bc-line); padding-left: 12px; }
+  /* Targeting is a segmented control, not a toggle: the two modes are exclusive
+     and both are always available, so neither should look switched off. */
+  .bm-radio {
+    padding: 8px 16px; font-size: 13px; font-weight: 500; border-radius: 8px; border: none;
+    background: transparent; color: var(--bc-soft); cursor: pointer; transition: all 0.15s ease;
+  }
+  .bm-radio[aria-pressed="true"] { background: var(--bc-green); color: #fff; }
+  .bm-previewhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .bm-chan { font-size: 12px; font-weight: 600; color: var(--bc-soft); }
+  .bm-sectiontitle span#bcSuggested {
+    margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--bc-soft);
+    background: var(--bc-sunk); padding: 2px 8px; border-radius: 999px;
+  }
+  .bm-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .bm-tag {
+    font-family: ui-monospace, Consolas, monospace; font-size: 11px; font-weight: 600;
+    padding: 3px 8px; border-radius: 6px; border: 1px solid var(--bc-line);
+    background: var(--bc-sunk); color: var(--bc-soft); cursor: pointer;
+  }
+
+  .bm-note {
+    display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; margin: 20px 0;
+    background: var(--bc-card); border: 1px solid var(--bc-line); border-radius: 10px;
+    font-size: 12px; line-height: 1.5; color: var(--bc-soft);
+  }
+
+  .bm-card { background: var(--bc-card); border: 1px solid var(--bc-line); border-radius: 16px; padding: 1.5rem; }
+  .bm-cardlabel {
+    font-size: 12px; font-weight: 600; color: var(--bc-soft);
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;
+  }
+  .bm-sectiontitle { font-size: 15px; font-weight: 600; color: var(--bc-ink); margin-bottom: 10px; }
+  .bm-sectiontitle span { color: var(--bc-soft); font-weight: 500; margin-left: 6px; font-size: 13px; }
+  .bm-col { display: flex; flex-direction: column; gap: 20px; }
+
+  /* segment pills, with the count carried inside the pill */
+  .bm-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+  .seg {
+    display: flex; align-items: center; padding: 9px 20px; font-size: 14px; font-weight: 600;
+    line-height: 1.3; border-radius: 999px; cursor: pointer; transition: all 0.15s ease;
+    border: 1px solid var(--bc-line-strong); background: var(--bc-card); color: var(--bc-soft);
+  }
+  .seg[aria-pressed="true"] { background: var(--bc-green); border-color: var(--bc-green); color: #fff; }
+  .seg .seg-size {
+    margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    background: var(--bc-sunk); color: var(--bc-ink); font-variant-numeric: tabular-nums;
+  }
+  .seg[aria-pressed="true"] .seg-size { background: rgba(255, 255, 255, 0.18); color: #fff; }
+
+  .bm-preview {
+    background: var(--bc-card); border: 1px solid var(--bc-line); border-radius: 12px;
+    padding: 1.25rem; min-height: 380px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .bm-preview .muted { color: var(--bc-soft); font-size: 14px; margin: auto; }
+  .bm-count { font-size: 12px; color: var(--bc-soft); }
+  .bm-hint { font-size: 12px; line-height: 1.5; color: var(--bc-soft); margin-top: 10px; }
+
+  /* Each channel is previewed as the thing it becomes. A shared grey box would
+     hide the differences that decide whether the copy works: an email has a
+     subject line doing half the work, an SMS is billed in 160-character parts,
+     and a WhatsApp promotion leads with a picture. */
+  .pv-wa { background: #e5ddd5; border-radius: 10px; padding: 12px; flex: 1; }
+  :root[data-theme="dark"] .pv-wa, :root:not([data-theme="light"]) .pv-wa { background: #0b1a17; }
+  .pv-wa .bubble {
+    background: #dcf8c6; color: #111827; border-radius: 8px 8px 8px 2px;
+    padding: 8px 9px 6px; font-size: 14px; line-height: 1.45; max-width: 88%;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
+  }
+  .pv-wa .bubble img, .pv-wa .imgstub {
+    display: block; width: 100%; border-radius: 5px; margin-bottom: 6px;
+    max-height: 170px; object-fit: cover; background: #cfd8d3;
+  }
+  /* Drawn inline rather than fetched. A promotion preview with an empty grey
+     rectangle reads as broken, and a placeholder pulled off the web is one
+     network failure away from looking exactly the same in front of a client. */
+  .pv-wa .imgstub {
+    height: 150px; background-repeat: no-repeat; background-size: cover;
+    background-position: center; background-color: #e9e1d8;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 220'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f2ece4'/%3E%3Cstop offset='1' stop-color='%23d9cec0'/%3E%3C/linearGradient%3E%3ClinearGradient id='d' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23433a4f'/%3E%3Cstop offset='1' stop-color='%231e1a26'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='400' height='220' fill='url(%23g)'/%3E%3Ccircle cx='318' cy='52' r='34' fill='%23e6d3c2' opacity='.55'/%3E%3Cpath d='M200 28c6 0 10 4 10 9 0 6-7 7-7 12' fill='none' stroke='%238b7d6b' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M150 74 200 52 250 74' fill='none' stroke='%238b7d6b' stroke-width='3' stroke-linejoin='round' stroke-linecap='round'/%3E%3Cpath d='M158 78c-11 4-18 13-20 24l-15 74c-2 11 5 20 16 20h122c11 0 18-9 16-20l-15-74c-2-11-9-20-20-24l-42-14z' fill='url(%23d)'/%3E%3Cpath d='M200 64v132' stroke='%23c9a961' stroke-width='2' opacity='.75'/%3E%3Cpath d='M175 92c8 10 8 22 0 32M225 92c-8 10-8 22 0 32' fill='none' stroke='%23c9a961' stroke-width='2' opacity='.6'/%3E%3C/svg%3E");
+  }
+  .pv-wa .body { white-space: pre-wrap; word-break: break-word; }
+  .pv-wa .meta { text-align: right; font-size: 10px; color: #667781; margin-top: 2px; }
+  .pv-wa .meta .ticks { color: #53bdeb; margin-left: 3px; }
+
+  .pv-mail { background: var(--bc-card); border: 1px solid var(--bc-line); border-radius: 8px; flex: 1; }
+  .pv-mail .hd { padding: 10px 12px; border-bottom: 1px solid var(--bc-line); }
+  .pv-mail .from { font-size: 12px; color: var(--bc-soft); }
+  .pv-mail .subj { font-size: 15px; font-weight: 700; color: var(--bc-ink); margin-top: 2px; }
+  .pv-mail .bd {
+    padding: 12px; font-size: 14px; line-height: 1.55; color: var(--bc-ink);
+    white-space: pre-wrap; word-break: break-word;
+  }
+
+  .pv-sms { flex: 1; display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+  .pv-sms .bubble {
+    background: #e9e9eb; color: #111827; border-radius: 16px 16px 16px 4px;
+    padding: 9px 13px; font-size: 14px; line-height: 1.4; max-width: 85%;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .pv-sms .sender { font-size: 11px; color: var(--bc-soft); font-weight: 600; }
+
+  /* The subject sits directly above the body, so it needs the gap the card's
+     block layout does not give it. */
+  #bcSubject { margin-bottom: 10px; }
+  textarea#bcText {
+    width: 100%; padding: 12px 14px; font-size: 14px; line-height: 1.5;
+    border: 1px solid var(--bc-line); border-radius: 10px;
+    background: var(--bc-card); color: var(--bc-ink); font-family: inherit; resize: vertical;
+  }
+  #bcSend {
+    width: 100%; padding: 14px 20px; font-size: 15px; font-weight: 600; border-radius: 10px;
+    background: var(--bc-green); border: 1px solid var(--bc-green); color: #fff;
+  }
+  #bcSend:disabled { background: var(--bc-line); border-color: var(--bc-line); color: var(--bc-soft); }
+
+  .reach {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid var(--bc-line); font-size: 14px; color: var(--bc-ink);
+  }
+  .reach:last-child { border-bottom: none; }
+  .reach b { font-variant-numeric: tabular-nums; font-size: 16px; }
+  .reach.bad b { color: #b3261e; }
+
+  /* smart segments */
+  .smartseg { display: flex; flex-direction: column; gap: 16px; }
+  .sg-sub { font-size: 15px; color: var(--bc-soft); }
+  .sg-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 12px; align-items: start; }
+  @media (max-width: 980px) { .sg-grid { grid-template-columns: minmax(0, 1fr); } }
+  .sg-col { display: flex; flex-direction: column; gap: 12px; }
+  /* The count and the save box follow you down a long list of conditions —
+     scrolling back up to see what a change did is how people stop checking. */
+  .sg-col.sticky { position: sticky; top: 16px; align-self: start; }
+
+  .sg-match { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 12px; }
+  .sg-toggle { display: inline-flex; border: 1px solid var(--bc-line-strong); border-radius: 8px; overflow: hidden; }
+  .sg-toggle button {
+    padding: 7px 14px; font-size: 13px; font-weight: 600; border: none; cursor: pointer;
+    background: var(--bc-card); color: var(--bc-soft);
+  }
+  .sg-toggle button[aria-pressed="true"] { background: var(--bc-green); color: #fff; }
+
+  .sg-rules { display: flex; flex-direction: column; gap: 10px; }
+  .sg-rule { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+  @media (max-width: 700px) { .sg-rule { grid-template-columns: minmax(0, 1fr); } }
+  .sg-rule .au-input { height: 38px; }
+  .sg-joiner { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--bc-soft); padding: 2px 0; }
+  .sg-empty {
+    padding: 16px; border: 1px dashed var(--bc-line-strong); border-radius: 10px;
+    color: var(--bc-soft); font-size: 14px; text-align: center;
+  }
+
+  .sg-count { align-items: flex-start; }
+  .sg-big { font-family: var(--display); font-size: 2.4rem; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--bc-ink); }
+  .sg-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .sg-saved { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--bc-line); }
+  .sg-saved:last-child { border-bottom: none; }
+  .sg-saved .nm { font-size: 14px; font-weight: 600; color: var(--bc-ink); }
+  .sg-saved .sub { display: block; font-size: 12px; font-weight: 400; color: var(--bc-soft); }
+
+  /* automations — the builder from the client's other console, same measurements */
+  .automations { display: flex; flex-direction: column; gap: 16px; }
+  .au-card {
+    background: var(--bc-card); border: 1px solid #ececec; border-radius: 14px; padding: 20px;
+    display: flex; flex-direction: column; gap: 20px;
+  }
+  :root[data-theme="dark"] .au-card, :root:not([data-theme="light"]) .au-card { border-color: var(--bc-line); }
+  .au-title { font-size: 15px; font-weight: 700; color: var(--bc-ink); }
+  .au-row-between { display: flex; justify-content: space-between; align-items: center; }
+  .au-block { display: flex; flex-direction: column; gap: 10px; }
+  .au-muted { font-size: 13px; color: var(--bc-soft); }
+  .au-link { background: transparent; border: none; color: #2563eb; font-size: 13px; font-weight: 600; padding: 0; cursor: pointer; }
+  .au-input {
+    height: 40px; border-radius: 9px; border: 1px solid var(--bc-line-strong); padding: 0 14px;
+    font-size: 14px; color: var(--bc-ink); background: var(--bc-card); width: 100%; outline: none;
+  }
+  .au-select { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 30px; }
+  .au-inline { width: auto; min-width: 240px; }
+  .au-textarea {
+    min-height: 110px; border-radius: 9px; border: 1px solid var(--bc-line-strong); padding: 10px 14px;
+    font-size: 14px; line-height: 1.5; color: var(--bc-ink); background: var(--bc-card);
+    width: 100%; resize: vertical; font-family: inherit; outline: none;
+  }
+  .au-params {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+    background: var(--bc-sunk); border-radius: 9px; padding: 14px; font-size: 14px; color: var(--bc-ink);
+  }
+  .au-params:empty { display: none; }
+  .au-params input { width: 90px; text-align: center; }
+  .au-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+  .au-ghost {
+    padding: 6px 10px; font-size: 13px; font-weight: 600; border-radius: 8px;
+    border: 1px solid var(--bc-line); background: var(--bc-card); color: var(--bc-ink); cursor: pointer;
+  }
+  .au-addrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .au-check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; color: var(--bc-ink); }
+  .au-check input { width: auto; }
+  .au-primary {
+    height: 40px; padding: 0 18px; border-radius: 9px; border: none;
+    background: var(--bc-green); color: #fff; font-size: 14px; font-weight: 600;
+  }
+  .au-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+  .au-saverow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .au-ok { color: #059669; font-size: 14px; }
+  .au-errors { margin: 0; padding-left: 18px; color: #dc2626; font-size: 13px; }
+
+  .au-step {
+    border: 1px solid #ececec; border-radius: 12px; padding: 16px; background: var(--bc-sunk);
+    display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px;
+  }
+  .au-step-head { display: flex; align-items: center; justify-content: space-between; }
+  .au-badge {
+    display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+    border-radius: 999px; background: #111827; color: #fff; font-size: 12px; font-weight: 700;
+  }
+  .au-step-name { font-weight: 700; font-size: 13px; color: var(--bc-ink); margin-left: 8px; }
+  .au-step-acts { display: flex; align-items: center; gap: 6px; }
+  .au-step-acts .au-ghost { padding: 4px 8px; }
+  .au-step-acts .rm { color: #dc2626; border-color: #fecaca; }
+  .au-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .au-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--bc-line); background: var(--bc-card); color: var(--bc-ink);
+    font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .au-chip[aria-pressed="true"] { background: var(--bc-green); border-color: var(--bc-green); color: #fff; }
+  .au-chip[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+  .auto-list { display: flex; flex-direction: column; gap: 8px; }
+  .auto-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    background: var(--bc-card); border: 1px solid #ececec; border-radius: 14px; padding: 14px 18px;
+  }
+  .auto-row .nm { font-size: 14px; font-weight: 700; color: var(--bc-ink); }
+  .auto-row .sub { display: block; font-size: 12px; font-weight: 400; color: var(--bc-soft); }
+  /* A pill sitting in a row of buttons: centred both ways and given the same
+     height as them, so the row reads as one line rather than a badge that has
+     slipped. */
+  .auto-state {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 34px; padding: 0 12px; line-height: 1;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    border-radius: 999px; background: #f3f4f6; color: #6b7280;
+  }
+  .auto-state.on { background: #d1fae5; color: #065f46; }
   .seg-name { font-weight: 600; font-size: 0.88rem; }
   .seg-key { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); display: block; }
   .seg-actions { display: flex; align-items: center; gap: 0.4rem; }
   .seg-size { font-family: var(--display); font-size: 1.2rem; font-variant-numeric: tabular-nums; min-width: 1.4rem; text-align: right; }
   .seg-out { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); flex-basis: 100%; }
+
+  /* One page, several destinations. The rail names them; this hides everything
+     that does not belong to the one being looked at. A column with nothing left
+     in it collapses too, so the remaining panel gets the full width instead of
+     sitting next to a gap. */
+  /* Hide what is not on this view, and otherwise leave every element its own
+     display. Setting one here instead would have to win against `.proof` and
+     `.charts`, which declare their own grid at the same specificity further
+     down the sheet — and quietly lose. */
+  [data-view]:not(.on) { display: none !important; }
+  /* `hidden` still wins: the profile drawer stays closed until a customer is
+     picked, whatever view is showing. */
+  [data-view][hidden] { display: none !important; }
+  .grid > .col:not(.on) { display: none !important; }
+  .grid.single { grid-template-columns: minmax(0, 1fr); }
+
+  /* charts — drawn from tokens so both themes work, and with no library, since
+     the page is served whole and a CDN script would be one more thing to fail
+     in front of a client. */
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; }
+  .charts .wide { grid-column: 1 / -1; }
+
+  .plot { display: flex; align-items: flex-end; gap: 3px; height: 132px; }
+  .plot .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end;
+               align-items: center; gap: 4px; height: 100%; min-width: 0; }
+  .plot .col i { display: block; width: 100%; border-radius: 2px 2px 0 0;
+                 background: var(--accent); opacity: 0.55; min-height: 2px; }
+  .plot .col:last-child i { opacity: 1; }
+  .plot .col b { font-family: var(--mono); font-size: 0.6rem; font-weight: 400; color: var(--muted);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .plot .col:hover i { opacity: 1; }
+
+  .bars { display: flex; flex-direction: column; gap: 0.6rem; }
+  .bar-row { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.6rem; align-items: baseline; }
+  .bar-row .lbl { font-size: 0.85rem; text-transform: capitalize; }
+  .bar-row .val { font-variant-numeric: tabular-nums; font-size: 0.8rem; color: var(--muted); }
+  .bar-row .track { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--sunk);
+                    border: 1px solid var(--rule); overflow: hidden; }
+  .bar-row .track i { display: block; height: 100%; background: var(--accent); }
+  .bar-row .track i.aleena { background: var(--aleena); }
+  .bar-row .track i.rawash { background: var(--rawash); }
+  .bar-row .track i.aynola { background: var(--aynola); }
+
+  /* delivery log */
 
   .cust-tools { display: flex; align-items: center; gap: 0.6rem; }
   .cust-tools input { width: 210px; font-size: 0.82rem; padding: 0.3rem 0.5rem; }
@@ -218,13 +651,18 @@
 
 <div class="app">
   <div class="top">
+    <!-- No eyebrow: the rail already names the platform and the three brands,
+         and repeating it here made the page open with the same line twice. -->
     <div class="brandmark">
-      <span>Customer Data Platform · Aleena · Rawash · Aynola</span>
-      <h1>Customer Console</h1>
+      <h1 id="pageTitle">Dashboard</h1>
     </div>
+    <!-- The connection state is only worth a person's attention when it is bad.
+         Working is the expected case, and the rail already says which
+         environment this is. -->
     <div class="conn">
-      <span class="dot" id="dot"></span>
-      <span class="conn-label" id="connLabel">not connected</span>
+      <button id="openCapture" hidden>Record a touchpoint</button>
+      <span class="dot" id="dot" hidden></span>
+      <span class="conn-label" id="connLabel" hidden></span>
       <input class="key-field" id="apiKey" type="password" placeholder="API key" autocomplete="off" hidden />
       <button id="connect" hidden>Connect</button>
     </div>
@@ -234,7 +672,7 @@
        it is measured from whatever is in the database right now rather than
        written down once — a figure that looks wrong here is a real problem, not
        a demo that needs re-recording. -->
-  <div class="proof">
+  <div class="proof" data-view="dashboard">
     <div class="panel">
       <div class="panel-head">
         <h2>One customer, many records</h2>
@@ -273,13 +711,46 @@
     </div>
   </div>
 
-  <div class="grid">
-    <!-- LEFT: capture -->
-    <div style="display:flex; flex-direction:column; gap:1.25rem;">
-      <div class="panel">
+  <!-- Charts, not a second copy of the customer list. What is being sold, to
+       which brand, through which channel — the three questions the tiles above
+       raise and cannot answer on their own. -->
+  <div class="charts" data-view="dashboard">
+    <div class="panel wide">
+      <div class="panel-head">
+        <h2>Revenue by week</h2>
+        <span class="hint" id="trendHint"></span>
+      </div>
+      <div class="panel-body">
+        <div class="plot" id="trendPlot"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>By brand</h2>
+        <span class="hint">lifetime</span>
+      </div>
+      <div class="panel-body"><div id="brandBars" class="bars"></div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Where she reaches you</h2>
+        <span class="hint">touchpoints</span>
+      </div>
+      <div class="panel-body"><div id="channelBars" class="bars"></div></div>
+    </div>
+  </div>
+
+  <!-- Recording a touchpoint is something you do occasionally, not something you
+       read, so it lives behind a button rather than holding a column open on
+       every view. -->
+  <div class="toast" id="toast"></div>
+
+  <dialog class="panel" id="captureDialog">
         <div class="panel-head">
           <h2>Record a touchpoint</h2>
-          <span class="hint">any channel</span>
+          <button class="ghost close" id="closeCapture" aria-label="Close">&times;</button>
         </div>
         <div class="panel-body">
           <div class="sources" id="sources">
@@ -339,20 +810,197 @@
           <button id="submit">Record it</button>
           <div class="result" id="result"></div>
         </div>
-      </div>
+  </dialog>
 
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Audiences</h2>
-          <span class="hint">live rules</span>
-        </div>
-        <div id="segments"><div class="empty">Connect to load audiences.</div></div>
+  <!-- Compose on the left, what she will actually receive on the right. The
+       audience is chosen here rather than on its own screen because the only
+       useful question about an audience is what you are about to send it. -->
+  <div class="broadcast" data-view="broadcast">
+    <!-- One bar: what it goes out on, and who it goes out as. The brand belongs
+         beside the channel because consent is granted per brand — the same
+         audience is a different set of people depending on who is asking. -->
+    <div class="bm-bar">
+      <div class="bm-tabsrow" id="channelPills"></div>
+      <div class="bm-tabsrow" id="brandPills">
+        <span class="bm-tabslabel">Sending as</span>
+        <button class="bm-radio" data-brand="aleena" aria-pressed="true">Aleena</button>
+        <button class="bm-radio" data-brand="rawash" aria-pressed="false">Rawash</button>
+        <button class="bm-radio" data-brand="aynola" aria-pressed="false">Aynola</button>
       </div>
     </div>
 
+    <div class="bm-note">
+      <span>💡</span>
+      <span>Counts are already scoped to the brand sending. Anyone who has not given
+        <b>that</b> brand permission is not in them, so the same audience is a different
+        size across brands. One further check runs at send, that the number on file is
+        really hers, and whatever it stops is reported rather than hidden.</span>
+    </div>
+
+    <div class="bm-grid">
+      <!-- LEFT — live preview -->
+      <div class="bm-card" style="display:flex; flex-direction:column">
+        <div class="bm-previewhead">
+          <div class="bm-cardlabel" style="margin:0">Live preview</div>
+          <span class="bm-chan" id="bcPreviewChan"></span>
+        </div>
+        <div class="bm-preview" id="bcPreview">
+          <div class="muted" id="bcEmpty">Pick an audience and write a message to preview it.</div>
+          <div id="bcReach"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT — controls -->
+      <div class="bm-col">
+        <div class="bm-card" id="bcAudienceCard">
+          <div class="bm-sectiontitle">Audience <span id="bcSegCount">(none selected)</span></div>
+          <div class="bm-pills" id="segments"><div class="empty">Connect to load audiences.</div></div>
+        </div>
+
+        <div class="bm-card">
+          <div class="bm-sectiontitle">Content template
+            <span id="bcSuggested" hidden>Suggested from audience</span>
+          </div>
+          <div class="bm-pills" id="bcTemplates"></div>
+          <div class="bm-hint">Each template is written for the channel you picked — long for
+            email with a subject line, short for WhatsApp, under 160 characters for SMS. Switch
+            channel and the draft rewrites itself, unless you have already edited it. Or choose
+            Custom Campaign and write your own.</div>
+        </div>
+
+        <div class="bm-card">
+          <div class="bm-sectiontitle">Message</div>
+          <!-- Only the fields the chosen channel actually carries. A subject on a
+               WhatsApp message is a field nobody can send. -->
+          <input id="bcSubject" class="au-input" placeholder="Email subject" hidden />
+          <textarea id="bcText" rows="8"
+            placeholder="Write anything you want to send, e.g. 50% off this weekend only!"></textarea>
+          <div class="bm-tags" id="bcTags"></div>
+          <div class="bm-count" id="bcCount"></div>
+        </div>
+
+        <button id="bcSend" disabled>Send broadcast</button>
+        <div class="result" id="bcOut"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Smart Segments. Builder on the left, live count and saved list on the
+       right, the same shape as the client's other console. -->
+  <div class="broadcast smartseg" data-view="segments">
+    <div class="sg-sub">Build customer segments from what they have actually done. No code.</div>
+
+    <div class="sg-grid">
+      <div class="sg-col">
+        <section class="au-card">
+          <div class="au-title">Quick start templates</div>
+          <div class="bm-pills" id="sgTemplates" style="margin-top:10px"></div>
+        </section>
+
+        <section class="au-card">
+          <div class="au-row-between">
+            <div class="au-title" id="sgHeading">Build a segment</div>
+            <button type="button" class="au-link" id="sgClear">Clear</button>
+          </div>
+
+          <div class="sg-match">
+            <span class="au-muted">Match</span>
+            <div class="sg-toggle">
+              <button type="button" data-op="all" aria-pressed="true">ALL</button>
+              <button type="button" data-op="any" aria-pressed="false">ANY</button>
+            </div>
+            <span class="au-muted">of the conditions below</span>
+          </div>
+
+          <div id="sgRules"></div>
+          <div class="au-addrow" style="margin-top:12px">
+            <button type="button" class="au-ghost" id="sgAdd">+ Add condition</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="sg-col sticky">
+        <section class="au-card sg-count">
+          <div class="bm-cardlabel" style="margin:0">Customers matching</div>
+          <div class="sg-big" id="sgCount">—</div>
+          <div class="au-muted" id="sgCountNote">Add a condition to count.</div>
+        </section>
+
+        <section class="au-card">
+          <div class="au-title">Save segment</div>
+          <input id="sgName" class="au-input" placeholder="Segment name (e.g. VIP customers)" />
+          <input id="sgDesc" class="au-input" placeholder="Description (optional)" />
+          <div class="sg-two">
+            <select id="sgBrand" class="au-input au-select"></select>
+            <select id="sgConsent" class="au-input au-select"></select>
+          </div>
+          <div class="au-saverow">
+            <button type="button" class="au-primary" id="sgSave">Save segment</button>
+            <span id="sgSaved" class="au-ok" hidden>Saved ✓</span>
+          </div>
+          <div class="au-muted" id="sgSaveErr"></div>
+        </section>
+
+        <section class="au-card">
+          <div class="au-title">Saved segments <span id="sgCountLabel"></span></div>
+          <div id="sgList"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Automations. Same builder as the client's other console: one trigger, an
+       ordered list of steps, a stop condition, save. -->
+  <div class="broadcast automations" data-view="automation">
+    <div class="auto-list" id="autoList"></div>
+
+    <section class="au-card" id="autoBuilder" hidden>
+      <div class="au-row-between">
+        <div class="au-title" id="autoHeading">New automation</div>
+        <button type="button" class="au-link" id="autoCancel">Cancel</button>
+      </div>
+
+      <input id="autoName" class="au-input" placeholder="Automation name (e.g. Welcome new VIPs)" />
+
+      <div class="au-block">
+        <div class="au-title">When this happens</div>
+        <select id="autoTrigger" class="au-input au-select"></select>
+        <div class="au-params" id="autoParams"></div>
+        <div class="au-filter">
+          <span class="au-muted">Only enroll if customer matches segment</span>
+          <select id="autoFilter" class="au-input au-select au-inline"></select>
+        </div>
+      </div>
+
+      <div class="au-block">
+        <div class="au-title">Then do this</div>
+        <div id="autoSteps"></div>
+        <div class="au-addrow">
+          <button type="button" class="au-ghost" data-add="message">+ Send message</button>
+          <button type="button" class="au-ghost" data-add="wait">+ Wait</button>
+          <button type="button" class="au-ghost" data-add="exit">+ Exit</button>
+        </div>
+      </div>
+
+      <label class="au-check">
+        <input type="checkbox" id="autoStop" checked />
+        <span>Stop if the customer buys</span>
+      </label>
+
+      <div class="au-block">
+        <div class="au-saverow">
+          <button type="button" class="au-primary" id="autoSave">Save automation</button>
+          <span id="autoSaved" class="au-ok" hidden>Saved ✓</span>
+        </div>
+        <ul class="au-errors" id="autoErrors" hidden></ul>
+      </div>
+    </section>
+  </div>
+
+  <div class="grid">
     <!-- RIGHT: customers -->
-    <div style="display:flex; flex-direction:column; gap:1.25rem;">
-      <div class="panel">
+    <div class="col" style="display:flex; flex-direction:column; gap:1.25rem;">
+      <div class="panel" data-view="customers">
         <div class="panel-head">
           <h2>Customers</h2>
           <div class="cust-tools">
@@ -378,19 +1026,28 @@
         </div>
       </div>
 
-      <div class="panel" id="profilePanel" hidden>
+      <!-- A drawer off the right edge rather than a panel under the table. Her
+           record is read *against* the list — checking the next row, comparing
+           two people — and pushing the list off-screen to show it breaks that. -->
+      <div class="scrim" id="profileScrim" hidden></div>
+      <div class="panel drawer" id="profilePanel" data-view="customers" hidden>
         <div class="panel-head">
-          <h2 id="profileName">Profile</h2>
-          <span class="hint" id="profileLang"></span>
+          <div>
+            <h2 id="profileName">Profile</h2>
+            <span class="hint" id="profileLang"></span>
+          </div>
+          <button class="ghost close" id="closeProfile" aria-label="Close profile">&times;</button>
         </div>
         <div class="panel-body profile" id="profileBody"></div>
         <!-- The two rights a customer can exercise, next to the data they act
              on. Kept at the bottom of the profile rather than in a settings
              screen: whoever is looking at her record is who receives the phone
              call asking for this. -->
-        <div class="panel-body" style="border-top:1px solid var(--rule); display:flex; gap:0.5rem; align-items:center">
-          <button class="ghost" id="exportPerson">Export her data</button>
-          <button class="ghost danger" id="erasePerson">Erase her</button>
+        <div class="panel-body actions" id="profileActions" hidden>
+          <div class="btnrow">
+            <button class="ghost" id="exportPerson">Export her data</button>
+            <button class="ghost danger" id="erasePerson">Erase her</button>
+          </div>
           <span class="hint" id="privacyOut"></span>
         </div>
       </div>
@@ -405,7 +1062,12 @@
 <script>
   const API = "";
   const $ = (id) => document.getElementById(id);
-  const state = { key: "", source: "shopify", selected: null, showAllCustomers: false };
+  const state = {
+    key: "", source: "shopify", selected: null, showAllCustomers: false,
+    view: new URLSearchParams(location.search).get("view") || "dashboard",
+    segments: [], segment: null, channel: "whatsapp", draft: null,
+    brand: "aleena", template: "custom", templateTouched: false,
+  };
 
   const BRAND_DEFAULTS = {
     aleena: { product: "Embroidered abaya", amount: 520 },
@@ -416,6 +1078,10 @@
   function setConn(status, text) {
     $("dot").className = "dot" + (status ? " on" : status === false ? " off" : "");
     $("connLabel").textContent = text;
+    // Shown while connecting and after a failure; silent once it works.
+    const quiet = status === true;
+    $("dot").hidden = quiet;
+    $("connLabel").hidden = quiet;
   }
 
   async function api(path, options = {}) {
@@ -429,6 +1095,49 @@
       throw new Error(detail);
     }
     return res.status === 204 ? null : res.json();
+  }
+
+  /* ---------- views ----------
+     The rail in the platform shell links to ?view=…; this decides what that
+     means on the page. Client-side rather than separate routes because both
+     consoles are served as one file each, and every panel here reads from the
+     same connection — splitting them into documents would mean connecting,
+     and re-fetching, four times over. */
+  // The heading names the destination, not the product. A page that says
+  // "Customer Console" while the rail says Segments makes the reader check
+  // whether the click worked.
+  const VIEW_TITLE = {
+    dashboard: "Dashboard",
+    customers: "Customers",
+    segments: "Smart Segments",
+    broadcast: "Broadcast Message",
+    automation: "Automation",
+  };
+  const VIEWS = Object.keys(VIEW_TITLE);
+
+  function applyView(name) {
+    const view = VIEWS.includes(name) ? name : "dashboard";
+    state.view = view;
+    $("pageTitle").textContent = VIEW_TITLE[view];
+    document.title = "TGC · " + VIEW_TITLE[view];
+    document.querySelectorAll("[data-view]").forEach((el) => {
+      const shown = el.dataset.view.split(" ").includes(view);
+      el.classList.toggle("on", shown);
+    });
+    document.querySelectorAll(".grid > .col").forEach((col) => {
+      col.classList.toggle("on", !!col.querySelector("[data-view].on"));
+    });
+    const live = document.querySelectorAll(".grid > .col.on").length;
+    document.querySelector(".grid").classList.toggle("single", live < 2);
+    // The drawer belongs to the customer list. Leaving it open on another view
+    // would strand it over a page it has nothing to do with — and its scrim,
+    // being fixed, would keep covering the page after the panel itself hid.
+    if (view !== "customers") closeProfile();
+    // Recording a touchpoint adds to one customer, so the button only belongs
+    // where the customers are.
+    $("openCapture").hidden = view !== "customers";
+    if (view === "automation") loadAutomations();
+    if (view === "segments") loadSavedSegments();
   }
 
   // Written in sentences rather than metric names. The person who needs to
@@ -446,8 +1155,8 @@
     // grown up apart and later turned out to be one woman. Zero merges beside a
     // high ratio is resolution working early, not resolution doing nothing.
     $("pfStitchSays").textContent = s.identifiers_per_person > 1
-      ? `Each customer reaches you under ${s.identifiers_per_person} records on average — `
-        + `phone, email, till receipt, WhatsApp. The console shows one woman, not ${s.identifiers_per_person}.`
+      ? `Each customer arrives as ${s.identifiers_per_person} separate records on average — `
+        + `phone, email, till receipt, WhatsApp. The console shows one woman.`
       : "Each record is still its own customer — nothing has been joined yet.";
     const notes = [];
     if (s.merges) notes.push(`${s.merges} separate profile(s) later found to be one person`);
@@ -480,6 +1189,66 @@
     if (r.skipped_identifier_risk) parts.push(`${r.skipped_identifier_risk} number may not be hers`);
     if (r.risky_identifiers) parts.push(`${r.risky_identifiers} flagged at capture`);
     $("pfStoppedSub").textContent = parts.join(" · ");
+
+    drawTrend(p.trend, a.currency);
+    drawBars($("brandBars"), p.brands, a.currency, "amount", true);
+    // Channels are ranked by contact, not money: messaging and the mall stand
+    // produce almost no orders and a great deal of relationship, which is the
+    // reason for holding them at all.
+    drawBars($("channelBars"), p.channels, a.currency, "count", false);
+  }
+
+  // The permission in the words she would have read, not the column name. Nobody
+  // ticks a box marked "marketing_whatsapp".
+  const PURPOSE_LABEL = {
+    marketing_email: "Email",
+    marketing_whatsapp: "WhatsApp",
+    personalization: "Personalised offers",
+    ad_audience_sharing: "Ad audiences",
+    cross_brand_profiling: "Use across brands",
+  };
+
+  const CHANNEL_LABEL = {
+    shopify: "Online store", shopify_pos: "In store", whatsapp: "WhatsApp",
+    activation: "Mall stand", email: "Email", ads: "Ads", support: "Support",
+  };
+
+  function drawTrend(points, currency) {
+    const host = $("trendPlot");
+    if (!points || !points.length) {
+      host.innerHTML = "<div class='empty'>No sales recorded yet.</div>";
+      $("trendHint").textContent = "";
+      return;
+    }
+    const peak = Math.max(...points.map((p) => Number(p.amount))) || 1;
+    host.innerHTML = points.map((p) => {
+      const v = Number(p.amount);
+      return `<div class="col" title="${p.week}: ${withCurrency(p.amount, currency)} · ${p.orders} orders">
+                <i style="height:${Math.max(2, Math.round((v / peak) * 100))}%"></i>
+                <b>${p.week}</b>
+              </div>`;
+    }).join("");
+    const total = points.reduce((sum, p) => sum + Number(p.amount), 0);
+    $("trendHint").textContent =
+      `${withCurrency(total, currency)} over ${points.length} week${points.length === 1 ? "" : "s"}`;
+  }
+
+  function drawBars(host, rows, currency, by, tint) {
+    if (!rows || !rows.length) { host.innerHTML = "<div class='empty'>Nothing yet.</div>"; return; }
+    const peak = Math.max(...rows.map((r) => Number(r[by]))) || 1;
+    host.innerHTML = rows.map((r) => {
+      const value = Number(r[by]);
+      const shown = by === "amount"
+        ? withCurrency(r.amount, currency)
+        : `${r.count.toLocaleString("en-US")} touchpoints`;
+      const label = CHANNEL_LABEL[r.label] || r.label;
+      return `<div class="bar-row">
+                <span class="lbl">${label}</span>
+                <span class="val">${shown}</span>
+                <span class="track"><i class="${tint ? r.label : ""}"
+                      style="width:${Math.max(2, Math.round((value / peak) * 100))}%"></i></span>
+              </div>`;
+    }).join("");
   }
 
   // Distinct from the table's `money`, which formats a bare number: this one
@@ -491,12 +1260,18 @@
     return `${currency} ${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   }
 
+  // Inside the dialog while it is open, and as a toast once it has closed —
+  // otherwise every confirmation is written onto a panel nobody can see, and a
+  // successful entry looks exactly like one that silently failed.
   function show(msg, ok, sub) {
-    const el = $("result");
-    el.className = "result show " + (ok ? "ok" : "bad");
+    const el = $("captureDialog").open ? $("result") : $("toast");
+    el.className = (el.id === "toast" ? "toast" : "result") + " show " + (ok ? "ok" : "bad");
     el.innerHTML = "<strong></strong><span class='idline'></span>";
     el.querySelector("strong").textContent = msg;
     el.querySelector(".idline").textContent = sub || "";
+    if (el.id !== "toast") return;
+    clearTimeout(show.timer);
+    show.timer = setTimeout(() => { el.className = "toast"; }, 6000);
   }
 
   /* ---------- source picker ---------- */
@@ -664,6 +1439,9 @@
         );
         if (result.person_id) state.selected = result.person_id;
       }
+      // Closed on success only. A failure leaves the dialog up with everything
+      // still typed in it, so the fix is one edit rather than a re-entry.
+      $("captureDialog").close();
       await Promise.all([loadCustomers(), loadSegments(), loadProof()]);
       if (state.selected) openProfile(state.selected);
     } catch (err) {
@@ -754,14 +1532,31 @@
     return bits.length ? ` <span class="detail">— ${bits.slice(0, 2).join(" · ")}</span>` : "";
   }
 
+  function closeProfile() {
+    state.selected = null;
+    $("profilePanel").hidden = true;
+    $("profileScrim").hidden = true;
+    document.querySelectorAll("#customers tr.sel").forEach((tr) => tr.classList.remove("sel"));
+  }
+
   async function openProfile(id) {
     state.selected = id;
     document.querySelectorAll("#customers tr").forEach((tr) => tr.classList.toggle("sel", tr.dataset.id === id));
     const panel = $("profilePanel"), body = $("profileBody");
     panel.hidden = false;
-    body.innerHTML = "<div class='empty'><span class='spin'></span> loading…</div>";
+    $("profileScrim").hidden = false;
+    panel.scrollTop = 0;
+    // Export and erase stay out of sight until there is something to export or
+    // erase — offering them over an empty panel invites a click on the one
+    // action here that cannot be undone.
+    $("profileActions").hidden = true;
+    $("privacyOut").textContent = "";
+    body.innerHTML =
+      "<div class='skel'><span></span><span></span><span></span>"
+      + "<span></span><span></span><span></span></div>";
     try {
       const p = await api("/persons/" + id);
+      $("profileActions").hidden = false;
       $("profileName").textContent = p.display_name || "Unnamed customer";
       $("profileLang").textContent = [p.preferred_language === "ar" ? "prefers Arabic" : p.preferred_language === "en" ? "prefers English" : "", p.preferred_channel].filter(Boolean).join(" · ");
       const t = p.traits || {};
@@ -789,8 +1584,12 @@
       const consent = Object.entries(p.consent).map(([brand, purposes]) =>
         `<div class="consbrand"><h4><span class="pill ${brand}">${brand}</span></h4>` +
         Object.entries(purposes).map(([purpose, granted]) =>
-          `<div class="cons"><span>${purpose.replace(/_/g, " ")} ${granted ? "<span class='tick'>✓</span>" : "<span class='cross'>✕</span>"}</span>
-           <button class="ghost" data-brand="${brand}" data-purpose="${purpose}" data-grant="${!granted}">${granted ? "Revoke" : "Grant"}</button></div>`
+          `<div class="cons ${granted ? "yes" : "no"}">
+             <span class="mark">${granted ? "✓" : "✕"}</span>
+             <span class="what">${PURPOSE_LABEL[purpose] || purpose.replace(/_/g, " ")}</span>
+             <button class="ghost" data-brand="${brand}" data-purpose="${purpose}"
+                     data-grant="${!granted}">${granted ? "Revoke" : "Grant"}</button>
+           </div>`
         ).join("") + `</div>`).join("");
 
       const tl = p.timeline.map((e) => {
@@ -839,53 +1638,765 @@
     }
   }
 
-  /* ---------- segments ---------- */
+  /* ---------- broadcast ---------- */
+  // The locks are real, not decoration: the base build ships the WhatsApp and
+  // Shopify seams without credentials, and saying so on the pill is better than
+  // letting somebody compose a message to a channel that will refuse it.
+  // All three are selectable. Every gate that matters runs for real — the
+  // audience is compiled under consent, the number is checked for provenance,
+  // and each person is written to the delivery log with the grant relied on.
+  // What is missing is the transport, and that is said once in the note above
+  // the composer rather than stamped on every pill.
+  const CHANNELS = [
+    { key: "email", label: "Email", icon: "✉" },
+    { key: "whatsapp", label: "WhatsApp", icon: "✆" },
+    { key: "sms", label: "SMS", icon: "▤" },
+  ];
+  // Until the senders are wired, every channel runs through the destination that
+  // records. Named once so there is a single place to change when they are.
+  const DESTINATION = "mock";
+
+  function drawChannels() {
+    $("channelPills").innerHTML =
+      `<span class="bm-tabslabel">Channels</span>` +
+      CHANNELS.map((c) => `
+        <button class="bm-tab" data-ch="${c.key}" aria-pressed="${state.channel === c.key}">
+          <span class="bm-knob"></span><span>${c.icon}</span><span>${c.label}</span>
+        </button>`).join("");
+    $("channelPills").querySelectorAll(".bm-tab:not([disabled])").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.channel = b.dataset.ch;
+        // Rewrite the draft for the new channel, unless it has been edited.
+        applyTemplate(false);
+        drawChannels();
+        refreshBroadcast();
+      }));
+  }
+
+  // One campaign, written three times. An email that reads well is far too long
+  // for a 160-character SMS, and WhatsApp sits between the two — so the template
+  // is per channel rather than one body squeezed into whichever channel is
+  // selected.
+  const CONTENT_TYPES = [
+    { value: "product_recommendation", label: "Product Recommendations",
+      subject: "{first_name}, we picked these for you",
+      email: "Hi {first_name},\n\nWe've been watching what you love and picked a few things we think you'll enjoy.\n\nTap any item to take a closer look. As always, free returns within 30 days.\n\nHappy shopping,\nThe {brand} team",
+      whatsapp: "Hi {first_name} 👋\n\nWe picked a few new pieces we think you'll love.\n\nFree returns within 30 days.\n\n— {brand}",
+      sms: "{first_name}, we picked a few new {brand} pieces for you. Free returns within 30 days." },
+    { value: "win_back", label: "Win-Back Campaign",
+      subject: "We miss you, {first_name} — 20% off inside",
+      email: "Hi {first_name},\n\nIt's been a while, and we miss you.\n\nTo welcome you back, here's 20% off your next order. No minimum, no fuss.\n\nUse code: {discount_code} at checkout.\nValid for 7 days only.\n\nThe {brand} team",
+      whatsapp: "Hi {first_name}, it's been a while and we miss you 💛\n\nHere's 20% off your next order — code {discount_code}, valid 7 days.\n\n— {brand}",
+      sms: "{first_name}, 20% off your next {brand} order with code {discount_code}. Valid 7 days." },
+    { value: "upsell", label: "Upsell / Cross-Sell",
+      subject: "{first_name}, these go with what you bought",
+      email: "Hi {first_name},\n\nCustomers who bought what you did also loved these picks.\n\nAdd one to your order this week and save 15% automatically at checkout, no code needed.\n\nThe {brand} team",
+      whatsapp: "Hi {first_name}, these go beautifully with your last order ✨\n\nAdd one this week and 15% comes off automatically.\n\n— {brand}",
+      sms: "{first_name}, add a matching piece to your {brand} order this week and save 15% automatically." },
+    { value: "new_arrival", label: "New Arrivals",
+      subject: "Just landed at {brand}",
+      email: "Hi {first_name},\n\nFresh arrivals just landed, and they're already moving fast.\n\nHand-picked for the styles you already love. Be the first to shop them before sizes sell out.\n\nThe {brand} team",
+      whatsapp: "Hi {first_name} 👋\n\nNew arrivals just landed at {brand} — hand-picked for the styles you already love.\n\nSizes are moving fast.",
+      sms: "{first_name}, new arrivals just landed at {brand}. Shop before sizes sell out." },
+    { value: "custom", label: "Custom Campaign" },
+  ];
+
+  // The body for a template on a channel, and every other channel's body for
+  // the same template — the second one is how a switch tells an untouched
+  // template apart from something the marketer wrote.
+  const bodyFor = (value, channel) => {
+    const t = CONTENT_TYPES.find((x) => x.value === value);
+    return (t && t[channel]) || "";
+  };
+  const allBodies = (value) => {
+    const t = CONTENT_TYPES.find((x) => x.value === value);
+    return t ? CHANNELS.map((c) => t[c.key]).filter(Boolean) : [];
+  };
+
+  // Which template an audience suggests. Applied only until somebody picks one
+  // themselves — after that the suggestion stops overwriting their choice.
+  const SUGGESTED = { lapsing_high_value: "win_back", aleena_no_rawash: "product_recommendation" };
+  const MERGE_TAGS = ["{first_name}", "{brand}", "{discount_code}"];
+
+  // Loads the selected template written for the channel in use. Anything the
+  // marketer typed themselves is left alone: `force` is false when the channel
+  // changed under them, so only text that is still verbatim from one of this
+  // template's own channels gets replaced.
+  function applyTemplate(force = true) {
+    const t = CONTENT_TYPES.find((x) => x.value === state.template);
+    if (!t) return;
+    const body = bodyFor(state.template, state.channel);
+    if (!body) return;
+    const current = $("bcText").value.trim();
+    if (!force && current && !allBodies(state.template).some((b) => b.trim() === current)) return;
+    $("bcText").value = body;
+    if (t.subject && (force || !$("bcSubject").value.trim())) $("bcSubject").value = t.subject;
+  }
+
+  function drawTemplates() {
+    $("bcTemplates").innerHTML = CONTENT_TYPES.map((t) =>
+      `<button class="seg" data-tpl="${t.value}" aria-pressed="${state.template === t.value}">${t.label}</button>`
+    ).join("");
+    $("bcTemplates").querySelectorAll("[data-tpl]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.template = b.dataset.tpl;
+        state.templateTouched = true;
+        applyTemplate();
+        drawTemplates();
+        refreshBroadcast();
+      }));
+    $("bcTags").innerHTML = MERGE_TAGS.map((t) => `<button class="bm-tag">${t}</button>`).join("");
+    $("bcTags").querySelectorAll(".bm-tag").forEach((b) =>
+      b.addEventListener("click", () => {
+        const box = $("bcText");
+        box.setRangeText(b.textContent, box.selectionStart, box.selectionEnd, "end");
+        box.focus();
+        refreshBroadcast();
+      }));
+  }
+
+  const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  function renderPreview(text, brandName) {
+    const body = escapeHtml(text);
+    if (state.channel === "email") {
+      const subject = $("bcSubject").value.trim();
+      return `<div class="pv-mail">
+        <div class="hd">
+          <div class="from">${brandName} &lt;hello@${brandName.toLowerCase()}.sa&gt;</div>
+          <div class="subj">${escapeHtml(subject) || "(no subject)"}</div>
+        </div>
+        <div class="bd">${body}</div>
+      </div>`;
+    }
+    if (state.channel === "sms") {
+      return `<div class="pv-sms">
+        <div class="sender">${brandName.toUpperCase()}</div>
+        <div class="bubble">${body}</div>
+      </div>`;
+    }
+    // A promotion leads with the product, so the preview shows one. Drawn rather
+    // than uploaded: the image a real send carries comes from the WhatsApp
+    // template Meta approved, not from a field on this form.
+    return `<div class="pv-wa">
+      <div class="bubble"><div class="imgstub"></div><div class="body">${body}</div>
+        <div class="meta">09:41<span class="ticks">✓✓</span></div></div>
+    </div>`;
+  }
+
+  function refreshBroadcast() {
+    const seg = state.segments.find((s) => s.key === state.segment);
+    const text = $("bcText").value.trim();
+    const channel = CHANNELS.find((c) => c.key === state.channel);
+    const brandName = state.brand.charAt(0).toUpperCase() + state.brand.slice(1);
+
+    // Only the fields this channel carries.
+    $("bcSubject").hidden = state.channel !== "email";
+
+    $("bcSegCount").textContent = seg
+      ? `(${seg.name}${seg.brand ? " · asking as " + seg.brand : ""})`
+      : "(none selected)";
+    $("bcSuggested").hidden = state.templateTouched || !state.segment;
+    $("bcPreviewChan").textContent = channel ? channel.label : "";
+
+    // SMS is billed per 160-character part, so the count is the cost. The other
+    // two are shown a plain length, which is only ever advisory.
+    const n = text.length;
+    $("bcCount").textContent = !n ? ""
+      : state.channel === "sms"
+        ? `${n} characters · ${Math.ceil(n / 160)} SMS part(s)`
+        : `${n} characters`;
+
+    const shell = $("bcPreview");
+    shell.querySelectorAll(".pv-wa, .pv-mail, .pv-sms").forEach((el) => el.remove());
+    if (text) shell.insertAdjacentHTML("afterbegin", renderPreview(text, brandName));
+    $("bcEmpty").hidden = !!text;
+
+    const needsSubject = state.channel === "email" && !$("bcSubject").value.trim();
+    $("bcSend").disabled = !(seg && text) || needsSubject;
+  }
+
   async function loadSegments() {
     const host = $("segments");
+    drawChannels();
+    drawTemplates();
     try {
-      const segs = await api("/segments");
+      const all = await api("/segments");
+      state.segments = all;
+      // Only the audiences belonging to the brand that is sending. The others
+      // are not hidden for tidiness — Rawash cannot lawfully message on an
+      // Aleena grant, so listing them here would be offering a send that the
+      // compiler will refuse.
+      const segs = all.filter((s) => !s.brand || s.brand === state.brand);
+      if (state.segment && !segs.some((s) => s.key === state.segment)) state.segment = null;
       if (!segs.length) { host.innerHTML = "<div class='empty'>No audiences yet.</div>"; return; }
       host.innerHTML = "";
       segs.forEach((s) => {
-        const row = document.createElement("div");
-        row.className = "seg";
-        row.innerHTML =
-          `<div><span class="seg-name">${s.name}</span><span class="seg-key">${s.key}${s.required_consent ? " · needs " + s.required_consent.replace(/_/g, " ") : ""}</span></div>` +
-          `<div class="seg-actions"><span class="seg-size" data-size>–</span>
-             <button class="ghost" data-act="evaluate">Count</button>
-             <button data-act="activate">Send</button></div>` +
-          `<div class="seg-out" data-out></div>`;
-        const size = row.querySelector("[data-size]"), out = row.querySelector("[data-out]");
-        row.querySelector("[data-act='evaluate']").addEventListener("click", async () => {
-          out.textContent = "counting…";
-          try {
-            const r = await api(`/segments/${s.key}/evaluate`, { method: "POST" });
-            size.textContent = r.size;
-            out.textContent = r.size === 0 ? "nobody matches right now" : `${r.size} customer(s) match this rule`;
-          } catch (e) { out.textContent = "failed: " + e.message; }
+        const pill = document.createElement("button");
+        pill.className = "seg";
+        pill.setAttribute("aria-pressed", String(state.segment === s.key));
+        pill.title = s.required_consent
+          ? `Needs ${PURPOSE_LABEL[s.required_consent] || s.required_consent}` : "No consent required";
+        pill.innerHTML = `${s.name}<span class="seg-size">–</span>`;
+        pill.addEventListener("click", () => {
+          state.segment = s.key;
+          host.querySelectorAll(".seg").forEach((r) => r.setAttribute("aria-pressed", "false"));
+          pill.setAttribute("aria-pressed", "true");
+          // The audience suggests a template until somebody chooses one; after
+          // that their choice stands and is not overwritten on the next click.
+          const suggestion = SUGGESTED[s.key];
+          if (!state.templateTouched && suggestion) {
+            state.template = suggestion;
+            applyTemplate(false);
+            drawTemplates();
+          }
+          refreshBroadcast();
         });
-        row.querySelector("[data-act='activate']").addEventListener("click", async () => {
-          out.textContent = "sending…";
-          try {
-            const r = await api(`/segments/${s.key}/activate?destination=mock`, { method: "POST" });
-            size.textContent = r.requested;
-            // Both refusal reasons are named. A run that quietly drops half its
-            // audience is indistinguishable from a broken pipeline.
-            const skips = [];
-            if (r.skipped_no_consent) skips.push(`${r.skipped_no_consent} never agreed`);
-            if (r.skipped_identifier_risk) skips.push(`${r.skipped_identifier_risk} number may not be hers`);
-            out.textContent = `sent to ${r.delivered} of ${r.requested}`
-              + (skips.length ? ` · ${skips.join(" · ")}` : "")
-              + ` · run ${r.run_id.slice(0, 8)}`;
-            await loadProof();
-          } catch (e) { out.textContent = "failed: " + e.message; }
-        });
-        host.appendChild(row);
+        host.appendChild(pill);
+      });
+      refreshBroadcast();
+      // Counted after the pills are on screen, so the list appears at once and
+      // the numbers fill in — rather than the panel staying blank until the
+      // slowest rule has been evaluated.
+      segs.forEach(async (s, i) => {
+        try {
+          const r = await api(`/segments/${s.key}/evaluate`, { method: "POST" });
+          const badge = host.children[i] && host.children[i].querySelector(".seg-size");
+          if (badge) badge.textContent = r.size;
+        } catch { /* leave the dash: a count that failed is not a count of zero */ }
       });
     } catch (err) {
       host.innerHTML = `<div class='empty'>Could not load audiences: ${err.message}</div>`;
     }
   }
+
+  async function sendBroadcast() {
+    const key = state.segment;
+    if (!key) return;
+    const btn = $("bcSend");
+    btn.disabled = true;
+    $("bcOut").className = "result show ok";
+    $("bcOut").textContent = "sending…";
+    try {
+      const r = await api(`/segments/${key}/activate?destination=${DESTINATION}`, { method: "POST" });
+      // Delivered and refused are shown together. A run reporting only what it
+      // sent is indistinguishable from one that quietly dropped half its list.
+      $("bcReach").innerHTML =
+        `<div class="reach"><span>Matched the rule</span><b>${r.requested}</b></div>` +
+        `<div class="reach"><span>Message sent</span><b>${r.delivered}</b></div>` +
+        (r.skipped_no_consent
+          ? `<div class="reach bad"><span>Never agreed to this</span><b>${r.skipped_no_consent}</b></div>` : "") +
+        (r.skipped_identifier_risk
+          ? `<div class="reach bad"><span>Number may not be hers</span><b>${r.skipped_identifier_risk}</b></div>` : "") +
+        (r.failed ? `<div class="reach bad"><span>Channel refused</span><b>${r.failed}</b></div>` : "");
+      $("bcOut").className = "result show ok";
+      $("bcOut").textContent = `Sent to ${r.delivered} of ${r.requested} · run ${r.run_id.slice(0, 8)}`;
+      await loadProof();
+    } catch (err) {
+      $("bcOut").className = "result show bad";
+      $("bcOut").textContent = "Could not send: " + err.message;
+    } finally { refreshBroadcast(); }
+  }
+
+  /* ---------- smart segments ----------
+     Only fields the compiler will actually accept. A builder that offers a
+     condition the server refuses turns a save into a guessing game. */
+  const SG_FIELDS = [
+    { key: "ltv", label: "Lifetime spend (SAR)", type: "number", group: "Value" },
+    { key: "aov", label: "Average order (SAR)", type: "number", group: "Value" },
+    { key: "order_count", label: "Number of orders", type: "number", group: "Behaviour" },
+    { key: "recency_days", label: "Days since last order", type: "number", group: "Behaviour" },
+    { key: "event_count", label: "Touchpoints", type: "number", group: "Behaviour" },
+    { key: "brands_purchased", label: "Brands bought from", type: "number", group: "Brands" },
+    { key: "brand_purchased", label: "Has bought", type: "brand", group: "Brands" },
+    { key: "brand_not_purchased", label: "Has never bought", type: "brand", group: "Brands" },
+    { key: "preferred_language", label: "Language", type: "choice", group: "Person",
+      choices: [["ar", "Arabic"], ["en", "English"]] },
+    { key: "preferred_channel", label: "Preferred channel", type: "choice", group: "Person",
+      choices: [["whatsapp", "WhatsApp"], ["email", "Email"], ["shopify", "Online store"]] },
+  ];
+  const SG_OPS = {
+    number: [["gte", "is at least"], ["lte", "is at most"], ["gt", "is more than"],
+             ["lt", "is less than"], ["eq", "equals"]],
+    choice: [["eq", "is"], ["ne", "is not"]],
+    brand: [],
+  };
+  const SG_BRANDS = [["aleena", "Aleena"], ["rawash", "Rawash"], ["aynola", "Aynola"]];
+  // A segment saved without a brand answers for the whole company; say so
+  // rather than leaving the label blank.
+  const BRAND_NAME = (b) => (SG_BRANDS.find(([k]) => k === b) || [null, "All brands"])[1];
+  const SG_TEMPLATES = [
+    { label: "🏆 Champions", op: "all",
+      rules: [{ field: "order_count", op: "gte", value: 4 }, { field: "recency_days", op: "lte", value: 60 }] },
+    { label: "💎 High value", op: "all", rules: [{ field: "ltv", op: "gte", value: 2000 }] },
+    { label: "⚠️ At risk", op: "all",
+      rules: [{ field: "order_count", op: "gte", value: 2 }, { field: "recency_days", op: "gt", value: 90 }] },
+    { label: "👋 New customers", op: "all",
+      rules: [{ field: "order_count", op: "lte", value: 1 }, { field: "recency_days", op: "lte", value: 30 }] },
+    { label: "🔁 Cross-sell", op: "all",
+      rules: [{ field: "brand_purchased", value: "aleena" }, { field: "brand_not_purchased", value: "rawash" }] },
+    { label: "🗣️ Arabic speakers", op: "all", rules: [{ field: "preferred_language", op: "eq", value: "ar" }] },
+  ];
+
+  const sg = { op: "all", rules: [], editing: null };
+
+  function sgFieldDef(key) { return SG_FIELDS.find((f) => f.key === key) || SG_FIELDS[0]; }
+
+  function sgDefinition() {
+    const nodes = sg.rules.map((r) => {
+      const def = sgFieldDef(r.field);
+      if (def.type === "brand") return { [def.key]: r.value };
+      return { trait: r.field, op: r.op, value: r.value };
+    });
+    return { [sg.op]: nodes };
+  }
+
+  function drawSegBuilder() {
+    const host = $("sgRules");
+    if (!sg.rules.length) {
+      host.innerHTML = `<div class="sg-empty">No conditions yet. Add one below or pick a template.</div>`;
+    } else {
+      const groups = [...new Set(SG_FIELDS.map((f) => f.group))];
+      host.innerHTML = `<div class="sg-rules">` + sg.rules.map((r, i) => {
+        const def = sgFieldDef(r.field);
+        const fieldSel = groups.map((g) =>
+          `<optgroup label="${g}">` + SG_FIELDS.filter((f) => f.group === g).map((f) =>
+            `<option value="${f.key}" ${f.key === r.field ? "selected" : ""}>${f.label}</option>`).join("")
+          + `</optgroup>`).join("");
+        const opSel = def.type === "brand"
+          ? `<span class="au-muted">—</span>`
+          : `<select class="au-input au-select" data-op="${i}">` +
+            SG_OPS[def.type].map(([v, l]) =>
+              `<option value="${v}" ${v === r.op ? "selected" : ""}>${l}</option>`).join("") + `</select>`;
+        const valInput = def.type === "number"
+          ? `<input class="au-input" type="number" data-val="${i}" value="${r.value}" />`
+          : `<select class="au-input au-select" data-val="${i}">` +
+            (def.type === "brand" ? SG_BRANDS : def.choices).map(([v, l]) =>
+              `<option value="${v}" ${v === r.value ? "selected" : ""}>${l}</option>`).join("") + `</select>`;
+        return (i ? `<div class="sg-joiner">${sg.op === "all" ? "AND" : "OR"}</div>` : "") +
+          `<div class="sg-rule">
+             <select class="au-input au-select" data-field="${i}">${fieldSel}</select>
+             ${opSel}${valInput}
+             <button type="button" class="au-ghost rm" data-rm="${i}" title="Remove">✕</button>
+           </div>`;
+      }).join("") + `</div>`;
+    }
+
+    host.querySelectorAll("[data-field]").forEach((el) => el.addEventListener("change", () => {
+      const i = Number(el.dataset.field), def = sgFieldDef(el.value);
+      // Changing the field resets the rest of the row: an operator or value left
+      // over from the previous field is usually invalid for the new one.
+      sg.rules[i] = {
+        field: def.key,
+        op: def.type === "brand" ? null : SG_OPS[def.type][0][0],
+        value: def.type === "number" ? 0 : def.type === "brand" ? SG_BRANDS[0][0] : def.choices[0][0],
+      };
+      drawSegBuilder(); sgCount();
+    }));
+    host.querySelectorAll("[data-op]").forEach((el) => el.addEventListener("change", () => {
+      sg.rules[Number(el.dataset.op)].op = el.value; sgCount();
+    }));
+    host.querySelectorAll("[data-val]").forEach((el) => el.addEventListener("change", () => {
+      const i = Number(el.dataset.val);
+      sg.rules[i].value = el.type === "number" ? Number(el.value) : el.value;
+      sgCount();
+    }));
+    host.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
+      sg.rules.splice(Number(b.dataset.rm), 1); drawSegBuilder(); sgCount();
+    }));
+  }
+
+  let sgTimer;
+  function sgCount() {
+    clearTimeout(sgTimer);
+    if (!sg.rules.length) {
+      $("sgCount").textContent = "—";
+      $("sgCountNote").textContent = "Add a condition to count.";
+      return;
+    }
+    $("sgCountNote").textContent = "counting…";
+    sgTimer = setTimeout(async () => {
+      try {
+        const r = await api("/segments/preview", {
+          method: "POST",
+          body: JSON.stringify({
+            definition: sgDefinition(),
+            required_consent: $("sgConsent").value || null,
+            brand: $("sgBrand").value,
+          }),
+        });
+        $("sgCount").textContent = r.size.toLocaleString("en-US");
+        $("sgCountNote").textContent = $("sgConsent").value
+          ? `who may be messaged by ${$("sgBrand").selectedOptions[0].textContent}`
+          : "matching, before any consent gate";
+      } catch (err) {
+        $("sgCount").textContent = "—";
+        $("sgCountNote").textContent = err.message;
+      }
+    }, 300);
+  }
+
+  async function loadSavedSegments() {
+    const rows = state.segments;
+    $("sgCountLabel").textContent = `(${rows.length})`;
+    $("sgList").innerHTML = rows.length ? rows.map((s) => `
+      <div class="sg-saved">
+        <div><span class="nm">${s.name}</span><span class="sub">${BRAND_NAME(s.brand)} · ${s.key}</span></div>
+        <div class="au-step-acts">
+          <button type="button" class="au-ghost" data-load="${s.key}">Load</button>
+          <button type="button" class="au-ghost rm" data-drop="${s.key}">✕</button>
+        </div>
+      </div>`).join("")
+      : `<div class="sg-empty" style="margin-top:12px">No segments yet. Build one and save it.</div>`;
+
+    $("sgList").querySelectorAll("[data-load]").forEach((b) => b.addEventListener("click", () => {
+      const s = rows.find((x) => x.key === b.dataset.load);
+      const op = s.definition.all ? "all" : s.definition.any ? "any" : "all";
+      sg.op = op;
+      sg.rules = (s.definition[op] || []).map((n) => {
+        if ("brand_purchased" in n) return { field: "brand_purchased", op: null, value: n.brand_purchased };
+        if ("brand_not_purchased" in n) return { field: "brand_not_purchased", op: null, value: n.brand_not_purchased };
+        return { field: n.trait, op: n.op || "eq", value: n.value };
+      });
+      sg.editing = s.key;
+      $("sgHeading").textContent = "Edit segment";
+      $("sgName").value = s.name;
+      $("sgDesc").value = s.description || "";
+      if (s.brand) $("sgBrand").value = s.brand;
+      $("sgConsent").value = s.required_consent || "";
+      document.querySelectorAll(".sg-toggle button").forEach((x) =>
+        x.setAttribute("aria-pressed", String(x.dataset.op === op)));
+      drawSegBuilder(); sgCount();
+    }));
+    $("sgList").querySelectorAll("[data-drop]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("Delete this segment?")) return;
+      try {
+        await api(`/segments/${b.dataset.drop}`, { method: "DELETE" });
+        await loadSegments();
+        loadSavedSegments();
+      } catch (err) { alert(err.message); }
+    }));
+  }
+
+  function drawSegTemplates() {
+    $("sgTemplates").innerHTML = SG_TEMPLATES.map((t, i) =>
+      `<button class="seg" data-tpl="${i}">${t.label}</button>`).join("");
+    $("sgTemplates").querySelectorAll("[data-tpl]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const t = SG_TEMPLATES[Number(b.dataset.tpl)];
+        sg.op = t.op;
+        sg.rules = t.rules.map((r) => ({ op: null, ...r }));
+        document.querySelectorAll(".sg-toggle button").forEach((x) =>
+          x.setAttribute("aria-pressed", String(x.dataset.op === t.op)));
+        if (!$("sgName").value.trim()) $("sgName").value = t.label.replace(/^\S+\s/, "");
+        drawSegBuilder(); sgCount();
+      }));
+  }
+
+  function resetSegBuilder() {
+    sg.op = "all"; sg.rules = []; sg.editing = null;
+    $("sgHeading").textContent = "Build a segment";
+    $("sgName").value = ""; $("sgDesc").value = ""; $("sgSaveErr").textContent = "";
+    document.querySelectorAll(".sg-toggle button").forEach((x) =>
+      x.setAttribute("aria-pressed", String(x.dataset.op === "all")));
+    drawSegBuilder(); sgCount();
+  }
+
+  async function saveSegment() {
+    const name = $("sgName").value.trim();
+    if (!name) { $("sgSaveErr").textContent = "Give it a name."; return; }
+    if (!sg.rules.length) { $("sgSaveErr").textContent = "Add at least one condition."; return; }
+    const key = sg.editing || name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    $("sgSave").disabled = true; $("sgSaveErr").textContent = ""; $("sgSaved").hidden = true;
+    try {
+      await api("/segments", {
+        method: "POST",
+        body: JSON.stringify({
+          key, name, definition: sgDefinition(),
+          required_consent: $("sgConsent").value || null,
+          description: $("sgDesc").value.trim() || null,
+          brand: $("sgBrand").value,
+        }),
+      });
+      sg.editing = key;
+      $("sgSaved").hidden = false;
+      await loadSegments();
+      loadSavedSegments();
+    } catch (err) {
+      $("sgSaveErr").textContent = err.message;
+    } finally { $("sgSave").disabled = false; }
+  }
+
+  function initSegBuilder() {
+    $("sgBrand").innerHTML = SG_BRANDS.map(([v, l]) =>
+      `<option value="${v}">Asking as ${l}</option>`).join("");
+    $("sgConsent").innerHTML =
+      Object.entries(PURPOSE_LABEL).map(([v, l]) =>
+        `<option value="${v}" ${v === "marketing_whatsapp" ? "selected" : ""}>Needs ${l}</option>`).join("")
+      + `<option value="">No consent required</option>`;
+    drawSegTemplates();
+    drawSegBuilder();
+    document.querySelectorAll(".sg-toggle button").forEach((b) =>
+      b.addEventListener("click", () => {
+        sg.op = b.dataset.op;
+        document.querySelectorAll(".sg-toggle button").forEach((x) =>
+          x.setAttribute("aria-pressed", String(x === b)));
+        drawSegBuilder(); sgCount();
+      }));
+    $("sgAdd").addEventListener("click", () => {
+      sg.rules.push({ field: "order_count", op: "gte", value: 1 });
+      drawSegBuilder(); sgCount();
+    });
+    $("sgClear").addEventListener("click", resetSegBuilder);
+    $("sgSave").addEventListener("click", saveSegment);
+    ["sgBrand", "sgConsent"].forEach((id) => $(id).addEventListener("change", sgCount));
+  }
+
+  /* ---------- automations ----------
+     Only triggers this platform can actually observe are offered. A menu of
+     events nothing listens for is a list of ways to build something that will
+     never fire. */
+  const TRIGGER_LABELS = {
+    segment_entered: "When a customer enters an audience",
+    order_placed: "When a customer places an order",
+    winback: "When a customer hasn't ordered in N days",
+    scheduled: "On a schedule (day + time)",
+  };
+  const TRIGGER_ORDER = ["segment_entered", "order_placed", "winback", "scheduled"];
+  const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const STEP_NAME = { message: "Send message", wait: "Wait", exit: "Exit" };
+  const AUTO_CHANNELS = [
+    { key: "whatsapp", label: "WhatsApp" },
+    { key: "email", label: "Email" },
+  ];
+
+  function defaultTrigger(type) {
+    const first = state.segments[0] && state.segments[0].key;
+    if (type === "segment_entered") return { type, segment_key: first || "" };
+    if (type === "winback") return { type, days: 30 };
+    if (type === "scheduled")
+      return { type, segment_key: first || "", day_of_week: 4, hour: 9, minute: 30 };
+    return { type };
+  }
+
+  function newAutomation() {
+    state.draft = {
+      id: null, name: "", trigger: defaultTrigger("winback"),
+      steps: [{ kind: "message", channel: "whatsapp", body: "" }],
+      stop_on_purchase: true, reentry_days: 0, active: false, filter_key: "",
+    };
+    drawBuilder();
+    $("autoBuilder").hidden = false;
+  }
+
+  function drawBuilder() {
+    const d = state.draft;
+    if (!d) return;
+    $("autoHeading").textContent = d.id ? "Edit automation" : "New automation";
+    $("autoName").value = d.name;
+    $("autoStop").checked = d.stop_on_purchase;
+
+    $("autoTrigger").innerHTML = TRIGGER_ORDER
+      .map((t) => `<option value="${t}" ${d.trigger.type === t ? "selected" : ""}>${TRIGGER_LABELS[t]}</option>`)
+      .join("");
+
+    // Every audience exists once per brand, so the names repeat three times.
+    // The brand goes on the group heading rather than on each option, because
+    // "Champions" alone does not say whose champions — and picking the wrong
+    // one aims Aleena's customers at a Rawash send.
+    const opt = (s, sel) =>
+      `<option value="${s.key}" ${sel === s.key ? "selected" : ""}>${s.name}</option>`;
+    const segOpts = (sel) => {
+      const seen = new Set();
+      let out = "";
+      for (const [key, label] of SG_BRANDS) {
+        const rows = state.segments.filter((s) => s.brand === key);
+        if (!rows.length) continue;
+        rows.forEach((s) => seen.add(s.key));
+        out += `<optgroup label="${label}">${rows.map((s) => opt(s, sel)).join("")}</optgroup>`;
+      }
+      const rest = state.segments.filter((s) => !seen.has(s.key));
+      if (rest.length) {
+        out += `<optgroup label="All brands">${rest.map((s) => opt(s, sel)).join("")}</optgroup>`;
+      }
+      return out;
+    };
+
+    const t = d.trigger;
+    let params = "";
+    if (t.type === "winback") {
+      params = `<span>Hasn't ordered in</span>
+        <input class="au-input" type="number" min="1" data-t="days" value="${t.days}" />
+        <span>days</span>`;
+    } else if (t.type === "segment_entered") {
+      params = `<span>Audience</span>
+        <select class="au-input au-select au-inline" data-t="segment_key">${segOpts(t.segment_key)}</select>`;
+    } else if (t.type === "scheduled") {
+      params = `<span>Every</span>
+        <select class="au-input au-select au-inline" data-t="day_of_week">
+          ${DOW.map((n, i) => `<option value="${i}" ${t.day_of_week === i ? "selected" : ""}>${n}</option>`).join("")}
+        </select>
+        <span>at</span>
+        <input class="au-input" type="number" min="0" max="23" data-t="hour" value="${t.hour}" />
+        <span>:</span>
+        <input class="au-input" type="number" min="0" max="59" data-t="minute" value="${t.minute}" />
+        <span>for</span>
+        <select class="au-input au-select au-inline" data-t="segment_key">${segOpts(t.segment_key)}</select>`;
+    }
+    $("autoParams").innerHTML = params;
+    $("autoParams").querySelectorAll("[data-t]").forEach((el) =>
+      el.addEventListener("change", () => {
+        const key = el.dataset.t;
+        d.trigger[key] = el.type === "number" || key === "day_of_week" ? Number(el.value) : el.value;
+      }));
+
+    $("autoFilter").innerHTML =
+      `<option value="">(no filter, enroll everyone)</option>` + segOpts(d.filter_key);
+
+    $("autoSteps").innerHTML = d.steps.map((s, i) => `
+      <div class="au-step">
+        <div class="au-step-head">
+          <div><span class="au-badge">${i + 1}</span><span class="au-step-name">${STEP_NAME[s.kind]}</span></div>
+          <div class="au-step-acts">
+            <button type="button" class="au-ghost" data-mv="-1" data-i="${i}" ${i === 0 ? "disabled" : ""} title="Move up">↑</button>
+            <button type="button" class="au-ghost" data-mv="1" data-i="${i}" ${i === d.steps.length - 1 ? "disabled" : ""} title="Move down">↓</button>
+            <button type="button" class="au-ghost rm" data-rm="${i}" title="Remove">✕</button>
+          </div>
+        </div>
+        ${s.kind === "message" ? `
+          <div class="au-chips">
+            ${AUTO_CHANNELS.map((c) => `<button type="button" class="au-chip" data-ch="${c.key}" data-i="${i}"
+                aria-pressed="${s.channel === c.key}">${c.label}</button>`).join("")}
+          </div>
+          <textarea class="au-textarea" data-body="${i}"
+            placeholder="What she receives. Consent for this channel is checked again when the step runs.">${s.body || ""}</textarea>`
+        : s.kind === "wait" ? `
+          <div class="au-params"><span>Wait</span>
+            <input class="au-input" type="number" min="1" data-wait="${i}" value="${Math.round((s.minutes || 60) / 60)}" />
+            <span>hours</span></div>`
+        : `<div class="au-muted">Ends this path. She leaves the automation here.</div>`}
+      </div>`).join("") || `<div class="au-muted">No steps yet. Add a message to send.</div>`;
+
+    const steps = $("autoSteps");
+    steps.querySelectorAll("[data-ch]").forEach((b) => b.addEventListener("click", () => {
+      d.steps[Number(b.dataset.i)].channel = b.dataset.ch; drawBuilder();
+    }));
+    steps.querySelectorAll("[data-body]").forEach((el) => el.addEventListener("input", () => {
+      d.steps[Number(el.dataset.body)].body = el.value;
+    }));
+    steps.querySelectorAll("[data-wait]").forEach((el) => el.addEventListener("change", () => {
+      d.steps[Number(el.dataset.wait)].minutes = Math.max(1, Number(el.value)) * 60;
+    }));
+    steps.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
+      d.steps.splice(Number(b.dataset.rm), 1); drawBuilder();
+    }));
+    steps.querySelectorAll("[data-mv]").forEach((b) => b.addEventListener("click", () => {
+      const i = Number(b.dataset.i), j = i + Number(b.dataset.mv);
+      [d.steps[i], d.steps[j]] = [d.steps[j], d.steps[i]];
+      drawBuilder();
+    }));
+  }
+
+  // Which brand's customers a saved automation is aimed at. Read off the
+  // audience it targets, since that is where the consent grant comes from.
+  function segBrandOf(trigger) {
+    const key = trigger.segment_key || trigger.filter_key;
+    if (!key) return "";
+    const s = state.segments.find((x) => x.key === key);
+    return s && s.brand ? ` · ${BRAND_NAME(s.brand)}` : "";
+  }
+
+  async function loadAutomations() {
+    const host = $("autoList");
+    try {
+      const rows = await api("/automations");
+      host.innerHTML =
+        `<div class="au-saverow"><button type="button" class="au-primary" id="autoNew">+ New automation</button></div>` +
+        (rows.length ? rows.map((a) => `
+          <div class="auto-row">
+            <div>
+              <span class="nm">${a.name}</span>
+              <span class="sub">${TRIGGER_LABELS[a.trigger.type] || a.trigger.type}${segBrandOf(a.trigger)} · ${a.steps.length} step(s)</span>
+            </div>
+            <div class="au-step-acts">
+              <span class="auto-state ${a.active ? "on" : ""}">${a.active ? "Live" : "Paused"}</span>
+              <button type="button" class="au-ghost" data-toggle="${a.id}" data-to="${!a.active}">${a.active ? "Pause" : "Turn on"}</button>
+              <button type="button" class="au-ghost" data-edit="${a.id}">Edit</button>
+              <button type="button" class="au-ghost rm" data-del="${a.id}">✕</button>
+            </div>
+          </div>`).join("")
+          : `<div class="au-muted">No automations yet.</div>`);
+
+      $("autoNew").addEventListener("click", newAutomation);
+      host.querySelectorAll("[data-toggle]").forEach((b) => b.addEventListener("click", async () => {
+        b.disabled = true;
+        await api(`/automations/${b.dataset.toggle}/active?active=${b.dataset.to}`, { method: "POST" });
+        loadAutomations();
+      }));
+      host.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {
+        const a = rows.find((r) => r.id === b.dataset.edit);
+        state.draft = { ...a, filter_key: (a.trigger.filter_key || "") };
+        drawBuilder();
+        $("autoBuilder").hidden = false;
+      }));
+      host.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
+        if (!confirm("Delete this automation?")) return;
+        await api(`/automations/${b.dataset.del}`, { method: "DELETE" });
+        $("autoBuilder").hidden = true;
+        loadAutomations();
+      }));
+    } catch (err) {
+      host.innerHTML = `<div class='empty'>Could not load automations: ${err.message}</div>`;
+    }
+  }
+
+  async function saveAutomation() {
+    const d = state.draft;
+    d.name = $("autoName").value.trim();
+    d.stop_on_purchase = $("autoStop").checked;
+    if ($("autoFilter").value) d.trigger.filter_key = $("autoFilter").value;
+    else delete d.trigger.filter_key;
+
+    $("autoErrors").hidden = true;
+    $("autoSaved").hidden = true;
+    $("autoSave").disabled = true;
+    try {
+      const saved = await api(`/automations${d.id ? "?id=" + d.id : ""}`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: d.name, trigger: d.trigger, steps: d.steps,
+          stop_on_purchase: d.stop_on_purchase, reentry_days: d.reentry_days, active: d.active,
+        }),
+      });
+      state.draft.id = saved.id;
+      $("autoSaved").hidden = false;
+      await loadAutomations();
+    } catch (err) {
+      // The API answers with every problem at once, so the form can list them
+      // rather than making somebody save four times to find four mistakes.
+      let list = [];
+      try { list = JSON.parse(err.message); } catch { list = [err.message]; }
+      $("autoErrors").innerHTML = (Array.isArray(list) ? list : [String(list)])
+        .map((m) => `<li>${m}</li>`).join("");
+      $("autoErrors").hidden = false;
+    } finally { $("autoSave").disabled = false; }
+  }
+
+  $("autoCancel").addEventListener("click", () => { $("autoBuilder").hidden = true; state.draft = null; });
+  $("autoSave").addEventListener("click", saveAutomation);
+  $("autoName").addEventListener("input", () => { if (state.draft) state.draft.name = $("autoName").value; });
+  $("autoTrigger").addEventListener("change", () => {
+    state.draft.trigger = defaultTrigger($("autoTrigger").value);
+    drawBuilder();
+  });
+  document.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => {
+    const kind = b.dataset.add;
+    state.draft.steps.push(
+      kind === "message" ? { kind, channel: "whatsapp", body: "" }
+      : kind === "wait" ? { kind, minutes: 1440 } : { kind });
+    drawBuilder();
+  }));
 
   /* ---------- connect ----------
      Demo convenience: the console tries the known demo keys itself so nobody has
@@ -931,12 +2442,40 @@
         askForKey(false);
         setConn(true, "connected · " + env);
         await Promise.all([loadCustomers(), loadSegments(), loadProof()]);
+        // Re-run now that there is a connection: the view chose what to load
+        // before the key was known.
+        applyView(state.view);
         return;
       }
     }
     setConn(false, "no working API key — type one");
     askForKey(true);
   }
+
+  ["bcText", "bcSubject"].forEach((id) =>
+    $(id).addEventListener("input", refreshBroadcast));
+  $("bcSend").addEventListener("click", sendBroadcast);
+  $("brandPills").querySelectorAll("[data-brand]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.brand = b.dataset.brand;
+      $("brandPills").querySelectorAll("[data-brand]").forEach((o) =>
+        o.setAttribute("aria-pressed", String(o === b)));
+      loadSegments();
+    }));
+
+  $("openCapture").addEventListener("click", () => {
+    // The result strip is from the last thing recorded. Leaving it up makes the
+    // next entry look like it has already succeeded before anything was typed.
+    $("result").className = "result";
+    $("captureDialog").showModal();
+  });
+  $("closeCapture").addEventListener("click", () => $("captureDialog").close());
+
+  $("closeProfile").addEventListener("click", closeProfile);
+  $("profileScrim").addEventListener("click", closeProfile);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("profilePanel").hidden) closeProfile();
+  });
 
   $("custMoreBtn").addEventListener("click", () => {
     state.showAllCustomers = !state.showAllCustomers;
@@ -1002,8 +2541,7 @@
         .filter(([, n]) => n > 0)
         .map(([table, n]) => `${n} ${table.replace(/_/g, " ")}`)
         .join(", ");
-      state.selected = null;
-      $("profilePanel").hidden = true;
+      closeProfile();
       show(`${name} erased — ${removed}.`, true, "Removed from every table, raw records included.");
       await Promise.all([loadCustomers(), loadSegments(), loadProof()]);
     } catch (err) {
@@ -1012,6 +2550,14 @@
   });
 
   applySource("shopify");
+  initSegBuilder();
+  applyView(state.view);
+  // Back and forward move between rail destinations, since each one has its own
+  // address. Without this the browser leaves the page on whichever view was last
+  // rendered, which reads as the button being broken.
+  window.addEventListener("popstate", () => {
+    applyView(new URLSearchParams(location.search).get("view") || "dashboard");
+  });
   connect(false);
 </script>
 </body>
