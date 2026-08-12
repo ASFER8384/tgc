@@ -146,24 +146,30 @@ _NAV_GROUPS = (
     # is a queue somebody works every morning; the item and supplier lists are
     # records that change when a SKU is added or a mill is onboarded. Filed
     # together they buried the queue under reference data.
-    ("Supplier", (
+    #
+    # Procurement, not Supplier: two of the three entries are records *about*
+    # suppliers, so heading the group "Supplier" named it after its subject
+    # rather than after the work. For the same reason the desk is the buying
+    # desk — "Supplier Desk" beside "Supplier list" said supplier twice and
+    # neither of them said what you do there.
+    ("Procurement", (
     (
         "sca:desk",
         "/",
-        "Supplier Desk",
+        "Buying desk",
         "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 "
         "4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4",
     ),
     (
         "sca:items",
         "/?view=items",
-        "Items",
+        "Item list",
         "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
     ),
     (
         "sca:suppliers",
         "/?view=suppliers",
-        "Suppliers",
+        "Supplier list",
         "M12 8c1.657 0 3-.895 3-2s-1.343-2-3-2-3 .895-3 2 1.343 2 3 2zm0 0v2m0 "
         "10a8 8 0 100-16 8 8 0 000 16zm0 0v-2m-6.4-4H8m8 0h2.4",
     ),

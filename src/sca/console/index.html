@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" />
-<title>TGC Supplier Desk</title>
+<title>TGC Procurement</title>
 <style>
   :root {
     --ground: #f6f5f2;
@@ -356,7 +356,7 @@
   <div class="top">
     <!-- No eyebrow: the rail already names the platform and the three brands. -->
     <div>
-      <h1 id="pageTitle">Supplier Desk</h1>
+      <h1 id="pageTitle">Buying desk</h1>
       <span class="eyebrow" id="pageSub"></span>
     </div>
     <!-- The connection state is only worth a person's attention when it is bad,
@@ -1917,9 +1917,9 @@
   // data behind them is loaded once and shared, and reloading to move between a
   // buying decision and the item it is about would refetch all of it.
   const VIEWS = {
-    desk: ["Supplier Desk", "what needs you today"],
-    items: ["Items", "the catalogue — what we sell and what it costs"],
-    suppliers: ["Suppliers", "who we buy from, and how far away they are"],
+    desk: ["Buying desk", "what needs you today"],
+    items: ["Item list", "the catalogue — what we sell and what it costs"],
+    suppliers: ["Supplier list", "who we buy from, and how far away they are"],
   };
 
   window.applyView = function applyView(view) {
