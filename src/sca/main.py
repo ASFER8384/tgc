@@ -279,8 +279,11 @@ def create_app() -> FastAPI:
     if settings.console_auto_connect and settings.env != "local":
         logging.getLogger("sca").warning(
             "console_auto_connect is ON in env=%s: the API key is served inside "
-            "the console page and anyone with the URL has full API access. "
-            "Unset SCA_CONSOLE_AUTO_CONNECT before this URL outlives the demo.",
+            "the console page, so anyone with the URL has full API access — "
+            "customer records, supplier pricing, placing and cancelling orders. "
+            "This service has no authentication while that is true. Set "
+            "SCA_CONSOLE_AUTO_CONNECT=false and rotate SCA_API_KEY before this "
+            "URL outlives the demonstration.",
             settings.env,
         )
 

@@ -92,10 +92,19 @@ class Settings(BaseSettings):
     # records, supplier pricing, and placing or cancelling orders.
     #
     # It exists because a demonstration where the client is handed a key first
-    # demonstrates the key. Off by default, and off is the correct value for any
-    # deployment holding data somebody would mind losing. Turn it off before the
-    # URL outlives the meeting.
-    console_auto_connect: bool = False
+    # demonstrates the key.
+    #
+    # On by default while this is a demonstration, deliberately: defaulting it
+    # off meant remembering to set a variable on every environment, and a
+    # security control that has to be switched on to work is one that is off in
+    # practice. The honest position is that this service currently has no
+    # authentication, said plainly here and warned about on every start, rather
+    # than a default that implies protection nobody enabled.
+    #
+    # Set SCA_CONSOLE_AUTO_CONNECT=false before this holds data somebody would
+    # mind losing, and rotate SCA_API_KEY at the same time — everyone who opened
+    # the page while it was on has the old one.
+    console_auto_connect: bool = True
 
     # Arrival estimates. Clearing is a flat allowance until enough receipts
     # exist to measure one per lane, and is stated as an assumption wherever it
