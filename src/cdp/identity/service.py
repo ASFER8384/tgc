@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cdp.identity.normalize import normalize
 from cdp.models import (
     STRONG_KINDS,
+    THIRD_PARTY_CONTEXTS,
     AuditLog,
     ConsentEvent,
     Event,
@@ -24,6 +25,7 @@ from cdp.models import (
 class IdentifierIn:
     kind: str
     value: str
+    capture_context: str = "unknown"
 
     @property
     def is_strong(self) -> bool:
@@ -62,15 +64,24 @@ class IdentityService:
         self.country_code = country_code
 
     def prepare(
-        self, raw: dict[str, str | None] | list[tuple[str, str | None]]
+        self,
+        raw: dict[str, str | None] | list[tuple[str, str | None]],
+        *,
+        capture_context: str = "unknown",
     ) -> list[IdentifierIn]:
-        """Normalise and de-duplicate incoming identifiers, dropping unusable ones."""
+        """Normalise and de-duplicate incoming identifiers, dropping unusable ones.
+
+        The capture context travels with the value. Recording it at capture is
+        the only honest moment: inferring later that a number "looks like a mall
+        signup" is guesswork, and this is a field whose whole purpose is to be
+        trustworthy when a send is being decided.
+        """
         pairs = list(raw.items()) if isinstance(raw, dict) else list(raw)
         out: dict[tuple[str, str], IdentifierIn] = {}
         for kind, value in pairs:
             folded = normalize(kind, value, self.country_code)
             if folded:
-                out[(kind, folded)] = IdentifierIn(kind, folded)
+                out[(kind, folded)] = IdentifierIn(kind, folded, capture_context)
         return list(out.values())
 
     async def canonical_id(self, person_id: str) -> str:
@@ -301,6 +312,7 @@ class IdentityService:
                         value=ident.value,
                         first_seen_at=seen_at,
                         last_seen_at=seen_at,
+                        capture_context=ident.capture_context,
                     )
                 )
             else:
@@ -308,6 +320,18 @@ class IdentityService:
                     row.last_seen_at = seen_at
                 if seen_at < row.first_seen_at:
                     row.first_seen_at = seen_at
+                # A number first written on a mall form and later typed into a
+                # checkout by the customer herself has been confirmed by her.
+                # Risk is cleared by better evidence, never added by weaker:
+                # otherwise one gift order would permanently mark a number that
+                # its owner has used a hundred times.
+                confirms_it = (
+                    row.capture_context in THIRD_PARTY_CONTEXTS
+                    and ident.capture_context not in THIRD_PARTY_CONTEXTS
+                    and ident.capture_context != "unknown"
+                )
+                if confirms_it or row.capture_context in (None, "unknown"):
+                    row.capture_context = ident.capture_context
                 # A row still pointing at a merged-away person is repointed here;
                 # the unique constraint means it can only ever belong to one.
                 row.person_id = person_id

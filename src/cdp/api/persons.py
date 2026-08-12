@@ -9,6 +9,7 @@ from cdp.api.deps import ActorDep, SessionDep
 from cdp.consent.service import ConsentService
 from cdp.identity.service import IdentityService
 from cdp.models import AuditLog, Event, Identifier, Person, PersonBrandStat, ProfileTraits
+from cdp.privacy.service import PrivacyService, UnknownPerson
 
 router = APIRouter(prefix="/persons", tags=["persons"])
 
@@ -242,3 +243,37 @@ async def set_consent(
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return await service.current(canonical_id)
+
+
+@router.get("/{person_id}/export")
+async def export_person(person_id: str, session: SessionDep, actor: ActorDep) -> dict:
+    """Everything held about one person — the subject access request.
+
+    Answered against the graph rather than against each source system, which is
+    the main operational reason to hold identity centrally at all: the
+    alternative is a manual sweep across five systems that neither scales nor
+    survives being checked.
+    """
+    try:
+        return await PrivacyService(session, actor=actor).export(person_id)
+    except UnknownPerson as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown person") from exc
+
+
+@router.delete("/{person_id}")
+async def erase_person(
+    person_id: str, session: SessionDep, actor: ActorDep, reason: str = "subject request"
+) -> dict:
+    """Erase a person and everything held about her.
+
+    Deletes the whole identity cluster, not only the id supplied: a person who
+    was merged away keeps a row, and removing just the one you were handed would
+    leave her alive under an alias. The raw webhook bodies go too — they carry
+    her name and address, and an erasure that left them would be one in name
+    only.
+    """
+    try:
+        report = await PrivacyService(session, actor=actor).erase(person_id, reason=reason)
+    except UnknownPerson as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown person") from exc
+    return report.as_dict()

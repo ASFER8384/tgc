@@ -9,6 +9,37 @@ from cdp.models import AuditLog, Event, Person, RawEvent
 from cdp.profiles.service import ProfileService
 
 
+def _capture_context(event: CanonicalEvent) -> str:
+    """Which circumstance produced these identifiers.
+
+    Derived from the source and the payload at the moment of capture, because
+    working it out later is guesswork — and this field exists precisely to be
+    trusted when deciding whether to send someone a message.
+    """
+    if event.source == "activation":
+        return "activation"
+    # Shopify marks a gift order with its own note fields; the number on one is
+    # commonly the recipient's rather than the buyer's.
+    payload = event.payload or {}
+    if payload.get("gift") or (payload.get("note_attributes") and _is_gift(payload)):
+        return "gift"
+    if event.source in {"whatsapp", "messaging"}:
+        return "messaging"
+    if event.source.startswith("shopify"):
+        return "checkout"
+    if event.source == "console":
+        return "console"
+    return "unknown"
+
+
+def _is_gift(payload: dict) -> bool:
+    for attribute in payload.get("note_attributes") or []:
+        name = str(attribute.get("name", "")).lower()
+        if "gift" in name and str(attribute.get("value", "")).lower() not in {"", "no", "false"}:
+            return True
+    return False
+
+
 class IngestService:
     """Land raw, normalise, resolve, project.
 
@@ -57,7 +88,9 @@ class IngestService:
         self.session.add(raw)
         await self.session.flush()
 
-        identifiers = self.identity.prepare(event.identifiers)
+        identifiers = self.identity.prepare(
+            event.identifiers, capture_context=_capture_context(event)
+        )
         resolution = await self.identity.resolve(identifiers, seen_at=event.occurred_at)
 
         row = Event(

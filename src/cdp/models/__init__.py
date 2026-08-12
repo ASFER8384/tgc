@@ -5,7 +5,9 @@ from cdp.models.base import Base, JSONType, TimestampMixin, new_id
 from cdp.models.consent import BRANDS, PURPOSES, ConsentEvent
 from cdp.models.event import AuditLog, Event, RawEvent
 from cdp.models.person import (
+    CAPTURE_CONTEXTS,
     STRONG_KINDS,
+    THIRD_PARTY_CONTEXTS,
     WEAK_KINDS,
     Identifier,
     IdentityMerge,
@@ -23,7 +25,9 @@ from cdp.models.segment import (
 __all__ = [
     "BRANDS",
     "PURPOSES",
+    "CAPTURE_CONTEXTS",
     "STRONG_KINDS",
+    "THIRD_PARTY_CONTEXTS",
     "WEAK_KINDS",
     "ActivationDelivery",
     "ActivationRun",

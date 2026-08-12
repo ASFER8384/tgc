@@ -13,6 +13,10 @@ from cdp.models import ActivationDelivery, ActivationRun, AuditLog, Identifier, 
 from cdp.segments.compiler import SegmentDefinitionError, compile_segment
 from cdp.segments.service import SegmentService
 
+# The kinds a message could actually be sent to. A shopify customer id is an
+# identifier but not an address, so its provenance cannot cause a disclosure.
+CONTACTABLE_KINDS = ("phone", "email", "whatsapp_id")
+
 
 class ActivationService:
     """The return trip: segment out to a channel.
@@ -85,6 +89,27 @@ class ActivationService:
                     )
                     continue
 
+            # Consent is necessary and not sufficient. She may have agreed, and
+            # the number we hold may still not be hers — a mall form filled in
+            # by a friend, a gift order carrying the recipient's phone. Sending
+            # her purchase history to that number is a disclosure, so an
+            # addressed destination refuses it regardless of the grant.
+            if destination.addressed:
+                risky = await self._third_party_identifier(person_id)
+                if risky is not None:
+                    run.skipped_identifier_risk += 1
+                    self.session.add(
+                        ActivationDelivery(
+                            run_id=run.id,
+                            person_id=person_id,
+                            destination=destination.name,
+                            consent_basis=basis,
+                            status="skipped",
+                            detail=f"{risky.kind} was captured at {risky.capture_context}",
+                        )
+                    )
+                    continue
+
             ctx = DeliveryContext(
                 person_id=person_id,
                 segment_key=segment.key,
@@ -127,11 +152,36 @@ class ActivationService:
                     "delivered": run.delivered,
                     "failed": run.failed,
                     "skipped_no_consent": run.skipped_no_consent,
+                    "skipped_identifier_risk": run.skipped_identifier_risk,
                 },
             )
         )
         await self.session.flush()
         return run
+
+    async def _third_party_identifier(self, person_id: str) -> Identifier | None:
+        """The contact identifier a message would go to, if it may not be hers.
+
+        Only the identifiers a send would actually use are considered, and only
+        the most recent of each kind — the same one ``_identifiers`` picks. A
+        number captured at a stand two years ago that she has since typed into a
+        checkout herself is not a reason to withhold today's message.
+        """
+        rows = (
+            await self.session.scalars(
+                select(Identifier).where(
+                    Identifier.person_id == person_id,
+                    Identifier.kind.in_(CONTACTABLE_KINDS),
+                )
+            )
+        ).all()
+        latest: dict[str, Identifier] = {}
+        for row in sorted(rows, key=lambda r: r.last_seen_at):
+            latest[row.kind] = row
+        for row in latest.values():
+            if row.third_party_plausible:
+                return row
+        return None
 
     async def _identifiers(self, person_id: str) -> dict[str, str]:
         rows = (

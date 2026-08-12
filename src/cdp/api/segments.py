@@ -55,6 +55,7 @@ class ActivationOut(BaseModel):
     delivered: int
     failed: int
     skipped_no_consent: int
+    skipped_identifier_risk: int
 
 
 @router.get("/segments", response_model=list[SegmentOut])
@@ -120,4 +121,5 @@ async def activate_segment(
         delivered=run.delivered,
         failed=run.failed,
         skipped_no_consent=run.skipped_no_consent,
+        skipped_identifier_risk=run.skipped_identifier_risk,
     )

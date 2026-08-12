@@ -70,8 +70,13 @@ def _identifiers(payload: dict, *, is_customer_payload: bool) -> dict[str, str |
         ),
         "shopify_customer_id": str(customer_id) if customer_id else None,
         # Shopify's client-side id, present when the storefront pixel is wired up.
-        "device_id": (payload.get("client_details") or {}).get("browser_ip_hash")
-        or payload.get("cart_token"),
+        "device_id": (payload.get("client_details") or {}).get("browser_ip_hash"),
+        # A cart token identifies one checkout, not one device. Kept separate
+        # because conflating them made a customer with forty orders appear to own
+        # forty devices, and because the two are useful for different things: a
+        # device persists across visits, a cart token links an abandoned checkout
+        # to the order that follows it and is then never seen again.
+        "cart_token": payload.get("cart_token"),
     }
 
 

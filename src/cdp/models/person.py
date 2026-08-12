@@ -10,7 +10,23 @@ from cdp.models.base import Base, TimestampMixin, UTCDateTime, new_id
 # of hardware. The distinction is the whole safety mechanism in identity
 # resolution: two people are never merged on weak evidence alone.
 STRONG_KINDS = frozenset({"email", "phone", "shopify_customer_id", "whatsapp_id"})
-WEAK_KINDS = frozenset({"device_id"})
+
+# How an identifier came to us. This is not provenance for its own sake: some
+# capture circumstances make it plausible that the number belongs to someone
+# other than the person we attached it to, and that fact has to survive into the
+# moment we decide whether to message her.
+CAPTURE_CONTEXTS = ("checkout", "messaging", "activation", "gift", "console", "unknown")
+
+# Contexts where a third party may be behind the identifier. A number written on
+# a form at a mall stand may be her friend's; a number on a gift order is often
+# the recipient's, not the buyer's. Neither is a reason to distrust the data for
+# counting purposes — but both are a reason not to send her a message derived
+# from someone else's purchases.
+THIRD_PARTY_CONTEXTS = frozenset({"activation", "gift"})
+# A cart token is weaker still than a device: it names a single checkout and is
+# never seen again. It links an abandoned basket to the order that followed, and
+# nothing else — it must never be evidence that two records are one person.
+WEAK_KINDS = frozenset({"device_id", "cart_token"})
 
 
 class Person(Base, TimestampMixin):
@@ -45,6 +61,14 @@ class Identifier(Base, TimestampMixin):
     value: Mapped[str] = mapped_column(String(320), nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    # Where it was captured. Nullable for rows written before this existed; an
+    # unknown context is treated as ordinary rather than risky, because marking
+    # the entire existing base as unsafe would make the flag mean nothing.
+    capture_context: Mapped[str | None] = mapped_column(String(32))
+
+    @property
+    def third_party_plausible(self) -> bool:
+        return self.capture_context in THIRD_PARTY_CONTEXTS
 
 
 class IdentityMerge(Base, TimestampMixin):

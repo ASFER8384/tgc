@@ -32,10 +32,17 @@ class Destination(Protocol):
     itself, not chosen per campaign: uploading a hashed phone to Meta needs
     ad_audience_sharing whatever the marketer intended, so it cannot be lowered
     by whoever is configuring the send.
+
+    ``addressed`` says whether a message arrives at a named person carrying
+    content derived from their history. A wrong identifier there delivers one
+    customer's purchases to another, which is a disclosure and is not repaired
+    by a correction afterwards — so those destinations refuse identifiers that
+    may belong to a third party, whatever the consent state says.
     """
 
     name: str
     required_consent: str | None
+    addressed: bool
 
     async def deliver(self, ctx: DeliveryContext) -> DeliveryResult: ...
 
@@ -47,6 +54,7 @@ class MockDestination:
 
     name: str = "mock"
     required_consent: str | None = "marketing_whatsapp"
+    addressed: bool = True
     delivered: list[DeliveryContext] = field(default_factory=list)
 
     async def deliver(self, ctx: DeliveryContext) -> DeliveryResult:
@@ -65,6 +73,8 @@ class WhatsAppFlowDestination:
 
     name: str = "whatsapp_flow"
     required_consent: str | None = "marketing_whatsapp"
+    # A named person receives a message about what she bought.
+    addressed: bool = True
     access_token: str | None = None
     phone_number_id: str | None = None
     template: str | None = None
@@ -82,6 +92,8 @@ class ShopifySegmentDestination:
 
     name: str = "shopify_segment"
     required_consent: str | None = "personalization"
+    # A tag on her own store record — nothing is sent anywhere.
+    addressed: bool = False
     shop: str | None = None
     access_token: str | None = None
 

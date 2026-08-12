@@ -170,3 +170,24 @@ def test_line_discounts_reduce_brand_spend() -> None:
     event = shopify.to_canonical("orders/paid", payload)
     assert event.brands["aleena"] == Decimal("470.00")
     assert event.brands["rawash"] == Decimal("120.00")
+
+
+def test_a_cart_token_is_not_recorded_as_a_device() -> None:
+    """One checkout, one token, never seen again — so a customer with forty
+    orders was acquiring forty "devices" and burying the identifiers a human
+    recognises her by."""
+    event = shopify.to_canonical("orders/paid", shopify_order(order_id=7801))
+
+    assert event.identifiers["cart_token"] == "cart-token-7801"
+    # No storefront pixel in the payload, so there is genuinely no device here.
+    assert event.identifiers["device_id"] is None
+
+
+def test_the_pixel_id_is_still_a_device() -> None:
+    payload = shopify_order(order_id=7802)
+    payload["client_details"] = {"browser_ip_hash": "abc123"}
+
+    event = shopify.to_canonical("orders/paid", payload)
+
+    assert event.identifiers["device_id"] == "abc123"
+    assert event.identifiers["cart_token"] == "cart-token-7802"

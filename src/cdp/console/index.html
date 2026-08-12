@@ -76,6 +76,7 @@
     border-radius: 3px; padding: 0.45rem 0.9rem; cursor: pointer; font-weight: 600;
   }
   button.ghost { background: transparent; color: var(--accent); }
+  button.danger { color: #b3261e; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   .key-field { width: 210px; }
 
@@ -318,6 +319,15 @@
           <span class="hint" id="profileLang"></span>
         </div>
         <div class="panel-body profile" id="profileBody"></div>
+        <!-- The two rights a customer can exercise, next to the data they act
+             on. Kept at the bottom of the profile rather than in a settings
+             screen: whoever is looking at her record is who receives the phone
+             call asking for this. -->
+        <div class="panel-body" style="border-top:1px solid var(--rule); display:flex; gap:0.5rem; align-items:center">
+          <button class="ghost" id="exportPerson">Export her data</button>
+          <button class="ghost danger" id="erasePerson">Erase her</button>
+          <span class="hint" id="privacyOut"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -618,8 +628,17 @@
         ["Days since order", t.recency_days ?? "—"], ["Touchpoints", t.event_count ?? 0],
       ].map(([label, val]) => `<div class="stat"><b>${val}</b><span>${label}</span></div>`).join("");
 
-      const idchips = Object.entries(p.identifiers).flatMap(([kind, vals]) =>
-        vals.map((v) => `<span class="idchip"><em>${kind.replace(/_/g, " ")}</em> ${v}</span>`)).join("");
+      // Cart tokens are counted, not listed. There is one per checkout and each
+      // is seen once, so printing forty of them buries the two identifiers a
+      // human actually recognises her by.
+      const COUNTED = { cart_token: "checkout session", device_id: "device" };
+      const idchips = Object.entries(p.identifiers).flatMap(([kind, vals]) => {
+        const label = COUNTED[kind];
+        if (label && vals.length > 3) {
+          return [`<span class="idchip"><em>${label}s</em> ${vals.length}</span>`];
+        }
+        return vals.map((v) => `<span class="idchip"><em>${(label || kind).replace(/_/g, " ")}</em> ${v}</span>`);
+      }).join("");
 
       // Grouped by brand, because there is no company-wide answer to "may we
       // contact her" — only one answer per brand, and they routinely differ.
@@ -769,6 +788,62 @@
 
   $("connect").addEventListener("click", () => connect(true));
   $("apiKey").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(true); });
+
+  $("exportPerson").addEventListener("click", async () => {
+    if (!state.selected) return;
+    const btn = $("exportPerson");
+    btn.disabled = true;
+    try {
+      const dump = await api(`/persons/${state.selected}/export`);
+      // Downloaded rather than shown: a subject access request is answered with
+      // a file she keeps, and it is far too long to read in a panel.
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `customer-${state.selected.slice(0, 8)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      $("privacyOut").textContent =
+        `${dump.events.length} events, ${dump.identifiers.length} identifiers, `
+        + `${dump.consent.length} consent records — downloaded`;
+    } catch (err) {
+      $("privacyOut").textContent = "Export failed: " + err.message;
+    } finally { btn.disabled = false; }
+  });
+
+  $("erasePerson").addEventListener("click", async () => {
+    if (!state.selected) return;
+    const name = $("profileName").textContent;
+    // Typed confirmation, not an OK button. This is the one action in the
+    // console that cannot be undone, and a misclick should not be enough.
+    const typed = prompt(
+      `Erase ${name} permanently?\n\n`
+      + `This deletes her profile, every order, every message, and the original `
+      + `webhook records — including any profiles merged into hers. It cannot be undone.\n\n`
+      + `Type ERASE to confirm.`
+    );
+    if (typed !== "ERASE") return;
+
+    const btn = $("erasePerson");
+    btn.disabled = true;
+    try {
+      const report = await api(
+        `/persons/${state.selected}?reason=${encodeURIComponent("console erasure request")}`,
+        { method: "DELETE" }
+      );
+      const removed = Object.entries(report.deleted)
+        .filter(([, n]) => n > 0)
+        .map(([table, n]) => `${n} ${table.replace(/_/g, " ")}`)
+        .join(", ");
+      state.selected = null;
+      $("profilePanel").hidden = true;
+      show(`${name} erased — ${removed}.`, true, "Removed from every table, raw records included.");
+      await Promise.all([loadCustomers(), loadSegments()]);
+    } catch (err) {
+      $("privacyOut").textContent = "Erase failed: " + err.message;
+    } finally { btn.disabled = false; }
+  });
 
   applySource("shopify");
   connect(false);

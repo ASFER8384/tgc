@@ -55,6 +55,10 @@ class ActivationRun(Base, TimestampMixin):
     delivered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     skipped_no_consent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Counted separately from a consent skip, because they are different
+    # problems with different fixes: one is answered by asking her, the other by
+    # getting an identifier she has confirmed is hers.
+    skipped_identifier_risk: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class ActivationDelivery(Base, TimestampMixin):
