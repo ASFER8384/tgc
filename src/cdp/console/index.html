@@ -191,6 +191,17 @@
   .seg-size { font-family: var(--display); font-size: 1.2rem; font-variant-numeric: tabular-nums; min-width: 1.4rem; text-align: right; }
   .seg-out { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); flex-basis: 100%; }
 
+  /* proof strip — the three questions a sceptic asks, answered from live data */
+  .proof { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; }
+  .proof .panel-body { gap: 0.35rem; }
+  .proof .big { font-family: var(--display); font-size: 1.9rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .proof .big small { font-family: var(--sans); font-size: 0.9rem; font-weight: 400; color: var(--muted); }
+  .proof .says { font-size: 0.83rem; color: var(--ink-soft); }
+  .proof .breakdown { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+  .proof .warn { color: var(--alert); }
+  .bar { height: 5px; border-radius: 3px; background: var(--sunk); border: 1px solid var(--rule); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+
   .empty { padding: 1.4rem 1rem; color: var(--muted); font-size: 0.87rem; text-align: center; }
   footer { color: var(--muted); font-size: 0.78rem; border-top: 1px solid var(--rule); padding-top: 0.9rem; }
   .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--rule); border-top-color: var(--accent); border-radius: 50%; animation: sp 0.7s linear infinite; vertical-align: -1px; }
@@ -211,6 +222,49 @@
       <span class="conn-label" id="connLabel">not connected</span>
       <input class="key-field" id="apiKey" type="password" placeholder="API key" autocomplete="off" hidden />
       <button id="connect" hidden>Connect</button>
+    </div>
+  </div>
+
+  <!-- Everything below this strip is a promise. This strip is the evidence, and
+       it is measured from whatever is in the database right now rather than
+       written down once — a figure that looks wrong here is a real problem, not
+       a demo that needs re-recording. -->
+  <div class="proof">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>One customer, many records</h2>
+        <span class="hint">identity</span>
+      </div>
+      <div class="panel-body">
+        <div class="big" id="pfStitch">—</div>
+        <div class="says" id="pfStitchSays">Connect to measure.</div>
+        <div class="breakdown" id="pfStitchSub"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Revenue with a name on it</h2>
+        <span class="hint">reach</span>
+      </div>
+      <div class="panel-body">
+        <div class="big" id="pfShare">—</div>
+        <div class="bar"><i id="pfBar" style="width:0"></i></div>
+        <div class="says" id="pfShareSays">Connect to measure.</div>
+        <div class="breakdown" id="pfShareSub"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Messages the rules stopped</h2>
+        <span class="hint">consent</span>
+      </div>
+      <div class="panel-body">
+        <div class="big" id="pfStopped">—</div>
+        <div class="says" id="pfStoppedSays">Connect to measure.</div>
+        <div class="breakdown" id="pfStoppedSub"></div>
+      </div>
     </div>
   </div>
 
@@ -364,6 +418,66 @@
       throw new Error(detail);
     }
     return res.status === 204 ? null : res.json();
+  }
+
+  // Written in sentences rather than metric names. The person who needs to
+  // believe these numbers is not the person who built them, and "2.4
+  // identifiers per person" tells them nothing about their own shop.
+  async function loadProof() {
+    let p;
+    try { p = await api("/proof"); } catch { return; }
+
+    const s = p.stitching;
+    $("pfStitch").innerHTML = `${s.identifiers} <small>records →</small> ${s.people} <small>people</small>`;
+    // The ratio is the claim, not the merge count. Most records land on the
+    // right person the moment they arrive, because the phone or email already
+    // belongs to her — a merge only happens when two separate profiles had
+    // grown up apart and later turned out to be one woman. Zero merges beside a
+    // high ratio is resolution working early, not resolution doing nothing.
+    $("pfStitchSays").textContent = s.identifiers_per_person > 1
+      ? `Each customer reaches you under ${s.identifiers_per_person} records on average — `
+        + `phone, email, till receipt, WhatsApp. The console shows one woman, not ${s.identifiers_per_person}.`
+      : "Each record is still its own customer — nothing has been joined yet.";
+    const notes = [];
+    if (s.merges) notes.push(`${s.merges} separate profile(s) later found to be one person`);
+    if (s.open_reviews) notes.push(`<span class="warn">${s.open_reviews} too risky to guess — waiting for a human</span>`);
+    $("pfStitchSub").innerHTML = notes.join(" · ");
+
+    const a = p.attribution;
+    const pct = Math.round(a.share * 100);
+    $("pfShare").innerHTML = `${pct}%`;
+    $("pfBar").style.width = pct + "%";
+    $("pfShareSays").textContent = a.total_orders
+      ? `${pct}% of sales are attached to a customer you can name and message. `
+        + `The rest are anonymous — nothing to reach.`
+      : "No sales recorded yet.";
+    $("pfShareSub").textContent = a.total_orders
+      ? `${withCurrency(a.known_amount, a.currency)} of ${withCurrency(a.total_amount, a.currency)} · `
+        + `${a.known_orders} of ${a.total_orders} orders`
+      : "";
+
+    const r = p.refusals;
+    const stopped = r.skipped_no_consent + r.skipped_identifier_risk;
+    $("pfStopped").innerHTML = `${stopped} <small>stopped ·</small> ${r.delivered} <small>sent</small>`;
+    $("pfStoppedSays").textContent = stopped
+      ? "Blocked before the message left, not filtered afterwards."
+      : "Nothing blocked yet — no campaign has run.";
+    // The two reasons are kept apart because they have different fixes: one is
+    // answered by asking her, the other by getting a number she confirmed.
+    const parts = [];
+    if (r.skipped_no_consent) parts.push(`${r.skipped_no_consent} never agreed`);
+    if (r.skipped_identifier_risk) parts.push(`${r.skipped_identifier_risk} number may not be hers`);
+    if (r.risky_identifiers) parts.push(`${r.risky_identifiers} flagged at capture`);
+    $("pfStoppedSub").textContent = parts.join(" · ");
+  }
+
+  // Distinct from the table's `money`, which formats a bare number: this one
+  // carries the currency the events were actually recorded in rather than
+  // assuming riyals.
+  function withCurrency(amount, currency) {
+    const n = Number(amount);
+    if (!Number.isFinite(n)) return `${currency} ${amount}`;
+    return `${currency} ${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   }
 
   function show(msg, ok, sub) {
@@ -539,7 +653,7 @@
         );
         if (result.person_id) state.selected = result.person_id;
       }
-      await Promise.all([loadCustomers(), loadSegments()]);
+      await Promise.all([loadCustomers(), loadSegments(), loadProof()]);
       if (state.selected) openProfile(state.selected);
     } catch (err) {
       show("Could not record it: " + err.message, false);
@@ -725,7 +839,15 @@
           try {
             const r = await api(`/segments/${s.key}/activate?destination=mock`, { method: "POST" });
             size.textContent = r.requested;
-            out.textContent = `sent to ${r.delivered} of ${r.requested}${r.skipped_no_consent ? ` · ${r.skipped_no_consent} skipped for consent` : ""} · run ${r.run_id.slice(0, 8)}`;
+            // Both refusal reasons are named. A run that quietly drops half its
+            // audience is indistinguishable from a broken pipeline.
+            const skips = [];
+            if (r.skipped_no_consent) skips.push(`${r.skipped_no_consent} never agreed`);
+            if (r.skipped_identifier_risk) skips.push(`${r.skipped_identifier_risk} number may not be hers`);
+            out.textContent = `sent to ${r.delivered} of ${r.requested}`
+              + (skips.length ? ` · ${skips.join(" · ")}` : "")
+              + ` · run ${r.run_id.slice(0, 8)}`;
+            await loadProof();
           } catch (e) { out.textContent = "failed: " + e.message; }
         });
         host.appendChild(row);
@@ -778,7 +900,7 @@
         $("apiKey").value = key;
         askForKey(false);
         setConn(true, "connected · " + env);
-        await Promise.all([loadCustomers(), loadSegments()]);
+        await Promise.all([loadCustomers(), loadSegments(), loadProof()]);
         return;
       }
     }
@@ -839,7 +961,7 @@
       state.selected = null;
       $("profilePanel").hidden = true;
       show(`${name} erased — ${removed}.`, true, "Removed from every table, raw records included.");
-      await Promise.all([loadCustomers(), loadSegments()]);
+      await Promise.all([loadCustomers(), loadSegments(), loadProof()]);
     } catch (err) {
       $("privacyOut").textContent = "Erase failed: " + err.message;
     } finally { btn.disabled = false; }

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 import cdp
-from cdp.api import ingest, persons, segments
+from cdp.api import ingest, persons, proof, segments
 from sca.api import catalog, demo, inbound, orders
 from sca.config import get_settings
 
@@ -106,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(ingest.router)
     app.include_router(persons.router)
     app.include_router(segments.router)
+    app.include_router(proof.router)
     return app
 
 
