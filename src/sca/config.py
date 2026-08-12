@@ -85,6 +85,15 @@ class Settings(BaseSettings):
     # limit the file is skipped and said so, never truncated.
     mail_max_attachment_bytes: int = 10_000_000
 
+    # Arrival estimates. Clearing is a flat allowance until enough receipts
+    # exist to measure one per lane, and is stated as an assumption wherever it
+    # is shown rather than folded into a single confident date.
+    customs_clearance_days: int = 3
+    # A real forecast for the origin, fetched without a key. It produces a
+    # warning beside the estimate and never adds days to it. Off makes the
+    # estimate a pure function of stored data, which is what the tests want.
+    weather_advisory: bool = True
+
     # The sample data button. On while this is a demonstration, including on the
     # deployed service, because a demo nobody can put data into demonstrates
     # nothing. A single switch rather than a test against the environment name,

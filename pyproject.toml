@@ -21,6 +21,11 @@ dependencies = [
   # depends on one. A hard dependency rather than a platform marker: the service
   # must behave identically wherever it runs.
   "tzdata>=2024.1",
+  # Public holidays at the supplier's origin, offline and with no API key. Worth
+  # a dependency for Chinese New Year alone: it shuts the mills for a fortnight,
+  # it is knowable a year ahead, and an order placed against a 21 day plan in
+  # late January is not late by accident.
+  "holidays>=0.57",
 ]
 
 [project.optional-dependencies]
