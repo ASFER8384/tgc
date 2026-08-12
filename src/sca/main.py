@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -272,6 +273,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Said out loud, once, in the logs of the environment it is dangerous in.
+    # A setting that quietly disables authentication should be impossible to
+    # leave on by accident six months after the meeting it was turned on for.
+    if settings.console_auto_connect and settings.env != "local":
+        logging.getLogger("sca").warning(
+            "console_auto_connect is ON in env=%s: the API key is served inside "
+            "the console page and anyone with the URL has full API access. "
+            "Unset SCA_CONSOLE_AUTO_CONNECT before this URL outlives the demo.",
+            settings.env,
+        )
+
     @app.get("/health", tags=["ops"])
     async def health() -> dict[str, str]:
         return {"status": "ok", "env": settings.env}
@@ -282,11 +294,15 @@ def create_app() -> FastAPI:
     def render(page: Path, active: str) -> HTMLResponse:
         """One page, plus the rail that says which half you are looking at."""
         html = page.read_text(encoding="utf-8")
-        # Local development connects with no typing. The key is injected here and
-        # never stored in either file, because these pages are public: on any
-        # deployed environment the console asks for the key instead of shipping it.
+        # The key is injected as the page is served and never written into either
+        # file, so it stays out of the repository and out of git history, and
+        # rotating it is one environment variable rather than a commit.
+        #
+        # Injected always in local development, and elsewhere only when somebody
+        # has deliberately set console_auto_connect — which hands the key to
+        # anyone who opens the URL. See the setting for what that costs.
         head = _NAV_STYLE
-        if settings.env == "local":
+        if settings.env == "local" or settings.console_auto_connect:
             head += f"<script>window.__SCA_DEV_KEY__ = {json.dumps(settings.api_key)};</script>"
         html = html.replace("</head>", head + "</head>", 1)
         html = html.replace("<body>", "<body>" + _nav(active, settings.env), 1)

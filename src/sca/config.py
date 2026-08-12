@@ -85,6 +85,18 @@ class Settings(BaseSettings):
     # limit the file is skipped and said so, never truncated.
     mail_max_attachment_bytes: int = 10_000_000
 
+    # Serve the API key inside the console page so it connects without anybody
+    # typing one. This is not a convenience setting, it is an authentication
+    # setting: the consoles are served to anyone who has the URL, so with this on
+    # the key is in view-source and the API is effectively open — customer
+    # records, supplier pricing, and placing or cancelling orders.
+    #
+    # It exists because a demonstration where the client is handed a key first
+    # demonstrates the key. Off by default, and off is the correct value for any
+    # deployment holding data somebody would mind losing. Turn it off before the
+    # URL outlives the meeting.
+    console_auto_connect: bool = False
+
     # Arrival estimates. Clearing is a flat allowance until enough receipts
     # exist to measure one per lane, and is stated as an assumption wherever it
     # is shown rather than folded into a single confident date.
