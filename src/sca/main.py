@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 
 import cdp
 from cdp.api import automations, ingest, persons, proof, segments
-from sca.api import catalog, demo, inbound, orders
+from sca.api import catalog, coordination, demo, inbound, orders
 from sca.config import get_settings
 
 # Injected rather than pasted into both consoles, which were built as standalone
@@ -20,42 +20,51 @@ from sca.config import get_settings
 # below 768px. Matching an interface the client already uses is worth more than
 # a better one they have to learn.
 _NAV_STYLE = """<style>
-  :root { --tgc-rail: 260px; }
+  :root { --tgc-rail: 208px; }
   .tgc-rail {
     position: fixed; left: 0; top: 0; width: var(--tgc-rail); height: 100vh; z-index: 1001;
-    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%); color: #fff;
+    background: var(--sunk); color: var(--ink);
+    border-right: 1px solid var(--rule);
     display: flex; flex-direction: column;
-    font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, system-ui, sans-serif;
+    font-family: var(--sans);
   }
   .tgc-rail .head {
-    padding: 24px; border-bottom: 1px solid rgba(255,255,255,0.1);
-    display: flex; align-items: center; gap: 12px;
+    padding: 16px; border-bottom: 1px solid var(--rule);
+    display: flex; align-items: center; gap: 10px;
   }
   .tgc-rail .mark {
-    width: 40px; height: 40px; flex: none; border-radius: 10px;
-    background: linear-gradient(135deg, #14b8a6 0%, #0ea5e9 100%);
+    width: 30px; height: 30px; flex: none; border-radius: 7px;
+    background: var(--accent); color: var(--accent-ink);
     display: flex; align-items: center; justify-content: center;
   }
-  .tgc-rail .head b { display: block; font-size: 16px; font-weight: 700; }
-  .tgc-rail .head span { font-size: 12px; color: rgba(255,255,255,0.6); }
-  .tgc-rail nav { padding: 16px; flex: 1; overflow-y: auto; }
+  .tgc-rail .head b { display: block; font-size: 14px; font-weight: 600; }
+  .tgc-rail .head span { font-size: 11px; color: var(--muted); }
+  /* No inset. The rail already has an edge — its own border — so a margin
+     around the items only reads as a second one that does not line up. */
+  .tgc-rail nav { padding: 0; flex: 1; overflow-y: auto; }
+  /* A label, not a row: smaller, quieter and not clickable, so it cannot be
+     mistaken for a destination that does nothing when pressed. */
+  .tgc-rail nav .group {
+    padding: 14px 16px 5px; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+  }
+  .tgc-rail nav > a:first-child { margin-top: 8px; }
   .tgc-rail nav a {
-    display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 8px;
-    border-radius: 8px; text-decoration: none; font-size: 14px;
-    color: rgba(255,255,255,0.7); transition: all 0.2s;
+    display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+    text-decoration: none; font-size: 13px;
+    color: var(--ink-soft); transition: background 0.15s, color 0.15s;
   }
-  .tgc-rail nav a:hover { background: rgba(255,255,255,0.06); color: #fff; }
+  .tgc-rail nav a:hover { background: var(--panel); color: var(--ink); }
   .tgc-rail nav a.on {
-    color: #fff; font-weight: 600;
-    background: linear-gradient(135deg, #14b8a6 0%, #0ea5e9 100%);
+    color: var(--accent); font-weight: 600; background: var(--accent-soft);
   }
-  .tgc-rail nav a svg { flex: none; }
+  .tgc-rail nav a svg { flex: none; width: 17px; height: 17px; }
   .tgc-rail .foot {
-    padding: 16px; border-top: 1px solid rgba(255,255,255,0.1);
-    font-size: 12px; color: rgba(255,255,255,0.6); display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; border-top: 1px solid var(--rule);
+    font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 7px;
   }
   .tgc-rail .foot i {
-    width: 8px; height: 8px; border-radius: 50%; background: #14b8a6; flex: none;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none;
   }
 
   .tgc-bar { display: none; }
@@ -66,23 +75,35 @@ _NAV_STYLE = """<style>
     .tgc-rail { transform: translateX(-100%); transition: transform 0.3s ease; }
     .tgc-rail.open { transform: translateX(0); }
     .tgc-bar {
-      display: flex; position: fixed; top: 0; left: 0; right: 0; height: 56px; z-index: 1000;
-      background: #1a1a2e; color: #fff; align-items: center; gap: 12px; padding: 0 16px;
-      font: 600 16px/1 "Segoe UI", system-ui, sans-serif;
+      display: flex; position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      background: var(--sunk); color: var(--ink); border-bottom: 1px solid var(--rule);
+      align-items: center; gap: 10px; padding: 0 12px;
+      font: 600 15px/1 var(--sans);
     }
-    .tgc-bar button { background: none; border: none; color: #fff; cursor: pointer; padding: 8px; }
-    .tgc-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; }
+    .tgc-bar button {
+      background: none; border: none; color: var(--ink); cursor: pointer; padding: 6px;
+    }
+    .tgc-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; }
     .tgc-scrim.open { display: block; }
-    body { padding-left: 0; padding-top: 56px; }
+    body { padding-left: 0; padding-top: 48px; }
   }
   @media (prefers-reduced-motion: reduce) { .tgc-rail { transition: none; } }
 </style>"""
 
+# Grouped, because these are two halves of a platform rather than six pages of
+# one. Flat, the supplier desk read as a peer of the customer list and gave no
+# warning that reaching it means leaving the document — which is also why it is
+# the only entry that reloads rather than switching a view.
+#
 # The customer half is one document with several destinations in it, so the rail
 # addresses them by query rather than by path: every panel reads from the same
 # connection, and splitting them into separate documents would mean connecting,
 # and refetching, once per section.
-_NAV_ITEMS = (
+_NAV_GROUPS = (
+    # Ungrouped, and first, because it answers for both halves: customers on the
+    # left of it, the supplier network on the right. Putting it inside either
+    # group would claim it belongs to one of them.
+    ("", (
     (
         "cdp:dashboard",
         "/cdp?view=dashboard",
@@ -90,6 +111,8 @@ _NAV_ITEMS = (
         "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 "
         "1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
     ),
+    )),
+    ("CDP & Marketing", (
     (
         "cdp:customers",
         "/cdp?view=customers",
@@ -118,26 +141,58 @@ _NAV_ITEMS = (
         "Automation",
         "M13 10V3L4 14h7v7l9-11h-7z",
     ),
+    )),
+    # Three destinations, not one, because they run on different clocks. The desk
+    # is a queue somebody works every morning; the item and supplier lists are
+    # records that change when a SKU is added or a mill is onboarded. Filed
+    # together they buried the queue under reference data.
+    ("Supplier", (
     (
-        "sca",
+        "sca:desk",
         "/",
-        "Suppliers",
+        "Supplier Desk",
         "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 "
         "4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4",
     ),
+    (
+        "sca:items",
+        "/?view=items",
+        "Items",
+        "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
+    ),
+    (
+        "sca:suppliers",
+        "/?view=suppliers",
+        "Suppliers",
+        "M12 8c1.657 0 3-.895 3-2s-1.343-2-3-2-3 .895-3 2 1.343 2 3 2zm0 0v2m0 "
+        "10a8 8 0 100-16 8 8 0 000 16zm0 0v-2m-6.4-4H8m8 0h2.4",
+    ),
+    )),
 )
+
+# Which section a page opens on when the address carries no view. Both consoles
+# are single documents with several destinations in them, so this is the one
+# thing that differs between them.
+_DEFAULT_VIEW = {"cdp": "dashboard", "sca": "desk"}
+_PAGE_PATH = {"cdp": "/cdp", "sca": "/"}
 
 
 def _nav(active: str, env: str) -> str:
     """`active` is the page; the rail marks the destination within it from the
     query, so that reloading a section keeps its own item lit."""
     links = "".join(
-        f'<a href="{href}" data-nav="{key}">'
-        f'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-        f'<path d="{icon}" /></svg>{label}</a>'
-        for key, href, label, icon in _NAV_ITEMS
+        (f'<div class="group">{group}</div>' if group else "")
+        + "".join(
+            f'<a href="{href}" data-nav="{key}">'
+            f'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+            f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+            f'<path d="{icon}" /></svg>{label}</a>'
+            for key, href, label, icon in items
+        )
+        for group, items in _NAV_GROUPS
     )
+    base = _PAGE_PATH.get(active, "/")
+    default_view = _DEFAULT_VIEW.get(active, "dashboard")
     return f"""<div class="tgc-bar">
   <button type="button" aria-label="Open menu" aria-controls="tgcRail" aria-expanded="false"
           onclick="tgcRail(true)">
@@ -148,7 +203,8 @@ def _nav(active: str, env: str) -> str:
 <aside class="tgc-rail" id="tgcRail">
   <div class="head">
     <div class="mark">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
       </svg>
     </div>
@@ -166,21 +222,21 @@ def _nav(active: str, env: str) -> str:
   }}
   (function () {{
     var page = {active!r};
-    var view = new URLSearchParams(location.search).get("view") || "dashboard";
-    var want = page === "cdp" ? "cdp:" + view : page;
+    var base = {base!r};
+    var view = new URLSearchParams(location.search).get("view") || {default_view!r};
+    var want = page + ":" + view;
     document.querySelectorAll(".tgc-rail nav a").forEach(function (a) {{
       a.classList.toggle("on", a.dataset.nav === want);
     }});
     // Within one page the rail switches views without a reload, so the panels
     // keep the connection they already made. The address still changes, so the
     // section can be linked to and the back button works.
-    if (page !== "cdp") return;
-    document.querySelectorAll('.tgc-rail nav a[data-nav^="cdp:"]').forEach(function (a) {{
+    document.querySelectorAll('.tgc-rail nav a[data-nav^="' + page + ':"]').forEach(function (a) {{
       a.addEventListener("click", function (e) {{
         if (typeof window.applyView !== "function") return;
         e.preventDefault();
-        var next = a.dataset.nav.slice(4);
-        history.pushState({{}}, "", "/cdp?view=" + next);
+        var next = a.dataset.nav.slice(page.length + 1);
+        history.pushState({{}}, "", base + "?view=" + next);
         window.applyView(next);
         document.querySelectorAll(".tgc-rail nav a").forEach(function (o) {{
           o.classList.toggle("on", o === a);
@@ -243,6 +299,7 @@ def create_app() -> FastAPI:
     app.include_router(catalog.router)
     app.include_router(orders.router)
     app.include_router(inbound.router)
+    app.include_router(coordination.router)
     app.include_router(demo.router)
 
     # The customer side keeps its own paths. Nothing collides — it owns /persons,

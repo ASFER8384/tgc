@@ -86,6 +86,72 @@
   dialog .panel-head { padding: 0.9rem 1.2rem; }
   dialog .panel-body { padding: 0 1.2rem 1.2rem; display: flex; flex-direction: column;
                        gap: 0.8rem; max-height: 78vh; overflow-y: auto; }
+
+  /* These are forms, not tables, so they are narrower than the message dialogs —
+     a 1040px column of single fields reads as a page that lost its layout. */
+  #supplierDialog, #itemDialog { max-width: min(560px, 96vw); }
+  #supplierDialog .panel-body > div, #itemDialog .panel-body > div {
+    display: flex; flex-direction: column; gap: 0.8rem;
+  }
+  /* Editing an existing record: the identity it is matched on cannot change, or
+     saving would create a second record rather than rename the first. */
+  input:disabled { background: var(--sunk); color: var(--muted); cursor: not-allowed; }
+  /* The generic input rule sets width:100%, which is right for a text box and
+     absurd for a tick: it stretched every checkbox across the row and threw the
+     label to the far side. Ticks and radios size themselves. */
+  input[type="checkbox"], input[type="radio"] {
+    width: auto; padding: 0; border: none; background: none;
+  }
+
+  /* Ticking what a supplier makes. A list rather than a multi-select, because a
+     ctrl-click multi-select loses every choice the moment somebody misclicks. */
+  .skupick { border: 1px solid var(--rule); border-radius: 4px; max-height: 168px;
+             overflow-y: auto; margin-top: 0.3rem; background: var(--panel); }
+  .skupick label { display: grid; grid-template-columns: 1.1rem minmax(0, 1fr);
+                   gap: 0.6rem; align-items: center; cursor: pointer;
+                   padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--rule);
+                   text-align: left; }
+  .skupick label:hover { background: var(--sunk); }
+  .skupick .pickrow { border-bottom: 1px solid var(--rule); }
+  .skupick .pickrow:last-child { border-bottom: none; }
+  .skupick .pickrow label { border-bottom: none; }
+  /* Their terms for this one SKU, shown only once it is ticked. The same silk is
+     300 minimum from one mill and 1000 from another, and that difference decides
+     which is actually cheaper — so it is asked for here, per supplier per item,
+     rather than once on the item where it would be a single answer for everyone.
+     Blank inherits the item's own figure, which is what most attachments want. */
+  .skupick .terms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+                    gap: 0.4rem; padding: 0 0.7rem 0.6rem 2.4rem; }
+  .skupick .terms label { display: flex; flex-direction: column; gap: 0.15rem;
+                          padding: 0; font-family: var(--mono); font-size: 0.6rem;
+                          letter-spacing: 0.08em; text-transform: uppercase;
+                          color: var(--muted); text-align: left; }
+  .skupick .terms input { font-family: var(--sans); font-size: 0.8rem;
+                          letter-spacing: 0; text-transform: none; color: var(--ink);
+                          padding: 0.25rem 0.4rem; }
+  .skupick input { margin: 0; justify-self: center; }
+  .skupick .sku { display: block; font-size: 0.83rem; font-weight: 600; color: var(--ink);
+                  font-family: var(--mono); letter-spacing: 0; text-transform: none; }
+  .skupick .of { display: block; color: var(--muted); font-size: 0.75rem;
+                 font-family: var(--sans); letter-spacing: 0; text-transform: none;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .skupick .none { padding: 0.6rem; color: var(--muted); font-size: 0.8rem; }
+  /* Matches the other field captions, which are styled on label.field and so
+     never reached this one — it is a group of ticks, not a single labelled
+     control, and cannot be a <label> without pointing at one of them. */
+  .pickfield { display: flex; flex-direction: column; }
+  .picklabel { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.1em;
+               text-transform: uppercase; color: var(--muted); }
+  /* Sits inside label.field, which is uppercase mono for captions — a sentence
+     inherits that and becomes unreadable, so it opts back out. */
+  .fieldnote { display: block; font-size: 0.74rem; color: var(--muted); margin-top: 0.3rem;
+               font-family: var(--sans); letter-spacing: 0; text-transform: none; }
+
+  /* Who to buy from. A control rather than a label, because the ranking is a
+     starting point and the buyer holds the judgement it cannot make. */
+  .pick { font-size: 0.82rem; padding: 0.2rem 0.3rem; max-width: 11rem; }
+  .pick-why { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem; }
+  .pick-none { font-size: 0.78rem; color: var(--muted); }
   /* Labels once, in a header, rather than repeated over every row: four lines of
      "QTY  UNIT PRICE" is four times the reading for the same information. */
   .line-row { display: grid; grid-template-columns: minmax(0, 1fr) 6rem 8rem 9rem;
@@ -118,16 +184,123 @@
   .panel-head .hint { font-size: 0.78rem; color: var(--muted); }
   .panel-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem; }
 
-  .clocks { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; }
-  .clock { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
-           padding: 0.7rem 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; }
-  .clock .name { font-size: 0.82rem; font-weight: 600; }
-  .clock .time { font-family: var(--display); font-size: 1.5rem; line-height: 1.1;
-                 font-variant-numeric: tabular-nums; }
-  .clock .state { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08em;
-                  text-transform: uppercase; }
-  .clock .state.open { color: var(--ok); }
-  .clock .state.shut { color: var(--muted); }
+  /* What the coordination cost. One card per claim, sized so five sit on a wide
+     screen and wrap to two rows on a laptop rather than squeezing the sentence
+     under each number into four lines. */
+  .cost { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+          gap: 0.6rem; }
+  .cost .tile { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
+                padding: 0.75rem 0.9rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .cost .label { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em;
+                 text-transform: uppercase; color: var(--muted); }
+  .cost .big { font-family: var(--display); font-size: 1.6rem; line-height: 1.05;
+               font-variant-numeric: tabular-nums; }
+  .cost .big small { font-size: 0.78rem; font-family: var(--sans); color: var(--muted); }
+  .cost .says { font-size: 0.74rem; line-height: 1.35; color: var(--muted); }
+
+  /* A list beside a record, rather than a wide table. Five columns of numbers
+     across the page left every one of them starved of the room to say what it
+     meant, and the thing a person actually wants after picking a supplier — what
+     an order to them would do — has no place in a row. */
+  .split { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+           gap: 1.25rem; align-items: start; }
+  @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+  .suplist .row { display: grid; grid-template-columns: minmax(0, 1fr) auto;
+                  gap: 0.5rem; align-items: center; padding: 0.6rem 1rem;
+                  border-top: 1px solid var(--rule); cursor: pointer;
+                  border-left: 3px solid transparent; }
+  .suplist .row:hover { background: var(--sunk); }
+  .suplist .row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .suplist .row.on { background: var(--accent-soft); border-left-color: var(--accent); }
+  .suplist .who { font-weight: 600; font-size: 0.9rem; }
+  .suplist .where { display: block; font-size: 0.73rem; color: var(--muted); font-weight: 400; }
+  /* Local time carries a dot rather than the word OPEN NOW: the state is worth a
+     glance, not a headline. */
+  .clock { display: flex; align-items: center; gap: 0.4rem;
+           font-family: var(--mono); font-size: 0.8rem; }
+  .clock i { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--muted); }
+  .clock i.open { background: var(--ok); }
+
+  /* The four numbers that were columns, given room to name themselves. */
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+           gap: 0.6rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--rule); }
+  .facts div { display: flex; flex-direction: column; gap: 0.15rem; }
+  .facts .k { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em;
+              text-transform: uppercase; color: var(--muted); }
+  .facts .v { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+  /* Under three shared hours a question costs most of a day, which is the whole
+     reason the list is sorted the way it is. */
+  .facts .v.tight { color: var(--high); font-weight: 600; }
+
+  /* Their record. One claim per line with the evidence beside it, rather than a
+     row of big numbers: every one of these needs a sentence to mean anything,
+     and a supplier score would rank a mill that ships perfectly but makes one
+     thing above one that is occasionally late and is the only source of three. */
+  .record { padding: 0.2rem 1rem 0.6rem; }
+  .record .line { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr);
+                  gap: 0.7rem; padding: 0.45rem 0; border-bottom: 1px dashed var(--rule);
+                  font-size: 0.84rem; align-items: baseline; }
+  .record .line:last-child { border-bottom: none; }
+  .record .k { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em;
+               text-transform: uppercase; color: var(--muted); }
+  .record .why { display: block; font-size: 0.75rem; color: var(--muted); }
+  /* An empty measure says why it is empty. A zero here would read as "never
+     late", which is a claim, and the opposite of what no history means. */
+  .record .none { color: var(--muted); font-style: italic; }
+  .record .warn { color: var(--high); font-weight: 600; }
+
+  /* What they can make, with what each was quoted at. */
+  .makes { padding: 0.2rem 1rem 0.9rem; }
+  .makes .line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.6rem;
+                 padding: 0.4rem 0; border-bottom: 1px dashed var(--rule); font-size: 0.83rem; }
+  .makes .line:last-child { border-bottom: none; }
+  .makes .terms { font-family: var(--mono); font-size: 0.73rem; color: var(--muted);
+                  text-align: right; }
+
+  /* The journey, one stage per line. Each carries the standing of its own
+     number, because an assumed transit time and a measured production time
+     must not read as the same kind of fact. */
+  .journey { background: var(--sunk); border-top: 1px solid var(--rule);
+             padding: 0.7rem 1rem 0.85rem; }
+  .journey .empty { padding: 0.4rem 0; }
+  .j-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem;
+            font-size: 0.85rem; padding-bottom: 0.5rem; }
+  .j-total { font-family: var(--mono); font-size: 0.74rem; color: var(--muted);
+             margin-left: 0.4rem; }
+  .j-alt { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+  .j-leg { display: grid; grid-template-columns: 3.4rem minmax(0, 1fr) 6rem;
+           gap: 0.6rem; align-items: baseline; padding: 0.3rem 0;
+           border-top: 1px dashed var(--rule); }
+  .j-days { font-family: var(--display); font-size: 1.05rem; text-align: right;
+            font-variant-numeric: tabular-nums; }
+  .j-days small { font-size: 0.62rem; color: var(--muted); margin-left: 1px; }
+  .j-name { font-size: 0.83rem; font-weight: 600; }
+  .j-why { display: block; font-size: 0.74rem; color: var(--muted); }
+  .j-basis { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.07em;
+             text-transform: uppercase; text-align: right; }
+  .j-basis.measured { color: var(--ok); }
+  .j-basis.calendar { color: var(--ink-soft); }
+  .j-basis.quoted { color: var(--medium); }
+  /* The one to distrust, coloured like the warning it is. */
+  .j-basis.assumed { color: var(--high); }
+  .j-weather { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--rule);
+               font-size: 0.78rem; color: var(--ink-soft); }
+
+  /* How the Buy column is worked out. Sits between the panel heading and the
+     table because it is read once and then ignored, which is the right place
+     for an explanation and the wrong place for a control. */
+  .how { padding: 0.7rem 1rem; border-bottom: 1px solid var(--rule);
+         background: var(--sunk); font-size: 0.8rem; line-height: 1.5;
+         color: var(--ink-soft); }
+  .how b { font-weight: 600; color: var(--ink); }
+  .how .steps { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; margin-top: 0.35rem; }
+  .how .step { display: flex; gap: 0.4rem; align-items: baseline; }
+  .how .step em { font-family: var(--mono); font-size: 0.7rem; font-style: normal;
+                  color: var(--muted); }
+  .how .worked { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed var(--rule);
+                 font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
+  .how .worked b { font-family: var(--sans); }
 
   table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
   .table-wrap { overflow-x: auto; }
@@ -183,7 +356,8 @@
   <div class="top">
     <!-- No eyebrow: the rail already names the platform and the three brands. -->
     <div>
-      <h1>Supplier Desk</h1>
+      <h1 id="pageTitle">Supplier Desk</h1>
+      <span class="eyebrow" id="pageSub"></span>
     </div>
     <!-- The connection state is only worth a person's attention when it is bad,
          so the dot and the label stay hidden until something fails. -->
@@ -192,6 +366,12 @@
            button has nothing to do here, and the sweep runs on a schedule in
            anything but a demo. Unhide either to get it back. -->
       <button class="ghost small" id="changeKey" hidden>API key</button>
+      <!-- One button per section rather than a single Add with tabs inside it:
+           on the item list the only thing anyone wants to add is an item, and
+           making them pick again after arriving is a question already answered
+           by which page they are on. -->
+      <button class="small" id="openAddItem" hidden>New item</button>
+      <button class="small" id="openAddSupplier" hidden>New supplier</button>
       <button class="ghost small" id="pollMail">Check mailbox</button>
       <!-- Worth a button again now the service is deployed: the database is
            shared, so the page can go stale because of something that happened
@@ -201,135 +381,117 @@
     </div>
   </div>
 
-  <div class="clocks" id="clocks"></div>
+  <!-- What needs a person today: what to buy, what is in flight, what the rules
+       could not settle. The item and supplier records live on their own pages,
+       because they are read when something is being set up and were burying the
+       queue the rest of the time. -->
+  <div data-view="desk">
+    <!-- The argument, measured. Elapsed time is governed by how many times a
+         message has to cross the gap, not by how fast anything here parses, so
+         these are the numbers the system is answerable for. -->
+    <div class="cost" id="cost"></div>
 
-  <div class="grid">
-    <div style="display:flex; flex-direction:column; gap:1.25rem;">
-      <!-- One table, not two. What we sell and what to buy were split across
-           separate panels, and the second was a subset of the first showing the
-           same numbers — which read as duplication rather than as detail. Every
-           item lives here; the ones that need ordering are marked, and only
-           those carry a Draft button. -->
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Items</h2>
-          <span class="hint" id="suggestHint">what we sell, and what to buy</span>
+    <div class="grid" style="margin-top:1.25rem">
+      <div style="display:flex; flex-direction:column; gap:1.25rem;">
+        <!-- Only the lines that need a decision. The full catalogue is one rail
+             entry away, and a table where most rows say "nothing to do" trains
+             people to skim past the rows that do. -->
+        <div class="panel">
+          <div class="panel-head">
+            <h2>To buy</h2>
+            <span class="hint" id="suggestHint">what has run low</span>
+          </div>
+          <!-- Where the Buy column comes from, in the buyer's own terms. A
+               suggestion nobody can retrace is a suggestion nobody overrules,
+               which is how a wrong one becomes an order. -->
+          <div class="how" id="how"></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Item</th><th class="num">Sold</th><th class="num">Stock</th>
+              <th class="num">Weeks cover</th><th class="num">Buy</th>
+              <th class="num">Value</th><th>Supplier</th><th></th></tr></thead>
+            <tbody id="suggestions"><tr><td colspan="8" class="empty">loading</td></tr></tbody>
+          </table></div>
+          <div class="panel-body"><div class="bar">
+            <button id="createOrders">Draft every line</button>
+            <button class="ghost" id="loadSample">Run one item low</button>
+          </div><div class="readout" id="createOut" hidden></div></div>
         </div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Item</th><th class="num">Sold</th><th class="num">Stock</th>
-            <th class="num">Weeks cover</th><th class="num">Buy</th>
-            <th class="num">Value</th><th></th></tr></thead>
-          <tbody id="suggestions"><tr><td colspan="7" class="empty">loading</td></tr></tbody>
-        </table></div>
-        <div class="panel-body"><div class="bar">
-          <button id="createOrders">Draft every line</button>
-          <button class="ghost" id="loadSample">Run one item low</button>
-        </div><div class="readout" id="createOut" hidden></div></div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Purchase orders</h2>
+            <span class="hint" id="orderHint"></span>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Order</th><th>Supplier</th><th>Status</th><th class="num">Value</th>
+              <th>Promised</th><th></th></tr></thead>
+            <tbody id="orders"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
+          </table></div>
+        </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Purchase orders</h2>
-          <span class="hint" id="orderHint"></span>
+      <div style="display:flex; flex-direction:column; gap:1.25rem;">
+        <div class="panel">
+          <div class="panel-head"><h2>Needs a human</h2>
+            <span class="hint" id="issueHint"></span></div>
+          <div id="issues"><div class="empty">loading</div></div>
         </div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Order</th><th>Supplier</th><th>Status</th><th class="num">Value</th>
-            <th>Promised</th><th></th></tr></thead>
-          <tbody id="orders"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
-        </table></div>
+
+        <!-- Replies now arrive through the mailbox poller rather than by hand, so
+             this panel is hidden. Kept in place rather than deleted because it is
+             the only manual route in if IMAP is down or a reply reaches someone's
+             personal address and has to be forwarded. Unhide to get it back. -->
+        <div class="panel" hidden>
+          <div class="panel-head"><h2>Supplier reply</h2>
+            <span class="hint">paste an email</span></div>
+          <div class="panel-body">
+            <label class="field">From
+              <select id="replyFrom"></select></label>
+            <label class="field">Subject
+              <input id="replySubject" placeholder="Re: PO-5001" /></label>
+            <label class="field">Message
+              <textarea id="replyBody">We confirm the order and will ship on 2026-09-28.</textarea></label>
+            <div class="bar">
+              <button id="sendReply">File it</button>
+              <button class="ghost" id="previewReply">Read only</button>
+            </div>
+            <div class="readout" id="replyOut" hidden></div>
+          </div>
+        </div>
       </div>
     </div>
+  </div>
 
-    <div style="display:flex; flex-direction:column; gap:1.25rem;">
-      <div class="panel">
-        <div class="panel-head"><h2>Needs a human</h2>
-          <span class="hint" id="issueHint"></span></div>
-        <div id="issues"><div class="empty">loading</div></div>
+  <!-- The catalogue. What each thing is, what it costs, who can make it and how
+       much of it is left — the record, rather than today's decision about it. -->
+  <div data-view="items" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Items</h2>
+        <span class="hint" id="itemsHint">loading</span>
       </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Item</th><th class="num">Unit cost</th><th class="num">Min / pack</th>
+          <th class="num">Sold</th><th class="num">Stock</th><th class="num">Weeks cover</th>
+          <th>Can supply</th><th></th></tr></thead>
+        <tbody id="itemRows"><tr><td colspan="8" class="empty">loading</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
 
-      <!-- Supplier and item master data belongs in an ERP, and in a real
-           deployment this system reads it rather than owning it. These forms
-           exist because a demo has to start somewhere, and because "where do
-           suppliers come from" is the first question anyone asks. -->
+  <!-- The directory. One panel, not two: a row of clocks and a table of
+       timezones answered the same question — how far away is this supplier. -->
+  <div data-view="suppliers" hidden>
+    <div class="split">
       <div class="panel">
-        <div class="panel-head"><h2>New supplier</h2>
-          <span class="hint">who we buy from</span></div>
-        <div class="panel-body">
-          <label class="field">Code
-            <input id="supCode" placeholder="GZ-TEX" /></label>
-          <label class="field">Name
-            <input id="supName" placeholder="Guangzhou Silk Mill" /></label>
-          <label class="field">Email
-            <input id="supEmail" placeholder="orders@supplier.com" /></label>
-          <label class="field">Time zone
-            <select id="supTz">
-              <option value="Asia/Shanghai">Asia/Shanghai</option>
-              <option value="Asia/Riyadh">Asia/Riyadh</option>
-              <option value="Asia/Kolkata">Asia/Kolkata</option>
-              <option value="Europe/Istanbul">Europe/Istanbul</option>
-              <option value="Europe/London">Europe/London</option>
-              <option value="America/New_York">America/New_York</option>
-            </select></label>
-          <label class="field">Working days
-            <select id="supDays">
-              <option value="1,2,3,4,5">Mon to Fri</option>
-              <option value="1,2,3,4,5,6">Mon to Sat</option>
-              <option value="7,1,2,3,4">Sun to Thu (Gulf)</option>
-            </select></label>
-          <label class="field">Working hours
-            <input id="supHours" value="9-18" placeholder="9-18" /></label>
-          <label class="field">Lead time, days
-            <input id="supLead" type="number" value="21" /></label>
-          <label class="field">Currency
-            <input id="supCurrency" value="SAR" maxlength="3" /></label>
-          <div class="bar"><button id="addSupplier">Add supplier</button></div>
-          <div class="readout" id="supOut" hidden></div>
+        <div class="panel-head">
+          <h2>Suppliers</h2>
+          <span class="hint">least shared time first</span>
         </div>
+        <div class="suplist" id="zones"><div class="empty">loading</div></div>
       </div>
-
-      <div class="panel">
-        <div class="panel-head"><h2>New item</h2>
-          <span class="hint">what we buy, and how much is left</span></div>
-        <div class="panel-body">
-          <label class="field">Supplier
-            <select id="itemSupplier"></select></label>
-          <label class="field">SKU
-            <input id="itemSku" placeholder="ALN-SILK-NVY" /></label>
-          <label class="field">Description
-            <input id="itemName" placeholder="Navy silk, 140cm" /></label>
-          <label class="field">Unit cost
-            <input id="itemCost" placeholder="42.00" /></label>
-          <label class="field">Minimum order / pack size
-            <input id="itemMoq" value="300 / 50" placeholder="300 / 50" /></label>
-          <label class="field">On hand / on order
-            <input id="itemStock" value="260 / 0" placeholder="260 / 0" /></label>
-          <label class="field">Weekly forecast
-            <input id="itemForecast" value="90" placeholder="90" /></label>
-          <div class="bar"><button id="addItem">Add item</button></div>
-          <div class="readout" id="itemOut" hidden></div>
-        </div>
-      </div>
-
-      <!-- Replies now arrive through the mailbox poller rather than by hand, so
-           this panel is hidden. Kept in place rather than deleted because it is
-           the only manual route in if IMAP is down or a reply reaches someone's
-           personal address and has to be forwarded. Unhide to get it back. -->
-      <div class="panel" hidden>
-        <div class="panel-head"><h2>Supplier reply</h2>
-          <span class="hint">paste an email</span></div>
-        <div class="panel-body">
-          <label class="field">From
-            <select id="replyFrom"></select></label>
-          <label class="field">Subject
-            <input id="replySubject" placeholder="Re: PO-5001" /></label>
-          <label class="field">Message
-            <textarea id="replyBody">We confirm the order and will ship on 2026-09-28.</textarea></label>
-          <div class="bar">
-            <button id="sendReply">File it</button>
-            <button class="ghost" id="previewReply">Read only</button>
-          </div>
-          <div class="readout" id="replyOut" hidden></div>
-        </div>
+      <div class="panel" id="supDetail">
+        <div class="empty">Pick a supplier to see what an order to them would do.</div>
       </div>
     </div>
   </div>
@@ -347,6 +509,124 @@
      supplier nothing. -->
 <!-- Read only. The message for an order that has already gone is history, not a
      draft: showing it in an editable box would invite changes that reach nobody. -->
+<!-- Supplier and item master data belongs in an ERP, and in a real deployment
+     this system reads it rather than owning it. These forms exist because a demo
+     has to start somewhere, and because "where do suppliers come from" is the
+     first question anyone asks — which is exactly why they belong behind a
+     button rather than beside the order list. -->
+<dialog id="supplierDialog">
+  <div class="panel-head">
+    <h2 id="supTitle">New supplier</h2>
+    <button type="button" class="ghost small" id="supClose">Close</button>
+  </div>
+  <div class="panel-body">
+    <div>
+      <!-- The code is the identity a save is matched on, so it is fixed once the
+           supplier exists: editing it here would not rename them, it would
+           quietly create a second supplier and leave their orders behind on the
+           first. -->
+      <label class="field">Code
+        <input id="supCode" placeholder="GZ-TEX" /></label>
+      <label class="field">Name
+        <input id="supName" placeholder="Guangzhou Silk Mill" /></label>
+      <label class="field">Email
+        <input id="supEmail" placeholder="orders@supplier.com" /></label>
+      <!-- Country drives the distance and the holiday calendar, so without it
+           an arrival estimate has no journey in it. -->
+      <label class="field">Country
+        <select id="supCountry">
+          <!-- Blank is a real answer, and the default cannot be China: opening an
+               existing supplier who has no country would land on the first entry
+               and quietly save it on the way out. -->
+          <option value="">— not set —</option>
+          <option value="CN">China</option>
+          <option value="IN">India</option>
+          <option value="TR">Turkey</option>
+          <option value="AE">United Arab Emirates</option>
+          <option value="SA">Saudi Arabia</option>
+          <option value="EG">Egypt</option>
+          <option value="PK">Pakistan</option>
+          <option value="BD">Bangladesh</option>
+          <option value="VN">Vietnam</option>
+          <option value="ID">Indonesia</option>
+          <option value="KR">South Korea</option>
+          <option value="IT">Italy</option>
+          <option value="FR">France</option>
+          <option value="ES">Spain</option>
+          <option value="GB">United Kingdom</option>
+        </select></label>
+      <label class="field">Time zone
+        <select id="supTz">
+          <option value="Asia/Shanghai">Asia/Shanghai</option>
+          <option value="Asia/Riyadh">Asia/Riyadh</option>
+          <option value="Asia/Kolkata">Asia/Kolkata</option>
+          <option value="Europe/Istanbul">Europe/Istanbul</option>
+          <option value="Europe/London">Europe/London</option>
+          <option value="America/New_York">America/New_York</option>
+        </select></label>
+      <label class="field">Working days
+        <select id="supDays">
+          <option value="1,2,3,4,5">Mon to Fri</option>
+          <option value="1,2,3,4,5,6">Mon to Sat</option>
+          <option value="7,1,2,3,4">Sun to Thu (Gulf)</option>
+        </select></label>
+      <label class="field">Working hours
+        <input id="supHours" value="9-18" placeholder="9-18" /></label>
+      <!-- Their figure for anything they make. A per SKU one can override it
+           below, because a mill that turns packaging in ten days may take six
+           weeks over a woven abaya — but something has to answer when no line
+           says otherwise, and this is also what the arrival estimate uses, which
+           is per supplier and cannot be per item. -->
+      <label class="field">Usual lead time, days
+        <input id="supLead" type="number" value="21" />
+        <span class="fieldnote">Their default. Any item below can quote its own.</span></label>
+      <label class="field">Currency
+        <input id="supCurrency" value="SAR" maxlength="3" /></label>
+      <!-- Nobody delivers the whole catalogue. One mill does the abaya, another
+           only the packaging, and until this was asked an item could name just
+           one supplier — so there was nothing to compare and no way to route an
+           order to whoever actually makes it. -->
+      <div class="pickfield">
+        <span class="picklabel">What can they deliver?</span>
+        <div class="skupick" id="supSkus"></div>
+        <span class="fieldnote">Tick what they make, then give their own price and
+          minimum where you have one. Leave those blank and the item's own figures
+          are used — which is fine until two suppliers make the same thing, because
+          the cheaper one is decided on the whole line, not the unit price.</span>
+      </div>
+      <div class="bar"><button id="addSupplier">Add supplier</button></div>
+      <div class="readout" id="supOut" hidden></div>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="itemDialog">
+  <div class="panel-head">
+    <h2 id="itemTitle">New item</h2>
+    <button type="button" class="ghost small" id="itemClose">Close</button>
+  </div>
+  <div class="panel-body">
+    <div>
+      <label class="field">Supplier
+        <select id="itemSupplier"></select></label>
+      <label class="field">SKU
+        <input id="itemSku" placeholder="ALN-SILK-NVY" /></label>
+      <label class="field">Description
+        <input id="itemName" placeholder="Navy silk, 140cm" /></label>
+      <label class="field">Unit cost
+        <input id="itemCost" placeholder="42.00" /></label>
+      <label class="field">Minimum order / pack size
+        <input id="itemMoq" value="300 / 50" placeholder="300 / 50" /></label>
+      <label class="field">On hand / on order
+        <input id="itemStock" value="260 / 0" placeholder="260 / 0" /></label>
+      <label class="field">Weekly forecast
+        <input id="itemForecast" value="90" placeholder="90" /></label>
+      <div class="bar"><button id="addItem">Add item</button></div>
+      <div class="readout" id="itemOut" hidden></div>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="emailDialog">
   <form method="dialog">
     <div class="panel-head"><h2 id="emailTitle">Message</h2>
@@ -393,7 +673,8 @@
   // the API serves this page publicly, so anything hardcoded here is readable by
   // anyone who opens it.
   const KEY_STORAGE = "sca.apiKey";
-  const state = { key: "", suppliers: [] };
+  const state = { key: "", suppliers: [], zones: [], items: [], links: {},
+                  view: "desk", selected: null, journey: null, stats: {} };
 
   async function api(path, options = {}) {
     const res = await fetch(API + path, {
@@ -413,16 +694,330 @@
   const day = (v) => (v ? new Date(v).toLocaleDateString("en-GB",
       { day: "2-digit", month: "short" }) : "—");
 
+  // Hours below one read as "0.0", which is true and useless. A reply that came
+  // back in twenty minutes came back in twenty minutes.
+  const wait = (h) => {
+    if (h === null || h === undefined) return "—";
+    if (h < 1) return `${Math.max(1, Math.round(h * 60))}<small> min</small>`;
+    if (h < 48) return `${h.toFixed(1)}<small> h</small>`;
+    return `${(h / 24).toFixed(1)}<small> days</small>`;
+  };
+  const plain = (h) => (h === null || h === undefined ? "—"
+    : h < 1 ? `${Math.max(1, Math.round(h * 60))}m` : h < 48 ? `${h.toFixed(1)}h`
+    : `${(h / 24).toFixed(1)}d`);
+
+  async function loadCoordination() {
+    let c;
+    try { c = await api("/coordination"); } catch { return; }
+    const r = c.round_trips, cy = c.cycle, a = c.autonomy, ap = c.approval;
+
+    const tiles = [];
+    tiles.push({
+      label: "Round trips",
+      big: r.per_order === null ? "—" : `${r.per_order}<small> per order</small>`,
+      says: r.orders
+        ? `${r.replies} repl${r.replies === 1 ? "y" : "ies"} across ${r.orders} sent order(s)`
+        : "Nothing sent yet.",
+    });
+    tiles.push({
+      label: "Avoidable",
+      big: r.avoidable_share === null ? "—" : `${Math.round(r.avoidable_share * 100)}%`,
+      // The headroom, stated as headroom. Each of these is a full wait caused by
+      // something the outbound message could have said first.
+      says: r.clarifications
+        ? `${r.clarifications} repl${r.clarifications === 1 ? "y" : "ies"} asked us something`
+        : "No supplier had to ask us anything.",
+    });
+    tiles.push({
+      label: "Time to acknowledge",
+      big: wait(cy.median_hours),
+      says: cy.median_working_hours === null
+        ? (cy.awaiting ? `${cy.awaiting} still waiting.` : "Nothing acknowledged yet.")
+        : `${plain(cy.median_working_hours)} of it inside their working day`
+          + (cy.awaiting ? ` · ${cy.awaiting} still waiting` : ""),
+    });
+    tiles.push({
+      label: "Read without asking",
+      big: a.acted_share === null ? "—" : `${Math.round(a.acted_share * 100)}%`,
+      says: a.read
+        ? `${a.acted} of ${a.read} applied automatically, ${a.filed_for_a_human} sent to a person`
+        : "No replies read yet.",
+    });
+    tiles.push({
+      label: "Approved unchanged",
+      big: ap.granted ? `${ap.without_amendment}<small> of ${ap.granted}</small>` : "—",
+      // Not a score. A gate that is always passed unamended is either preparing
+      // well or being waved through, and the two look the same from inside.
+      says: ap.granted
+        ? `${ap.revised} amended before approval · ${ap.needed - ap.granted} still waiting`
+        : "Nothing has needed approval yet.",
+    });
+
+    $("cost").innerHTML = tiles.map((t) => `
+      <div class="tile">
+        <span class="label">${t.label}</span>
+        <span class="big">${t.big}</span>
+        <span class="says">${t.says}</span>
+      </div>`).join("");
+
+    state.zones = c.zones;
+    drawSuppliers();
+  }
+
+  // Both halves of this table arrive from different endpoints, so it is drawn
+  // from whatever has landed rather than by whichever call finishes second.
+  function drawSuppliers() {
+    const suppliers = state.suppliers || [];
+    const zones = state.zones || [];
+    if (!suppliers.length) {
+      $("zones").innerHTML =
+        `<div class="empty">No suppliers yet.</div>`;
+      $("supDetail").innerHTML =
+        `<div class="empty">Add the first supplier to start buying.</div>`;
+      state.selected = null;
+      return;
+    }
+
+    const zone = (tz) => zones.find((z) => z.timezone === tz) || {};
+    // Least shared time first: that is where removing a round trip is worth
+    // most, and it is not the reader's job to work that out from the numbers.
+    const rows = [...suppliers].sort((a, b) =>
+      (zone(a.timezone).overlap_hours ?? 99) - (zone(b.timezone).overlap_hours ?? 99));
+
+    $("zones").innerHTML = rows.map((s) => {
+      const makes = (state.links[s.code] || []).length;
+      return `<div class="row ${s.code === state.selected ? "on" : ""}" data-sup="${s.code}"
+           role="button" tabindex="0" aria-pressed="${s.code === state.selected}">
+        <span><span class="who">${s.name}</span>
+          <span class="where">${s.timezone.split("/").pop().replace(/_/g, " ")} ·
+            ${makes ? `${makes} item${makes === 1 ? "" : "s"}` : "no items"}</span></span>
+        <span class="clock" title="${s.open_now ? "Open now" : "Opens " + s.next_open_local}">
+          <i class="${s.open_now ? "open" : ""}"></i>${s.local_time}</span>
+      </div>`;
+    }).join("");
+
+    $("zones").querySelectorAll("[data-sup]").forEach((row) => {
+      const open = () => selectSupplier(row.dataset.sup);
+      row.addEventListener("click", open);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+      });
+    });
+
+    // The first one, so the pane beside the list is never an empty box asking to
+    // be clicked. A refresh keeps whoever was open rather than snapping back.
+    const keep = rows.some((s) => s.code === state.selected) ? state.selected : rows[0].code;
+    selectSupplier(keep, keep === state.selected);
+  }
+
+  // Everything about one supplier, beside the list rather than under their row:
+  // the numbers that used to be columns, what they can make, and what an order
+  // placed today would actually do.
+  async function selectSupplier(code, keepJourney = false) {
+    state.selected = code;
+    $("zones").querySelectorAll("[data-sup]").forEach((row) => {
+      const on = row.dataset.sup === code;
+      row.classList.toggle("on", on);
+      row.setAttribute("aria-pressed", String(on));
+    });
+
+    const s = (state.suppliers || []).find((x) => x.code === code);
+    if (!s) return;
+    const z = (state.zones || []).find((x) => x.timezone === s.timezone) || {};
+    const shared = z.overlap_hours;
+    const makes = state.links[code] || [];
+
+    $("supDetail").innerHTML = `
+      <div class="panel-head">
+        <div>
+          <h2>${s.name}</h2>
+          <span class="hint">${s.code}${s.email ? " · " + s.email : " · no email on file"}</span>
+        </div>
+        <button class="ghost small" id="editSup">Edit</button>
+      </div>
+      <div class="facts">
+        <div><span class="k">Their time</span><span class="v clock">
+          <i class="${s.open_now ? "open" : ""}"></i>${s.local_time}</span></div>
+        <div><span class="k">Shared hours</span>
+          <span class="v ${shared !== undefined && shared < 3 ? "tight" : ""}">${
+            shared === undefined ? "—" : shared}</span></div>
+        <div><span class="k">Orders</span><span class="v">${z.orders ?? 0}</span></div>
+        <div><span class="k">To acknowledge</span><span class="v">${plain(z.median_hours)}</span></div>
+      </div>
+      <div class="record" id="recordBox">
+        <div class="empty" style="padding:0.5rem 0">reading their record…</div>
+      </div>
+      <div class="makes">
+        <div class="panel-head" style="padding:0.7rem 0; border:none">
+          <h2 style="font-size:0.82rem">Can deliver</h2>
+          <span class="hint">${makes.length ? "their own terms where they have quoted one"
+            : "nothing attached yet"}</span>
+        </div>
+        ${makes.length ? makes.map((m) => `
+          <div class="line">
+            <span><strong>${m.sku}</strong>
+              <span style="color:var(--muted)"> ${itemName(m.sku)}</span></span>
+            <span class="terms">${m.unit_cost} ${m.currency} · min ${
+              m.moq.toLocaleString("en-US")}${
+              m.lead_time_days ? ` · ${m.lead_time_days}d` : ""}</span>
+          </div>`).join("")
+          : `<div class="empty" style="padding:0.4rem 0">Nothing can be sourced from them
+               until an item is attached. Use Edit.</div>`}
+      </div>
+      <div class="journey" id="journeyBox"><div class="empty">working it out…</div></div>`;
+
+    $("editSup").addEventListener("click", () => openSupplier(code));
+    await Promise.all([
+      (!keepJourney || !state.journey || state.journey.code !== code)
+        ? showJourney(code)
+        : Promise.resolve(($("journeyBox").innerHTML = state.journey.html)),
+      showRecord(code),
+    ]);
+  }
+
+  // What this supplier has cost, from their own rows. Every line carries what it
+  // was counted from, and a measure with no history says so in words — a zero
+  // would read as "never late", which is a claim nothing here has earned.
+  async function showRecord(code) {
+    let r = state.stats[code];
+    try {
+      // Cached for the life of one refresh, not longer: the list is redrawn
+      // several times as each loader lands, and their record cannot have changed
+      // between two of those redraws. `refreshAll` clears it.
+      if (!r) r = state.stats[code] = await api(`/suppliers/${code}/analytics`);
+    } catch (err) {
+      if (state.selected === code) {
+        $("recordBox").innerHTML = `<div class="empty">Could not read: ${err.message}</div>`;
+      }
+      return;
+    }
+    if (state.selected !== code) return;
+
+    const ex = r.exclusivity, c = r.commitment, t = r.trouble, x = r.exchanges;
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    const lines = [];
+
+    lines.push(["Only they make", ex.only_source
+      ? `<span class="warn">${ex.only_source} of ${ex.items} items</span>
+         <span class="why">${ex.only_source_skus.join(", ")} — nobody else is attached,
+           so these stop if they do</span>`
+      : ex.items
+        ? `${ex.items} item(s), all second-sourced
+           <span class="why">every one of them can be bought elsewhere</span>`
+        : `<span class="none">nothing attached yet</span>
+           <span class="why">nothing can be sourced from them until an item is</span>`]);
+
+    lines.push(["Committed", c.orders
+      ? `${money(c.value)} ${c.currency} across ${c.orders} order(s)
+         <span class="why">${c.received} received · ${c.live} still live · ${
+           c.cancelled} cancelled${c.share_of_spend !== null
+             ? ` · ${pct(c.share_of_spend)} of all ${c.currency} spend` : ""}</span>`
+      : `<span class="none">never ordered from</span>
+         <span class="why">set up and priced, but nothing has been bought yet</span>`]);
+
+    lines.push(["Trouble", t.total
+      ? `<span class="warn">${t.total}</span> ${Object.entries(t.by_kind)
+           .map(([k, n]) => `${n} ${k.replace(/_/g, " ")}`).join(", ")}
+         <span class="why">${t.open_now
+           ? `${t.open_now} still open` : "all resolved"} — this is what lowers them
+           in the supplier ranking</span>`
+      : `<span class="none">nothing filed</span>`]);
+
+    lines.push(["Exchanges", x.sent
+      ? `${x.per_order} repl${x.per_order === 1 ? "y" : "ies"} per order
+         <span class="why">${x.replies} across ${x.sent} sent · ${
+           x.clarifications ? `${pct(x.avoidable_share)} of them asked us something`
+             : "none of them asked us anything"} · median ${plain(x.median_hours)}
+           to acknowledge${x.awaiting ? ` · ${x.awaiting} still waiting` : ""}</span>`
+      : `<span class="none">no order sent yet</span>`]);
+
+    lines.push(["Landed on time", r.kept.checked
+      ? `${r.kept.on_time} of ${r.kept.checked}
+         <span class="why">${r.kept.median_days_late > 0
+           ? `median ${r.kept.median_days_late} days late, worst ${r.kept.worst_days_late}`
+           : "against the date they confirmed"} · ${r.kept.basis}</span>`
+      : `<span class="none">not yet measurable</span>
+         <span class="why">${r.kept.basis}</span>`]);
+
+    if (r.short.lines_received) {
+      lines.push(["Short shipped", r.short.lines_short
+        ? `<span class="warn">${r.short.lines_short} of ${r.short.lines_received} lines</span>
+           <span class="why">${r.short.units_short.toLocaleString("en-US")} units never
+             arrived</span>`
+        : `none of ${r.short.lines_received} received lines
+           <span class="why">everything booked in came in full</span>`]);
+    }
+
+    $("recordBox").innerHTML = lines
+      .map(([k, v]) => `<div class="line"><span class="k">${k}</span><span>${v}</span></div>`)
+      .join("");
+  }
+
+  const itemName = (sku) => {
+    const i = (state.items || []).find((x) => x.sku === sku);
+    return i ? i.name : "";
+  };
+
+  // What an order placed today would actually do, stage by stage. Each stage
+  // carries where its number came from, because the transit guess and the
+  // measured production time do not deserve the same trust and a single date
+  // would hide which is which.
+  const BASIS = {
+    measured: ["measured", "from orders you have actually received"],
+    quoted: ["quoted", "the supplier's own figure, never checked"],
+    calendar: ["calendar", "arithmetic on working hours and public holidays"],
+    assumed: ["assumed", "our estimate — the weakest number here"],
+  };
+
+  async function showJourney(code) {
+    let a;
+    try {
+      a = await api(`/suppliers/${code}/arrival`);
+    } catch (err) {
+      // Only written if this is still the supplier on screen: a slow estimate
+      // landing after somebody moved on would overwrite the one they are reading.
+      if (state.selected === code) {
+        $("journeyBox").innerHTML = `<div class="empty">Could not estimate: ${err.message}</div>`;
+      }
+      return;
+    }
+    if (state.selected !== code) return;
+
+    const alt = Object.entries(a.alternatives || {})
+      .map(([m, v]) => `${m} ${v.total_days} days`).join(" · ");
+    const html = `
+      <div class="j-head">
+        <span>Order today, arrives <b>${a.arrives_on || "—"}</b>
+          <span class="j-total">${a.total_days} days by ${a.mode}</span></span>
+        ${alt ? `<span class="j-alt">or ${alt}</span>` : ""}
+      </div>
+      ${a.legs.map((leg) => `
+        <div class="j-leg">
+          <span class="j-days">${leg.days}<small>d</small></span>
+          <span>
+            <span class="j-name">${leg.name}</span>
+            <span class="j-why">${leg.detail}</span>
+          </span>
+          <span class="j-basis ${leg.basis}" title="${BASIS[leg.basis][1]}">${
+            BASIS[leg.basis][0]}</span>
+        </div>`).join("")}
+      ${a.weather ? `<div class="j-weather">${a.weather}</div>` : ""}
+      ${a.distance_km === null
+        ? `<div class="j-weather">No country set for this supplier, so the journey
+             cannot be measured. Everything above is the part that happens before
+             anything ships.</div>`
+        : ""}`;
+    // Kept so a background refresh can redraw the pane without asking the API
+    // for an estimate that has not changed in the meantime.
+    state.journey = { code, html };
+    $("journeyBox").innerHTML = html;
+  }
+
   async function loadSuppliers() {
     const rows = await api("/suppliers");
     state.suppliers = rows;
-    $("clocks").innerHTML = rows.map((s) => `
-      <div class="clock">
-        <span class="name">${s.name}</span>
-        <span class="time">${s.local_time}</span>
-        <span class="state ${s.open_now ? "open" : "shut"}">
-          ${s.open_now ? "open now" : "opens " + s.next_open_local}</span>
-      </div>`).join("");
+    await loadSourcing();
+    drawSuppliers();
     $("replyFrom").innerHTML = rows
       .map((s) => `<option value="${s.email}">${s.name} · ${s.email}</option>`).join("");
     // Keep the chosen supplier across a refresh, so adding three items in a row
@@ -431,6 +1026,99 @@
     $("itemSupplier").innerHTML = rows
       .map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
     if (chosen) $("itemSupplier").value = chosen;
+  }
+
+  // Who makes what, read once per supplier and kept. Held here rather than
+  // fetched per row because both lists need it — the supplier rows say how many
+  // items each can deliver, the item rows say who can deliver each — and asking
+  // per row would be one request per line of a table.
+  async function loadSourcing() {
+    const links = {};
+    await Promise.all((state.suppliers || []).map(async (s) => {
+      try { links[s.code] = await api(`/suppliers/${s.code}/items`); }
+      catch { links[s.code] = []; }
+    }));
+    state.links = links;
+  }
+
+  // Everyone who has this SKU attached, by supplier code.
+  const makers = (sku) => (state.suppliers || [])
+    .filter((s) => (state.links[s.code] || []).some((row) => row.sku === sku));
+
+  // Who to buy this from. A select rather than a verdict: the ranking puts the
+  // cheapest-for-the-quantity first, but a line covering a launch is worth
+  // paying more to get sooner, and only the buyer knows which this is. The list
+  // holds exactly the suppliers who make this SKU — nobody delivers everything.
+  function supplierCell(item, line) {
+    const options = (line && line.options) || [];
+    if (!options.length) {
+      return line
+        ? `<span class="pick-none">only ${shortName(item.supplier_id)}</span>`
+        : `<span class="pick-none">—</span>`;
+    }
+    const best = options[0];
+    return `<select class="pick" data-pick="${item.sku}" data-suggested="${best.code}">
+        ${options.map((o) => `<option value="${o.code}"${o.code === best.code ? " selected" : ""}>
+          ${o.supplier}</option>`).join("")}
+      </select>
+      <span class="pick-why">${whyPick(best, line)}</span>`;
+  }
+
+  const shortName = (id) => {
+    const s = (state.suppliers || []).find((x) => x.id === id);
+    return s ? s.name : "one supplier";
+  };
+
+  // Why this one is on top, in the buyer's terms. Reliability is named as
+  // reliability and never as quality: nothing here inspects the goods.
+  function whyPick(option, line) {
+    const others = ((line && line.options) || []).filter((o) => o.code !== option.code);
+    const bits = [`${option.lead_time_days}d`];
+    if (option.moq > 1) bits.push(`min ${option.moq.toLocaleString("en-US")}`);
+    if (option.issues_raised) bits.push(`${option.issues_raised} past issue(s)`);
+    if (!option.open_now) bits.push("closed now");
+    const cheaper = others.filter((o) => Number(o.line_total) < Number(option.line_total));
+    if (cheaper.length) {
+      bits.push(`${money(Math.min(...cheaper.map((o) => Number(o.line_total))))} elsewhere`);
+    }
+    return bits.join(" · ");
+  }
+
+  // Four sentences and one real row. The thresholds come from the API rather
+  // than being written here, so tuning the policy cannot leave the page
+  // confidently describing a rule the system stopped following.
+  function drawHow(plan, items, buy) {
+    const p = plan.policy;
+    if (!p) { $("how").hidden = true; return; }
+    $("how").hidden = false;
+
+    const steps = [
+      ["Sold", `average week over the last ${p.demand_window_weeks} weeks of real customer orders`],
+      ["Weeks cover", "(stock + already on order) ÷ sold"],
+      ["Order when", `cover drops under ${p.reorder_cover_weeks} weeks, or under the supplier's `
+        + `lead time if that is longer`],
+      ["Buy", `enough for ${p.target_cover_weeks} weeks, rounded up to their minimum and pack size`],
+    ];
+
+    // A worked example beats the rule. Taken from a row on screen, so a buyer
+    // can follow it down the table rather than take it on trust.
+    const example = items.find((i) => buy[i.sku] && i.observed_weekly);
+    let worked = "";
+    if (example) {
+      const line = buy[example.sku];
+      const lead = (line.reason.match(/(\d+) day lead time/) || [])[1];
+      worked = `<div class="worked"><b>${example.sku}:</b> `
+        + `${example.on_hand} in stock ÷ ${example.observed_weekly} a week `
+        + `= ${example.weeks_cover} weeks left`
+        + (lead ? `, and it takes ${lead} days to arrive` : "")
+        + ` — buy ${line.suggest_quantity.toLocaleString("en-US")}.</div>`;
+    }
+
+    $("how").innerHTML =
+      `<b>How the Buy column is worked out</b>`
+      + `<div class="steps">${steps.map(([k, v]) =>
+          `<span class="step"><em>${k}</em>${v}</span>`).join("")}</div>`
+      + worked;
   }
 
   // "300 / 50" and "9-18" are two numbers in one box: fewer fields to cross, and
@@ -445,6 +1133,40 @@
     ];
   }
 
+  // The catalogue: the record of each thing, rather than today's decision about
+  // it. Cover is still shown, because "what is this and is it running out" is
+  // one question to a buyer even when the ordering happens on another page.
+  function drawCatalogue(items) {
+    $("itemsHint").textContent = items.length
+      ? `${items.length} item(s) · ${items.filter((i) => makers(i.sku).length > 1).length}`
+        + ` with more than one supplier`
+      : "";
+    const rows = [...items].sort((a, b) => a.sku.localeCompare(b.sku));
+    $("itemRows").innerHTML = rows.length ? rows.map((i) => {
+      const from = makers(i.sku);
+      // Named, not counted: which mill matters, and a bare "2" sends the reader
+      // to another page to find out who.
+      const supplies = from.length
+        ? from.map((s) => s.name).join(", ")
+        : `<span style="color:var(--high)">nobody — attach one on their record</span>`;
+      return `<tr>
+        <td><strong>${i.sku}</strong><br><span style="color:var(--muted)">${i.name}</span></td>
+        <td class="num">${i.unit_cost}</td>
+        <td class="num">${i.moq} / ${i.pack_size}</td>
+        <td class="num">${i.observed_weekly === null
+          ? `<span style="color:var(--muted)">—</span>`
+          : `${i.observed_weekly}<span style="color:var(--muted)">/wk</span>`}</td>
+        <td class="num">${i.on_hand}${i.on_order
+          ? `<span style="color:var(--muted)"> +${i.on_order}</span>` : ""}</td>
+        <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}</td>
+        <td style="white-space:normal">${supplies}</td>
+        <td><button class="ghost small" data-edititem="${i.sku}">Edit</button></td></tr>`;
+    }).join("") : `<tr><td colspan="8" class="empty">No items yet</td></tr>`;
+
+    $("itemRows").querySelectorAll("[data-edititem]").forEach((b) =>
+      b.addEventListener("click", () => openItem(b.dataset.edititem)));
+  }
+
   async function loadSuggestions() {
     // Both calls, one table. The plan knows what to buy but only reports the
     // lines that need buying; the catalogue knows everything but not what to do
@@ -456,15 +1178,20 @@
     ]);
     const buy = {};
     plan.by_supplier.forEach((g) => g.lines.forEach((l) => { buy[l.sku] = l; }));
+    state.items = items;
+    drawCatalogue(items);
 
     const measured = items.filter((i) => i.observed_weekly !== null).length;
     $("suggestHint").textContent =
       `${plan.count} of ${items.length} need ordering · ${measured} measured from customer orders`;
+    drawHow(plan, items, buy);
 
-    // Lowest cover first: the row that needs a decision soonest is the row a
-    // buyer should be looking at, whether or not it has crossed the line yet.
-    const rows = [...items].sort((a, b) =>
-      (a.weeks_cover === null ? 1e9 : a.weeks_cover) - (b.weeks_cover === null ? 1e9 : b.weeks_cover));
+    // Only what needs a decision, lowest cover first. The rest of the catalogue
+    // is one rail entry away and had nothing to say here.
+    const rows = items
+      .filter((i) => buy[i.sku])
+      .sort((a, b) => (a.weeks_cover === null ? 1e9 : a.weeks_cover)
+                    - (b.weeks_cover === null ? 1e9 : b.weeks_cover));
 
     $("suggestions").innerHTML = rows.length ? rows.map((i) => {
       const line = buy[i.sku];
@@ -476,21 +1203,43 @@
       const typed = i.forecast_source === "manual"
         ? `<br><span style="color:var(--muted);font-size:0.75em">${i.entered_weekly}/wk typed, used instead</span>`
         : "";
-      return `<tr${line ? ' style="background:rgba(150,90,40,0.07)"' : ""}>
+      return `<tr>
         <td><strong>${i.sku}</strong><br><span style="color:var(--muted)">${i.name}</span></td>
         <td class="num">${sold}${typed}</td>
         <td class="num">${i.on_hand}</td>
         <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}</td>
-        <td class="num">${line ? line.suggest_quantity : "—"}</td>
-        <td class="num">${line ? money(line.line_total) : "—"}</td>
-        <td>${line ? `<button class="small" data-draft="${i.sku}">Draft</button>` : ""}</td></tr>`;
-    }).join("") : `<tr><td colspan="7" class="empty">No items yet</td></tr>`;
+        <td class="num" data-qty="${i.sku}">${line.suggest_quantity}</td>
+        <td class="num" data-val="${i.sku}">${money(line.line_total)}</td>
+        <td>${supplierCell(i, line)}</td>
+        <td><button class="small" data-draft="${i.sku}">Draft</button></td></tr>`;
+    }).join("")
+      : `<tr><td colspan="8" class="empty">Every line has cover. Nothing to buy today.</td></tr>`;
+
+    // Switching supplier changes the quantity with it: their minimum order and
+    // pack size are theirs, so the row has to re-price or it would draft
+    // something the new supplier rejects.
+    $("suggestions").querySelectorAll("[data-pick]").forEach((select) =>
+      select.addEventListener("change", () => {
+        const sku = select.dataset.pick;
+        const chosen = (buy[sku]?.options || []).find((o) => o.code === select.value);
+        if (!chosen) return;
+        const row = $("suggestions").querySelector(`[data-qty="${sku}"]`);
+        const value = $("suggestions").querySelector(`[data-val="${sku}"]`);
+        if (row) row.textContent = chosen.quantity.toLocaleString("en-US");
+        if (value) value.textContent = money(chosen.line_total);
+        select.closest("td").querySelector(".pick-why").textContent = whyPick(chosen, buy[sku]);
+      }));
 
     $("suggestions").querySelectorAll("[data-draft]").forEach((b) =>
       b.addEventListener("click", () => busy(b, async () => {
+        const sku = b.dataset.draft;
+        const select = $("suggestions").querySelector(`[data-pick="${sku}"]`);
+        const override = select && select.value !== select.dataset.suggested
+          ? { [sku]: select.value } : {};
         try {
           const out = await api("/planning/create-orders", {
-            method: "POST", body: JSON.stringify({ skus: [b.dataset.draft] }),
+            method: "POST",
+            body: JSON.stringify({ skus: [sku], supplier_by_sku: override }),
           });
           show($("createOut"), out.created
             ? out.orders.map((o) => `${o.number}  ${o.total_value}  ${o.status}` +
@@ -747,6 +1496,114 @@
   }));
 
   $("reviseCancel").addEventListener("click", () => $("reviseDialog").close());
+
+  // The record currently open in each dialog, or null for a new one. Saving is
+  // the same call either way — the API upserts on code and SKU — so the only
+  // difference the form carries is what it is prefilled with and whether the
+  // identity field can still be typed in.
+  let editingSupplier = null;
+  let editingItem = null;
+
+  async function openSupplier(code) {
+    const s = code ? (state.suppliers || []).find((x) => x.code === code) : null;
+    editingSupplier = s || null;
+    $("supTitle").textContent = s ? `Edit ${s.name}` : "New supplier";
+    $("addSupplier").textContent = s ? "Save changes" : "Add supplier";
+    $("supCode").value = s ? s.code : "";
+    $("supCode").disabled = Boolean(s);
+    $("supName").value = s ? s.name : "";
+    $("supEmail").value = s ? (s.email || "") : "";
+    $("supCountry").value = s ? (s.country || "") : "";
+    $("supTz").value = s ? s.timezone : "Asia/Shanghai";
+    $("supDays").value = s ? s.working_days : "1,2,3,4,5";
+    $("supHours").value = s ? `${s.work_start_hour}-${s.work_end_hour}` : "9-18";
+    $("supLead").value = s ? s.lead_time_days : 21;
+    $("supCurrency").value = s ? s.currency : "SAR";
+    $("supOut").hidden = true;
+    $("supplierDialog").showModal();
+
+    // Filled on open rather than on load, because an item added a minute ago
+    // would be missing from a list built once at startup.
+    const host = $("supSkus");
+    const already = new Set(
+      s ? (state.links[s.code] || []).map((row) => row.sku) : []);
+    try {
+      const items = state.items && state.items.length ? state.items : await api("/items");
+      const link = {};
+      (s ? state.links[s.code] || [] : []).forEach((row) => { link[row.sku] = row; });
+      host.innerHTML = items.length
+        ? items.map((i) => {
+          const was = link[i.sku];
+          return `<div class="pickrow">
+            <label><input type="checkbox" value="${i.sku}" />
+              <span><span class="sku">${i.sku}</span>
+                <span class="of">${i.name}</span></span></label>
+            <div class="terms" data-terms="${i.sku}" hidden>
+              <label>Their price
+                <input data-cost="${i.sku}" placeholder="${i.unit_cost}"
+                  value="${was ? was.unit_cost : ""}" /></label>
+              <label>Min / pack
+                <input data-mp="${i.sku}" placeholder="${i.moq} / ${i.pack_size}"
+                  value="${was ? `${was.moq} / ${was.pack_size}` : ""}" /></label>
+              <!-- The placeholder is the number this falls back to, not the words
+                   "supplier default": a buyer deciding whether to override needs
+                   to see what they would be overriding. -->
+              <label>Lead days
+                <input data-lead="${i.sku}" placeholder="${$("supLead").value || 21}"
+                  value="${was && was.lead_time_days !== null ? was.lead_time_days : ""}" /></label>
+            </div>
+          </div>`;
+        }).join("")
+        : `<div class="none">No items yet. Add one from the Items page first.</div>`;
+      // Set explicitly, never left to the browser: identical markup reappearing
+      // makes it restore the last supplier's ticks onto this one.
+      host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
+        box.checked = already.has(box.value);
+        const terms = host.querySelector(`[data-terms="${box.value}"]`);
+        terms.hidden = !box.checked;
+        // Asked for only once the SKU is ticked: three empty boxes against every
+        // item they do not make is a form that looks like work nobody has done.
+        box.addEventListener("change", () => { terms.hidden = !box.checked; });
+      });
+    } catch {
+      host.innerHTML = `<div class="none">Could not load items.</div>`;
+    }
+  }
+
+  function openItem(sku) {
+    const i = sku ? (state.items || []).find((x) => x.sku === sku) : null;
+    editingItem = i || null;
+    $("itemTitle").textContent = i ? `Edit ${i.sku}` : "New item";
+    $("addItem").textContent = i ? "Save changes" : "Add item";
+    $("itemSku").value = i ? i.sku : "";
+    $("itemSku").disabled = Boolean(i);
+    $("itemName").value = i ? i.name : "";
+    $("itemCost").value = i ? i.unit_cost : "";
+    $("itemMoq").value = i ? `${i.moq} / ${i.pack_size}` : "300 / 50";
+    $("itemStock").value = i ? `${i.on_hand} / ${i.on_order}` : "260 / 0";
+    // Blank where the number on screen came from sales. Prefilling the measured
+    // figure would turn it into a typed one the moment anybody pressed save, and
+    // a typed forecast overrules the sales history from then on.
+    $("itemForecast").value = i ? (i.entered_weekly ?? "") : "90";
+    if (i) $("itemSupplier").value = i.supplier_id;
+    $("itemOut").hidden = true;
+    $("itemDialog").showModal();
+  }
+
+  // Changing their default changes what every unfilled line falls back to, so the
+  // placeholders follow it rather than showing the figure it used to be.
+  $("supLead").addEventListener("input", () => {
+    const fallback = $("supLead").value || "21";
+    $("supSkus").querySelectorAll("[data-lead]").forEach((input) => {
+      input.placeholder = fallback;
+    });
+  });
+
+  $("openAddSupplier").addEventListener("click", () => openSupplier(null));
+  $("openAddItem").addEventListener("click", () => openItem(null));
+  $("supClose").addEventListener("click", () => $("supplierDialog").close());
+  $("itemClose").addEventListener("click", () => $("itemDialog").close());
+
   $("emailClose").addEventListener("click", () => $("emailDialog").close());
   $("emailCopy").addEventListener("click", async () => {
     // Until a mailbox is wired up on every environment, copying the text out is
@@ -838,11 +1695,15 @@
 
   $("addSupplier").addEventListener("click", () => busy($("addSupplier"), async () => {
     const [start, end] = pair($("supHours").value, "-", [9, 18]);
+    const editing = editingSupplier;
     try {
       const out = await api("/suppliers", { method: "POST", body: JSON.stringify({
         code: $("supCode").value.trim(),
         name: $("supName").value.trim(),
         email: $("supEmail").value.trim(),
+        // Null rather than "", so a supplier with no country reads as unknown
+        // and the arrival estimate says so instead of measuring from nowhere.
+        country: $("supCountry").value || null,
         timezone: $("supTz").value,
         working_days: $("supDays").value,
         work_start_hour: start,
@@ -850,16 +1711,69 @@
         lead_time_days: Number($("supLead").value) || 21,
         currency: ($("supCurrency").value || "SAR").toUpperCase(),
       }) });
+
+      // The list is sent whole, because unticking is how a SKU is removed — so
+      // each row's terms travel with it. Blank means inherit from the item, and
+      // is sent as null rather than as a zero that would later read as free.
+      const known = {};
+      (state.links[out.code] || []).forEach((row) => { known[row.sku] = row; });
+      const host = $("supSkus");
+      const box = (kind, sku) => {
+        const el = host.querySelector(`[data-${kind}="${sku}"]`);
+        return el ? el.value.trim() : "";
+      };
+      // Blank is null, not zero. `pair` is no use here: it reads an empty string
+      // as 0, which is right for "0 on order" and wrong for a minimum — a zero
+      // saved here would drop the item's own 300 and start drafting orders no
+      // mill accepts.
+      const num = (v) => {
+        const text = String(v == null ? "" : v).trim();
+        if (!text) return null;
+        const n = Number(text);
+        return Number.isFinite(n) ? n : null;
+      };
+      const skus = [...host.querySelectorAll('input[type="checkbox"]:checked')].map((tick) => {
+        const sku = tick.value;
+        const [moq, pack] = box("mp", sku).split("/");
+        return {
+          sku,
+          unit_cost: box("cost", sku) || null,
+          // Their own currency is kept where one was already recorded; otherwise
+          // the supplier's, which the API fills in.
+          currency: known[sku] ? known[sku].currency : null,
+          moq: num(moq),
+          pack_size: num(pack),
+          lead_time_days: num(box("lead", sku)),
+        };
+      });
+      // Attached after the supplier exists, because the link needs their id. A
+      // failure here is reported without pretending the supplier was not saved —
+      // it was, and retyping it would produce a duplicate.
+      let attached = "";
+      try {
+        await api(`/suppliers/${out.code}/items`, {
+          method: "PUT", body: JSON.stringify({ items: skus }),
+        });
+        attached = skus.length
+          ? ` Can deliver ${skus.length} item(s).`
+          : " No items attached, so nothing will be sourced from them yet.";
+      } catch (err) {
+        attached = ` Saved, but the item list failed: ${err.message}`;
+      }
       show($("supOut"),
-        `${out.name} added. ${out.local_time} their time, ` +
-        `${out.open_now ? "open now" : "opens " + out.next_open_local}.`);
-      ["supCode", "supName", "supEmail"].forEach((id) => { $(id).value = ""; });
+        `${out.name} ${editing ? "saved" : "added"}. ${out.local_time} their time, ` +
+        `${out.open_now ? "open now" : "opens " + out.next_open_local}.` + attached);
+      if (!editing) {
+        ["supCode", "supName", "supEmail"].forEach((id) => { $(id).value = ""; });
+        $("supSkus").querySelectorAll("input:checked").forEach((b) => { b.checked = false; });
+      }
       await refreshAll();
     } catch (err) { show($("supOut"), "Failed: " + err.message); }
   }));
 
   $("addItem").addEventListener("click", () => busy($("addItem"), async () => {
     const sku = $("itemSku").value.trim();
+    const editing = editingItem;
     const [moq, pack] = pair($("itemMoq").value, "/", [1, 1]);
     const [onHand, onOrder] = pair($("itemStock").value, "/", [0, 0]);
     try {
@@ -867,9 +1781,12 @@
         sku,
         name: $("itemName").value.trim() || sku,
         supplier_id: $("itemSupplier").value,
-        category: "general",
-        brand: "aleena",
-        unit: "pcs",
+        // Carried through on an edit rather than defaulted. This form does not
+        // ask for them, and sending the defaults back would move every item
+        // somebody edited into "general" and onto one brand.
+        category: editing ? editing.category : "general",
+        brand: editing ? editing.brand : "aleena",
+        unit: editing ? editing.unit : "pcs",
         moq, pack_size: pack,
         unit_cost: $("itemCost").value.trim(),
       }) });
@@ -880,9 +1797,11 @@
         sku, on_hand: onHand, on_order: onOrder,
         weekly_forecast: $("itemForecast").value.trim() || "0",
       }) });
-      show($("itemOut"), `${sku} added with ${onHand} on hand. ` +
-        "Recalculate to see whether it needs buying.");
-      ["itemSku", "itemName", "itemCost"].forEach((id) => { $(id).value = ""; });
+      show($("itemOut"), `${sku} ${editing ? "saved" : "added"} with ${onHand} on hand. ` +
+        (editing ? "" : "Recalculate to see whether it needs buying."));
+      if (!editing) {
+        ["itemSku", "itemName", "itemCost"].forEach((id) => { $(id).value = ""; });
+      }
       await refreshAll();
     } catch (err) { show($("itemOut"), "Failed: " + err.message); }
   }));
@@ -938,8 +1857,15 @@
   }));
 
   async function refreshAll() {
+    // Their record is recounted from orders, replies and receipts, all of which
+    // this refresh may be about to change.
+    state.stats = {};
     await loadSuppliers();
-    await Promise.all([loadSuggestions(), loadOrders(), loadIssues()]);
+    await Promise.all([loadSuggestions(), loadOrders(), loadIssues(), loadCoordination()]);
+    // Once more with everything landed: the supplier pane names the items it
+    // lists, and the item list arrives after the first draw. Free — the arrival
+    // estimate is cached, so this redraws rather than refetching.
+    drawSuppliers();
   }
 
   // Failures are shown, success is not. A green light saying everything is fine
@@ -986,6 +1912,42 @@
     localStorage.removeItem(KEY_STORAGE);
     connect();
   });
+
+  // Three sections in one document, switched by the rail without a reload — the
+  // data behind them is loaded once and shared, and reloading to move between a
+  // buying decision and the item it is about would refetch all of it.
+  const VIEWS = {
+    desk: ["Supplier Desk", "what needs you today"],
+    items: ["Items", "the catalogue — what we sell and what it costs"],
+    suppliers: ["Suppliers", "who we buy from, and how far away they are"],
+  };
+
+  window.applyView = function applyView(view) {
+    if (!VIEWS[view]) view = "desk";
+    state.view = view;
+    document.querySelectorAll("[data-view]").forEach((section) => {
+      section.hidden = section.dataset.view !== view;
+    });
+    const [title, sub] = VIEWS[view];
+    $("pageTitle").textContent = title;
+    $("pageSub").textContent = sub;
+    // The action a page offers belongs to that page. Adding a supplier from the
+    // item list is a question nobody asked while looking at items.
+    $("openAddItem").hidden = view !== "items";
+    $("openAddSupplier").hidden = view !== "suppliers";
+    $("pollMail").hidden = view !== "desk";
+    // Kept in step with the address, which the rail changes without reloading —
+    // so arriving here by the back button would otherwise leave the previous
+    // section lit while a different one is on screen.
+    document.querySelectorAll('.tgc-rail nav a[data-nav^="sca:"]').forEach((a) =>
+      a.classList.toggle("on", a.dataset.nav === "sca:" + view));
+  };
+
+  applyView(new URLSearchParams(location.search).get("view") || "desk");
+  // The rail pushes state rather than navigating, so the back button has to be
+  // answered here or it would change the address and leave the page as it was.
+  window.addEventListener("popstate", () =>
+    applyView(new URLSearchParams(location.search).get("view") || "desk"));
 
   connect();
 </script>
