@@ -11,7 +11,15 @@ from sqlalchemy import select
 from sca.api.deps import ActorDep, SessionDep
 from sca.carriers.base import get_carrier
 from sca.config import get_settings
-from sca.models import Issue, PurchaseOrder, PurchaseOrderLine, Shipment, Supplier
+from sca.models import (
+    Attachment,
+    Document,
+    Issue,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    Shipment,
+    Supplier,
+)
 from sca.orders.compose import compose_order_email
 from sca.orders.service import OrderError, OrderService
 from sca.planning.service import PlanningService
@@ -464,6 +472,16 @@ async def _order_detail(session, order: PurchaseOrder) -> dict:
     issues = await session.scalars(
         select(Issue).where(Issue.purchase_order_id == order.id).order_by(Issue.created_at.desc())
     )
+    # Joined to the attachment so the size is real and a row whose file has gone
+    # is visibly one, rather than a link that fails when somebody clicks it.
+    documents = (
+        await session.execute(
+            select(Document, Attachment.byte_size)
+            .outerjoin(Attachment, Attachment.id == Document.attachment_id)
+            .where(Document.purchase_order_id == order.id)
+            .order_by(Document.created_at.desc())
+        )
+    ).all()
     return {
         "id": order.id,
         "number": order.number,
@@ -500,6 +518,14 @@ async def _order_detail(session, order: PurchaseOrder) -> dict:
                 "status": s.status, "eta": s.eta,
             }
             for s in shipments
+        ],
+        "documents": [
+            {
+                "id": d.id, "kind": d.kind, "filename": d.filename,
+                "attachment_id": d.attachment_id, "byte_size": size,
+                "received_at": d.created_at,
+            }
+            for d, size in documents
         ],
         "issues": [
             {

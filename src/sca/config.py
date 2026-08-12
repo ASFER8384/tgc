@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # UNSEEN rather than ALL: the read flag is the cursor, so a restart does not
     # reprocess the entire mailbox.
     mail_imap_search: str = "UNSEEN"
+    # Attachments are kept whole in the database, so there has to be a ceiling.
+    # Ten megabytes clears every invoice and packing list seen in practice and
+    # still refuses the scanned catalogue somebody attaches by mistake. Over the
+    # limit the file is skipped and said so, never truncated.
+    mail_max_attachment_bytes: int = 10_000_000
 
     # The sample data button. On while this is a demonstration, including on the
     # deployed service, because a demo nobody can put data into demonstrates

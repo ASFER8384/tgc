@@ -77,5 +77,5 @@ def test_an_unparseable_date_falls_back_to_now_rather_than_failing():
 def test_the_payload_matches_what_the_endpoint_expects():
     payload = to_inbound(_raw(), fallback_id="1").as_payload()
     assert set(payload) == {
-        "external_id", "from_address", "subject", "body", "received_at",
+        "external_id", "from_address", "subject", "body", "received_at", "attachments",
     }

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, LargeBinary, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sca.models.base import Base, JSONType, TimestampMixin, UTCDateTime, new_id
@@ -47,3 +47,37 @@ class InboundMessage(Base, TimestampMixin):
     # automation that acts on a guess is worse than one that asks.
     confidence: Mapped[float] = mapped_column(nullable=False, default=0.0)
     processed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class Attachment(Base, TimestampMixin):
+    """The file a supplier actually sent, kept byte for byte.
+
+    Stored before anything reads it, and never rewritten. An invoice is the
+    evidence behind a payment and a packing list is the evidence behind a
+    receipt, so when extraction improves the answer has to be recomputed from
+    the original rather than requested again from the supplier — who by then has
+    moved on, and whose copy is no longer obviously the same copy.
+
+    The bytes live in the database rather than on disk because the disk under
+    this service is replaced on every deploy, and an artefact that disappears on
+    a restart is not an artefact.
+    """
+
+    __tablename__ = "attachments"
+    # The same file arrives twice: a supplier resends, or a reply quotes the
+    # thread. One row per distinct file per message.
+    __table_args__ = (
+        UniqueConstraint("inbound_message_id", "sha256", name="uq_attachments_message_sha"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    inbound_message_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("inbound_messages.id"), nullable=False, index=True
+    )
+    filename: Mapped[str] = mapped_column(String(300), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Content addressing, so the same invoice arriving down two paths is
+    # recognisable as one document rather than two.
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

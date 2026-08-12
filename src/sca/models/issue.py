@@ -15,6 +15,9 @@ ISSUE_KINDS = (
     "short_shipment",
     "unparsed_message",
     "supplier_delay",
+    # A message that reads as an invoice or a packing list and carries no file.
+    # The document cannot be checked until the supplier sends it.
+    "missing_document",
 )
 
 SEVERITIES = ("low", "medium", "high")

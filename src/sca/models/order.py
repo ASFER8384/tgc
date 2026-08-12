@@ -109,6 +109,10 @@ class Document(Base, TimestampMixin):
 
     Extraction results are stored beside the reference rather than replacing it,
     so a wrong read is corrected by re-extracting, not by re-requesting the file.
+
+    A document exists only where a file does. Earlier this row was created from
+    the word "invoice" appearing in a message, with a filename this code made up,
+    which meant the order history claimed a document nobody could open.
     """
 
     __tablename__ = "documents"
@@ -118,6 +122,11 @@ class Document(Base, TimestampMixin):
         String(32), ForeignKey("purchase_orders.id"), index=True
     )
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
-    filename: Mapped[str] = mapped_column(String(200), nullable=False)
+    filename: Mapped[str] = mapped_column(String(300), nullable=False)
     source_message_id: Mapped[str | None] = mapped_column(String(32))
+    # The bytes this document is. Nullable only so the rows filed before
+    # attachments were stored still load.
+    attachment_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("attachments.id"), index=True
+    )
     extracted: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)

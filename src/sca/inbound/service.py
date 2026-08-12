@@ -1,13 +1,49 @@
 """Take a supplier reply and, where the reading is confident enough, act on it."""
 
+import hashlib
+from dataclasses import dataclass
 from datetime import UTC, datetime, time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sca.inbound import parser
-from sca.models import AuditLog, Document, InboundMessage, Issue, PurchaseOrder, Supplier
+from sca.models import (
+    Attachment,
+    AuditLog,
+    Document,
+    InboundMessage,
+    Issue,
+    PurchaseOrder,
+    Supplier,
+)
 from sca.orders.service import OrderService
+
+
+@dataclass(frozen=True)
+class IncomingFile:
+    """An attachment on its way in, before it has been stored."""
+
+    filename: str
+    content_type: str
+    content: bytes
+
+
+# Which attachments become filed documents. A commercial document arrives as a
+# PDF, a scan, a spreadsheet or a Word file; a .ics meeting invite and a vcard
+# ride along on the same messages and are not evidence of anything.
+DOCUMENT_TYPES = (
+    "application/pdf",
+    "image/",
+    "application/vnd.openxmlformats",
+    "application/vnd.ms-excel",
+    "application/msword",
+)
+
+
+def _is_document(content_type: str) -> bool:
+    lowered = (content_type or "").lower()
+    return any(lowered.startswith(prefix) for prefix in DOCUMENT_TYPES)
 
 # Below this the message is filed and a human is asked. Set deliberately high:
 # a wrong automatic acknowledgement hides a late order until it is too late to
@@ -29,6 +65,7 @@ class InboundService:
         subject: str | None,
         body: str,
         received_at: datetime | None = None,
+        attachments: list[IncomingFile] | None = None,
     ) -> dict:
         received_at = received_at or datetime.now(UTC)
 
@@ -59,8 +96,16 @@ class InboundService:
         self.session.add(message)
         await self.session.flush()
 
+        # Stored before anything is decided about them. The files are the
+        # evidence behind whatever happens next, and evidence kept only when the
+        # reading succeeded is evidence missing from exactly the cases somebody
+        # will later want to check.
+        stored = await self._store(message, attachments or [])
+
         actions: list[str] = []
         issue_ids: list[str] = []
+        if stored:
+            actions.append(f"{len(stored)} file(s) stored")
 
         if order is None or found.confidence < ACT_THRESHOLD:
             issue = Issue(
@@ -80,14 +125,20 @@ class InboundService:
             issue_ids.append(issue.id)
             actions.append("filed for a human")
         else:
-            actions, issue_ids = await self._apply(order, message, found, received_at)
+            applied, issue_ids = await self._apply(order, message, found, received_at, stored)
+            actions += applied
 
         message.processed_at = datetime.now(UTC)
         self.session.add(
             AuditLog(
                 actor=self.actor, action="inbound.ingest", entity="inbound_message",
                 entity_id=message.id,
-                meta={"kind": found.kind, "confidence": found.confidence, "actions": actions},
+                meta={
+                    "kind": found.kind,
+                    "confidence": found.confidence,
+                    "actions": actions,
+                    "attachments": [a.filename for a in stored],
+                },
             )
         )
         await self.session.flush()
@@ -100,11 +151,42 @@ class InboundService:
             "purchase_order": order.number if order else None,
             "actions": actions,
             "issue_ids": issue_ids,
+            "attachments": [
+                {"id": a.id, "filename": a.filename, "bytes": a.byte_size} for a in stored
+            ],
         }
+
+    async def _store(
+        self, message: InboundMessage, files: list[IncomingFile]
+    ) -> list[Attachment]:
+        """Keep every file byte for byte, once each."""
+        kept: list[Attachment] = []
+        seen: set[str] = set()
+        for incoming in files:
+            digest = hashlib.sha256(incoming.content).hexdigest()
+            # A thread quoted back at us carries the same PDF again. The message
+            # is what it is attached to, so the same file on two messages is two
+            # rows; the same file twice on one message is one.
+            if digest in seen:
+                continue
+            seen.add(digest)
+            row = Attachment(
+                inbound_message_id=message.id,
+                filename=incoming.filename[:300] or "attachment",
+                content_type=incoming.content_type[:120],
+                byte_size=len(incoming.content),
+                sha256=digest,
+                content=incoming.content,
+            )
+            self.session.add(row)
+            kept.append(row)
+        if kept:
+            await self.session.flush()
+        return kept
 
     async def _apply(
         self, order: PurchaseOrder, message: InboundMessage, found: parser.Extraction,
-        received_at: datetime,
+        received_at: datetime, stored: list[Attachment],
     ) -> tuple[list[str], list[str]]:
         actions: list[str] = []
         issue_ids: list[str] = []
@@ -160,16 +242,41 @@ class InboundService:
                 issue_ids.append(nodate.id)
 
         elif found.kind in ("invoice", "packing_list"):
-            document = Document(
-                purchase_order_id=order.id,
-                kind=found.kind,
-                filename=f"{order.number}-{found.kind}.pdf",
-                source_message_id=message.id,
-                extracted=found.as_dict(),
-            )
-            self.session.add(document)
-            await self.session.flush()
-            actions.append(f"{found.kind.replace('_', ' ')} filed against {order.number}")
+            label = found.kind.replace("_", " ")
+            files = [a for a in stored if _is_document(a.content_type)]
+            for attachment in files:
+                self.session.add(
+                    Document(
+                        purchase_order_id=order.id,
+                        kind=found.kind,
+                        filename=attachment.filename,
+                        source_message_id=message.id,
+                        attachment_id=attachment.id,
+                        extracted=found.as_dict(),
+                    )
+                )
+            if files:
+                await self.session.flush()
+                actions.append(f"{label} filed against {order.number}")
+            else:
+                # The message announced a document and carried none. Filing one
+                # anyway is what this code used to do, and it put a filename in
+                # the order history that nobody could open. Saying so is the
+                # honest outcome, and it is also actionable: the supplier has to
+                # be asked before the invoice can be checked.
+                missing = Issue(
+                    purchase_order_id=order.id,
+                    supplier_id=order.supplier_id,
+                    kind="missing_document",
+                    severity="medium" if found.kind == "invoice" else "low",
+                    detail=f"{order.number}: message reads as {label} but carries no file",
+                    suggested_action=f"Ask the supplier to send the {label} as an attachment",
+                    context={"message_id": message.id, "kind": found.kind},
+                )
+                self.session.add(missing)
+                await self.session.flush()
+                issue_ids.append(missing.id)
+                actions.append(f"{label} announced with nothing attached")
 
             if found.kind == "invoice" and found.amounts:
                 invoiced = max(found.amounts)

@@ -15,6 +15,7 @@ socket into the same payload the console posts by hand.
 """
 
 import asyncio
+import base64
 import email
 import imaplib
 from dataclasses import dataclass
@@ -28,12 +29,29 @@ from sca.mail.base import MailError
 
 
 @dataclass(frozen=True)
+class InboundFile:
+    """One attachment, as it arrived."""
+
+    filename: str
+    content_type: str
+    content: bytes
+
+    def as_payload(self) -> dict:
+        return {
+            "filename": self.filename,
+            "content_type": self.content_type,
+            "content_base64": base64.b64encode(self.content).decode("ascii"),
+        }
+
+
+@dataclass(frozen=True)
 class InboundEmail:
     external_id: str
     from_address: str
     subject: str
     body: str
     received_at: datetime
+    attachments: tuple[InboundFile, ...] = ()
     # The server side handle, kept so the caller can mark this message read only
     # once it has decided the message was for us.
     uid: str = ""
@@ -45,6 +63,7 @@ class InboundEmail:
             "subject": self.subject,
             "body": self.body,
             "received_at": self.received_at.isoformat(),
+            "attachments": [a.as_payload() for a in self.attachments],
         }
 
 
@@ -103,6 +122,47 @@ def _payload_text(part: Message) -> str:
         return payload.decode("utf-8", errors="replace")
 
 
+def _attachments(message: Message, *, max_bytes: int) -> tuple[InboundFile, ...]:
+    """The files, separated from the prose.
+
+    A supplier sends the invoice as a PDF and writes "please find attached" in
+    the body. Reading only the body is reading the sentence about the document
+    instead of the document.
+
+    Inline images are skipped: a signature logo repeated on every reply is not
+    evidence of anything, and storing it on each message would cost more than
+    every real attachment put together. Anything over the limit is skipped
+    loudly rather than truncated, because half a PDF is worse than none.
+    """
+    if not message.is_multipart():
+        return ()
+
+    found: list[InboundFile] = []
+    for part in message.walk():
+        if part.get_content_maintype() == "multipart":
+            continue
+        disposition = str(part.get("Content-Disposition") or "")
+        filename = _decoded(part.get_filename())
+        # A part is an attachment if it says so, or if it has a filename and is
+        # not the body. Outlook omits the disposition often enough that
+        # requiring it loses real documents.
+        if "attachment" not in disposition.lower() and not filename:
+            continue
+        if "inline" in disposition.lower() and part.get_content_maintype() == "image":
+            continue
+        payload = part.get_payload(decode=True)
+        if not payload or len(payload) > max_bytes:
+            continue
+        found.append(
+            InboundFile(
+                filename=filename or "attachment",
+                content_type=part.get_content_type(),
+                content=payload,
+            )
+        )
+    return tuple(found)
+
+
 def _strip_tags(html: str) -> str:
     out, inside = [], False
     for char in html:
@@ -115,7 +175,9 @@ def _strip_tags(html: str) -> str:
     return " ".join("".join(out).split())
 
 
-def to_inbound(raw: bytes, *, fallback_id: str) -> InboundEmail:
+def to_inbound(
+    raw: bytes, *, fallback_id: str, max_attachment_bytes: int = 10_000_000
+) -> InboundEmail:
     """One fetched message, as the payload the ingest endpoint already accepts.
 
     The Message-ID becomes the external id, which is what makes polling safe to
@@ -139,6 +201,7 @@ def to_inbound(raw: bytes, *, fallback_id: str) -> InboundEmail:
         subject=_decoded(message.get("Subject")),
         body=_body(message),
         received_at=received,
+        attachments=_attachments(message, max_bytes=max_attachment_bytes),
         uid=fallback_id,
     )
 
@@ -175,7 +238,11 @@ def _fetch_blocking(settings: Settings, limit: int) -> list[InboundEmail]:
                 if status != "OK" or not payload or not isinstance(payload[0], tuple):
                     continue
                 found.append(
-                    to_inbound(payload[0][1], fallback_id=message_id.decode())
+                    to_inbound(
+                        payload[0][1],
+                        fallback_id=message_id.decode(),
+                        max_attachment_bytes=settings.mail_max_attachment_bytes,
+                    )
                 )
             # Deliberately not marked read here. The mailbox that receives supplier
             # replies also receives everything else a person gets, and reading a
