@@ -404,6 +404,37 @@
     return res.json();
   }
 
+  // Photographs cannot be loaded by putting the endpoint in a src attribute:
+  // the browser sends no API key with an image request, so it would get a 401
+  // and show a broken icon. They are fetched like every other call and handed
+  // to the tag as an object URL — which also means an unauthenticated page
+  // cannot pull the evidence out by guessing addresses.
+  const objectUrls = [];
+  function releaseImages() {
+    objectUrls.splice(0).forEach((url) => URL.revokeObjectURL(url));
+  }
+  async function paintImages(root) {
+    for (const el of root.querySelectorAll("img[data-image]")) {
+      try {
+        const res = await fetch(`/brand/images/${el.dataset.image}`, {
+          headers: { "X-API-Key": state.key },
+        });
+        if (!res.ok) throw new Error(res.status);
+        const url = URL.createObjectURL(await res.blob());
+        objectUrls.push(url);
+        el.src = url;
+      } catch {
+        // Said in words rather than left as a broken icon, because "the photo
+        // did not load" and "there was no photo" mean different things to
+        // somebody deciding whether to trust a judgement.
+        const said = document.createElement("span");
+        said.className = "none";
+        said.textContent = `${el.alt} could not be loaded`;
+        el.replaceWith(said);
+      }
+    }
+  }
+
   const day = (v) => (v ? new Date(v).toLocaleDateString("en-GB",
       { day: "2-digit", month: "short" }) : "—");
   const slug = (s) => String(s).replace(/\s+/g, "-");
@@ -543,7 +574,7 @@
         <button class="ghost small" id="rejectObs">Cannot judge this</button>
       </div>
       <div class="shots">${o.images.length
-        ? o.images.map((i) => `<img src="/brand/images/${i.id}" alt="${i.filename}" />`).join("")
+        ? o.images.map((i) => `<img data-image="${i.id}" alt="${i.filename}" />`).join("")
         : `<span class="none">No photograph. Whatever is decided here rests on the note alone.</span>`}
       </div>
       ${o.note ? `<div class="note">${o.note}</div>` : ""}
@@ -596,6 +627,7 @@
                                  note: input.value };
       }));
 
+    paintImages($("reviewPane"));
     $("submitReview").addEventListener("click", () => busy($("submitReview"), submitReview));
     $("rejectObs").addEventListener("click", () => busy($("rejectObs"), async () => {
       const reason = (prompt("Why can this not be judged? The person who took it is told.") || "").trim();
@@ -662,12 +694,13 @@
           f.contact ? " · tell " + f.contact : " · nobody named to tell"}${
           f.closes_on ? ` · site closes ${day(f.closes_on)}` : ""}</div>
         ${f.image_id ? `<div class="shots" style="padding:0.4rem 0">
-          <img src="/brand/images/${f.image_id}" alt="evidence" /></div>` : ""}
+          <img data-image="${f.image_id}" alt="The evidence" /></div>` : ""}
       </div>`).join("") : `<div class="empty">Nothing open.</div>`;
 
     const close = (id, status, note) => api(`/brand/findings/${id}/close`, {
       method: "POST", body: JSON.stringify({ status, note }),
     });
+    paintImages($("findings"));
     $("findings").querySelectorAll("[data-fix]").forEach((b) =>
       b.addEventListener("click", () => busy(b, async () => {
         await close(b.dataset.fix, "fixed", null);
@@ -785,6 +818,7 @@
   $("refresh").addEventListener("click", () => busy($("refresh"), refreshAll));
 
   async function refreshAll() {
+    releaseImages();
     await loadSites();
     await Promise.all([loadStandards(), loadPending(), loadFindings()]);
   }
