@@ -11,6 +11,18 @@ promotion lift are all real, and all of them need more history than a first
 season of trading has; a mean over recent weeks is the estimator that is hardest
 to be badly wrong with, and it is honest about what it is. The number it returns
 is labelled at every layer above so nobody mistakes it for a model.
+
+The one correction it does make is for stockouts. Sales are zero while an item
+is unavailable, but demand is not, and dividing by the whole window counts that
+absence as indifference. Left uncorrected the effect is perverse rather than
+merely imprecise: the faster something sells out, the fewer weeks it is on sale,
+the lower its measured rate, and the less of it gets reordered. So the divisor
+is the time the item was actually sellable, read from the stock ledger.
+
+Where the ledger does not cover the period, no correction is invented. The
+figure is returned as it always was and marked uncorrected, because a demand
+number that quietly assumes availability nobody recorded is worse than one that
+admits the gap.
 """
 
 from dataclasses import dataclass
@@ -23,6 +35,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # before it, this import crossed a service boundary and a network.
 from cdp.models.event import Event
 from sca.config import get_settings
+from sca.models import StockLevel
+
+# Below this there is not enough shelf time to divide by. An item on sale for a
+# day is not evidence of a weekly rate; scaling it up produces a number that is
+# arithmetic rather than measurement, and it would be the largest number on the
+# page. The rate is capped here instead and said to be a floor.
+MIN_AVAILABLE_WEEKS = 0.5
 
 
 @dataclass
@@ -35,10 +54,28 @@ class Demand:
     units: int
     weeks: float
     orders: int
+    # The whole trading period looked at, before stockouts were taken out of it.
+    # Kept beside ``weeks`` so the difference between them is visible: that gap
+    # is the time customers wanted this and could not have it.
+    span_weeks: float = 0.0
+    # measured  — the ledger covered the period and empty days were removed
+    # brief     — it was sellable for so little of it that the rate is a floor
+    # uncorrected — no ledger for this period, so the old whole-window divisor
+    availability: str = "uncorrected"
+
+    def __post_init__(self) -> None:
+        if not self.span_weeks:
+            self.span_weeks = self.weeks
 
     @property
     def weekly(self) -> float:
         return self.units / self.weeks if self.weeks else 0.0
+
+    @property
+    def stockout_weeks(self) -> float:
+        """Time in the window the item could not be sold. Zero when unknown,
+        which is not the same as zero stockouts and is labelled as such."""
+        return max(0.0, self.span_weeks - self.weeks)
 
     def as_dict(self) -> dict:
         return {
@@ -46,6 +83,9 @@ class Demand:
             "units": self.units,
             "weeks": round(self.weeks, 1),
             "orders": self.orders,
+            "span_weeks": round(self.span_weeks, 1),
+            "stockout_weeks": round(self.stockout_weeks, 1),
+            "availability": self.availability,
         }
 
 
@@ -57,6 +97,43 @@ def _lines(payload: dict) -> list[dict]:
         if isinstance(lines, list):
             return lines
     return []
+
+
+def _sellable_weeks(
+    readings: list[StockLevel], start: datetime, end: datetime
+) -> float | None:
+    """Weeks between start and end during which the item had stock.
+
+    Each reading is taken to hold until the next one contradicts it, which is
+    what a level actually is: nobody sends a message when nothing changes. The
+    reading in force at the start of the period is therefore the last one taken
+    at or before it, not the first one inside it.
+
+    Returns None when the ledger says nothing about the beginning of the period.
+    Assuming an item was in stock before anybody recorded it is the same mistake
+    in the other direction, and it would be invisible.
+    """
+    if end <= start:
+        return None
+
+    before = [r for r in readings if r.recorded_at <= start]
+    inside = sorted(
+        (r for r in readings if start < r.recorded_at < end), key=lambda r: r.recorded_at
+    )
+    if not before:
+        return None
+
+    level = max(before, key=lambda r: r.recorded_at).on_hand
+    sellable = 0.0
+    cursor = start
+    for reading in inside:
+        if level > 0:
+            sellable += (reading.recorded_at - cursor).total_seconds()
+        level = reading.on_hand
+        cursor = reading.recorded_at
+    if level > 0:
+        sellable += (end - cursor).total_seconds()
+    return sellable / (7 * 24 * 3600)
 
 
 async def weekly_demand(
@@ -107,10 +184,40 @@ async def weekly_demand(
                 quantity = 1
             entry = out.get(sku)
             if entry is None:
-                entry = out[sku] = Demand(sku=sku, units=0, weeks=weeks, orders=0)
+                entry = out[sku] = Demand(
+                    sku=sku, units=0, weeks=weeks, orders=0, span_weeks=weeks
+                )
             entry.units += max(quantity, 0)
             # One basket holding the same SKU on two lines is one order for it.
             if sku not in counted:
                 entry.orders += 1
                 counted.add(sku)
+    if not out:
+        return out
+
+    # Now take the empty shelf out of the divisor. The period is the same one
+    # the sales were counted over, so the two halves of the ratio describe the
+    # same stretch of time.
+    span_start = max(cutoff, now - timedelta(weeks=weeks))
+    ledger: dict[str, list[StockLevel]] = {}
+    for reading in await session.scalars(
+        select(StockLevel).where(StockLevel.sku.in_(list(out)))
+    ):
+        recorded = reading.recorded_at
+        if recorded.tzinfo is None:
+            reading.recorded_at = recorded.replace(tzinfo=now.tzinfo)
+        ledger.setdefault(reading.sku, []).append(reading)
+
+    for sku, demand in out.items():
+        sellable = _sellable_weeks(ledger.get(sku, []), span_start, now)
+        if sellable is None:
+            # Nothing recorded before this period began. The old behaviour, said
+            # out loud rather than passed off as a correction.
+            continue
+        if sellable < MIN_AVAILABLE_WEEKS:
+            demand.weeks = MIN_AVAILABLE_WEEKS
+            demand.availability = "brief"
+        else:
+            demand.weeks = sellable
+            demand.availability = "measured"
     return out

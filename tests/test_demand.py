@@ -11,11 +11,18 @@ import pytest
 
 from cdp.models.event import Event
 from cdp.models.person import Person
-from sca.models import Item, StockSnapshot, Supplier
+from sca.models import Item, StockLevel, StockSnapshot, Supplier
 from sca.planning.demand import weekly_demand
 from sca.planning.service import PlanningService
 
 NOW = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
+
+
+async def _level(session, *, sku: str, on_hand: int, days_ago: float) -> None:
+    session.add(
+        StockLevel(sku=sku, on_hand=on_hand, on_order=0, recorded_at=NOW - timedelta(days=days_ago))
+    )
+    await session.flush()
 
 
 async def _person(session) -> str:
@@ -101,6 +108,103 @@ async def test_unpaid_orders_are_not_demand(session):
     await session.flush()
 
     assert await weekly_demand(session, now=NOW) == {}
+
+
+async def test_a_stockout_is_taken_out_of_the_divisor(session):
+    """The correction the whole ledger exists for.
+
+    Sixty sold over twelve days, then the shelf is empty for the fourteen days
+    to now. The old arithmetic divided sixty by the whole 3.7 weeks of trading
+    and reported sixteen a week, which is the rate of a product that was on sale
+    throughout. It was not: it sold thirty-five a week and then ran out, and
+    buying to sixteen guarantees it runs out again.
+    """
+    person = await _person(session)
+    await _level(session, sku="ALN-SILK-NVY", on_hand=60, days_ago=28)
+    for days in (26, 21, 16):
+        await _sale(session, person, sku="ALN-SILK-NVY", quantity=20, days_ago=days)
+    await _level(session, sku="ALN-SILK-NVY", on_hand=0, days_ago=14)
+
+    entry = (await weekly_demand(session, now=NOW))["ALN-SILK-NVY"]
+
+    assert entry.units == 60
+    assert entry.availability == "measured"
+    # The span runs from the first sale, so twelve of its 26 days had stock.
+    assert entry.span_weeks == pytest.approx(26 / 7, abs=0.01)
+    assert entry.weeks == pytest.approx(12 / 7, abs=0.01)
+    assert entry.stockout_weeks == pytest.approx(2.0, abs=0.01)
+    assert entry.weekly == pytest.approx(35.0, abs=0.1)
+    # The point of the whole exercise: uncorrected this reads 16 a week.
+    assert entry.units / entry.span_weeks == pytest.approx(16.2, abs=0.1)
+
+
+async def test_demand_is_not_corrected_where_the_ledger_says_nothing(session):
+    """No reading before the period began, so availability is unknown.
+
+    Assuming it was on sale throughout would be the same guess the correction
+    exists to remove, made silently. The old figure is returned and labelled.
+    """
+    person = await _person(session)
+    for days in (28, 14, 7):
+        await _sale(session, person, sku="ALN-SILK-NVY", quantity=10, days_ago=days)
+    # A reading, but only from partway through — it cannot say what was on the
+    # shelf at the start.
+    await _level(session, sku="ALN-SILK-NVY", on_hand=5, days_ago=10)
+
+    entry = (await weekly_demand(session, now=NOW))["ALN-SILK-NVY"]
+
+    assert entry.availability == "uncorrected"
+    assert entry.weeks == pytest.approx(4.0, abs=0.01)
+    assert entry.weekly == pytest.approx(7.5, abs=0.01)
+    assert entry.stockout_weeks == 0.0
+
+
+async def test_stock_all_the_way_through_changes_nothing(session):
+    """The correction must be inert when there was no stockout, or every figure
+    on the platform moves the day the ledger starts filling up."""
+    person = await _person(session)
+    await _level(session, sku="ALN-SILK-NVY", on_hand=500, days_ago=40)
+    for days in (28, 14, 7):
+        await _sale(session, person, sku="ALN-SILK-NVY", quantity=10, days_ago=days)
+
+    entry = (await weekly_demand(session, now=NOW))["ALN-SILK-NVY"]
+
+    assert entry.availability == "measured"
+    assert entry.weekly == pytest.approx(7.5, abs=0.01)
+    assert entry.stockout_weeks == pytest.approx(0.0, abs=0.01)
+
+
+async def test_an_item_on_sale_for_a_day_is_a_floor_not_a_rate(session):
+    """Sixty units in one day is not three hundred and sixty a week.
+
+    It might be. It might be one influencer. Dividing by the fraction of a week
+    it was actually available produces the largest number on the page from the
+    least evidence, so the divisor stops at half a week and the figure is
+    reported as brief.
+    """
+    person = await _person(session)
+    await _level(session, sku="ALN-SILK-NVY", on_hand=60, days_ago=21)
+    await _sale(session, person, sku="ALN-SILK-NVY", quantity=60, days_ago=20.5)
+    await _level(session, sku="ALN-SILK-NVY", on_hand=0, days_ago=20)
+
+    entry = (await weekly_demand(session, now=NOW))["ALN-SILK-NVY"]
+
+    assert entry.availability == "brief"
+    assert entry.weeks == 0.5
+    assert entry.weekly == pytest.approx(120.0)
+
+
+async def test_the_stock_endpoint_only_appends_when_the_position_moved(client, session):
+    """A push repeating the current figures adds no information, and the last
+    reading holds forward on its own."""
+    from sqlalchemy import select
+
+    await client.post("/stock", json={"sku": "ALN-SILK-NVY", "on_hand": 40})
+    await client.post("/stock", json={"sku": "ALN-SILK-NVY", "on_hand": 40})
+    await client.post("/stock", json={"sku": "ALN-SILK-NVY", "on_hand": 0})
+
+    rows = list(await session.scalars(select(StockLevel).where(StockLevel.sku == "ALN-SILK-NVY")))
+    assert [r.on_hand for r in sorted(rows, key=lambda r: r.recorded_at)] == [40, 0]
 
 
 async def _catalogue(session, *, weekly_forecast: int) -> None:

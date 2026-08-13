@@ -1155,7 +1155,13 @@
         <td class="num">${i.moq} / ${i.pack_size}</td>
         <td class="num">${i.observed_weekly === null
           ? `<span style="color:var(--muted)">—</span>`
-          : `${i.observed_weekly}<span style="color:var(--muted)">/wk</span>`}</td>
+          : `${i.observed_weekly}<span style="color:var(--muted)">/wk</span>`}${
+          i.observed_stockout_weeks >= 1
+            ? `<br><span style="color:var(--muted);font-size:0.76rem">${
+                i.observed_stockout_weeks}wk out of stock</span>`
+            : i.observed_availability === "brief"
+              ? `<br><span style="color:var(--muted);font-size:0.76rem">at least</span>`
+              : ""}</td>
         <td class="num">${i.on_hand}${i.on_order
           ? `<span style="color:var(--muted)"> +${i.on_order}</span>` : ""}</td>
         <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}</td>

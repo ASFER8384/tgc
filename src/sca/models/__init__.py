@@ -15,7 +15,14 @@ from sca.models.order import (
     PurchaseOrderLine,
     Shipment,
 )
-from sca.models.supplier import CHANNELS, Item, StockSnapshot, Supplier, SupplierItem
+from sca.models.supplier import (
+    CHANNELS,
+    Item,
+    StockLevel,
+    StockSnapshot,
+    Supplier,
+    SupplierItem,
+)
 
 __all__ = [
     "ALLOWED_TRANSITIONS",
@@ -35,6 +42,7 @@ __all__ = [
     "PurchaseOrder",
     "PurchaseOrderLine",
     "Shipment",
+    "StockLevel",
     "StockSnapshot",
     "Supplier",
     "SupplierItem",

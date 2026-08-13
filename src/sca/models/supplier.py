@@ -1,7 +1,9 @@
-from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sca.models.base import Base, TimestampMixin, new_id
+from sca.models.base import Base, TimestampMixin, UTCDateTime, new_id
 
 # Everything a supplier is coordinated through, and nothing about what they sell.
 # The category lives on the item so one mill can supply fabric to two brands.
@@ -112,3 +114,37 @@ class StockSnapshot(Base, TimestampMixin):
     on_hand: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     on_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     weekly_forecast: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+
+
+class StockLevel(Base):
+    """Every stock position this service was ever told, kept rather than replaced.
+
+    The snapshot above answers "what is there now", which is all a buying
+    decision needs. It cannot answer "was this sellable last Tuesday", and that
+    question turns out to decide whether the demand figure is right.
+
+    When an item is out of stock the sales recorded against it are zero, but the
+    demand is not: customers wanted it and could not have it. Averaging those
+    zeroes in reports the item as slow moving, which suppresses the reorder that
+    would have put it back on the shelf. The item that sold out fastest ends up
+    looking like the one worth buying least.
+
+    Correcting that needs to know when the shelf was empty, and nothing else in
+    the system records it. So each push is appended here instead of overwriting,
+    and a level is taken to hold until the next one contradicts it. Unchanged
+    pushes are not stored: a repeated figure adds no information and the reading
+    holds forward anyway.
+
+    This only knows what it was told after it started listening. Demand measured
+    over a period this ledger does not cover is reported as uncorrected rather
+    than quietly corrected with a guess.
+    """
+
+    __tablename__ = "stock_levels"
+    __table_args__ = (Index("ix_stock_levels_sku_recorded", "sku", "recorded_at"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    sku: Mapped[str] = mapped_column(String(64), nullable=False)
+    on_hand: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    on_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)

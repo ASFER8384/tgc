@@ -175,6 +175,19 @@ class PlanningService:
                         + (
                             f", on {measured.units} sold in "
                             f"{measured.weeks:.0f} weeks"
+                            + (
+                                " on sale"
+                                if measured.availability != "uncorrected"
+                                else ""
+                            )
+                            # The stockout is named rather than silently divided
+                            # out, because it is the part a buyer would query
+                            # and the part that raised the figure.
+                            + (
+                                f", {measured.stockout_weeks:.0f} weeks out of stock"
+                                if measured.stockout_weeks >= 1
+                                else ""
+                            )
                             if source == "sales" and measured
                             else ""
                         )

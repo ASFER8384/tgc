@@ -8,7 +8,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from sca.api.deps import ActorDep, SessionDep
-from sca.models import AuditLog, Issue, Item, StockSnapshot, Supplier, SupplierItem
+from sca.models import (
+    AuditLog,
+    Issue,
+    Item,
+    StockLevel,
+    StockSnapshot,
+    Supplier,
+    SupplierItem,
+)
 from sca.planning.demand import weekly_demand
 from sca.scheduling.windows import WorkingHours, is_open, local_now, next_open
 
@@ -69,6 +77,10 @@ class StockIn(BaseModel):
     on_hand: int = 0
     on_order: int = 0
     weekly_forecast: Decimal = Decimal("0")
+    # When this position was true, where that is not now. An upstream system
+    # replaying a backlog is stating history, and stamping it with the moment it
+    # happened to be sent would put the whole backlog in one instant.
+    recorded_at: datetime | None = None
 
 
 @router.post("/suppliers", response_model=SupplierOut, status_code=status.HTTP_201_CREATED)
@@ -293,6 +305,13 @@ async def list_items(session: SessionDep, actor: ActorDep) -> list[dict]:
             "entered_weekly": manual if manual > 0 else None,
             "forecast_source": "manual" if manual > 0 else ("sales" if weekly else "none"),
             "observed_weekly": round(measured.weekly, 1) if measured else None,
+            # Whether the sold-per-week figure had stockouts taken out of it.
+            # An uncorrected one is an under-estimate by an unknown amount, and
+            # the row should not look identical to a corrected one.
+            "observed_availability": measured.availability if measured else None,
+            "observed_stockout_weeks": (
+                round(measured.stockout_weeks, 1) if measured else None
+            ),
             "weeks_cover": round(available / weekly, 1) if weekly else None,
         })
     return out
@@ -304,14 +323,31 @@ async def upsert_stock(body: StockIn, session: SessionDep, actor: ActorDep) -> d
 
     Kept as a plain upsert so that module can push whenever it recalculates,
     without this service needing to know how the forecast was produced.
+
+    The position is also appended to the ledger, which is what lets demand be
+    measured over the weeks an item was actually sellable rather than over the
+    whole window. A push that repeats the current figures is not appended: the
+    last reading holds forward on its own, and storing it again would only make
+    the ledger longer.
     """
     snapshot = await session.get(StockSnapshot, body.sku)
+    known = snapshot is not None
     if snapshot is None:
         snapshot = StockSnapshot(sku=body.sku)
         session.add(snapshot)
+    moved = not known or snapshot.on_hand != body.on_hand or snapshot.on_order != body.on_order
     snapshot.on_hand = body.on_hand
     snapshot.on_order = body.on_order
     snapshot.weekly_forecast = body.weekly_forecast
+    if moved:
+        session.add(
+            StockLevel(
+                sku=body.sku,
+                on_hand=body.on_hand,
+                on_order=body.on_order,
+                recorded_at=body.recorded_at or datetime.now(UTC),
+            )
+        )
     await session.flush()
     return {"sku": body.sku, "on_hand": body.on_hand, "weekly_forecast": str(body.weekly_forecast)}
 
