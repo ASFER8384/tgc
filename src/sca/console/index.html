@@ -287,18 +287,23 @@
   .j-weather { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--rule);
                font-size: 0.78rem; color: var(--ink-soft); }
 
-  /* How the Buy column is worked out. Sits between the panel heading and the
-     table because it is read once and then ignored, which is the right place
-     for an explanation and the wrong place for a control. */
-  .how { padding: 0.7rem 1rem; border-bottom: 1px solid var(--rule);
-         background: var(--sunk); font-size: 0.8rem; line-height: 1.5;
-         color: var(--ink-soft); }
+  /* Where the numbers come from: what to buy, who from, and when it lands.
+     Three groups rather than one list, because they answer three different
+     questions and a buyer usually wants only one of them. */
+  .how { padding: 0.7rem 1rem; background: var(--sunk); font-size: 0.8rem;
+         line-height: 1.5; color: var(--ink-soft); }
   .how b { font-weight: 600; color: var(--ink); }
   .how .steps { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; margin-top: 0.35rem; }
   .how .step { display: flex; gap: 0.4rem; align-items: baseline; }
   .how .step em { font-family: var(--mono); font-size: 0.7rem; font-style: normal;
-                  color: var(--muted); }
-  .how .worked { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed var(--rule);
+                  color: var(--muted); min-width: 6.5rem; }
+  .how-group + .how-group { margin-top: 0.85rem; padding-top: 0.75rem;
+                            border-top: 1px solid var(--rule); }
+  /* What deliberately does not count. Stated because a buyer who assumes the
+     ranking already weighed something will not weigh it themselves. */
+  .how .aside { margin-top: 0.4rem; font-size: 0.76rem; color: var(--muted); }
+  /* The worked example opens its own group, so it brings no rule of its own. */
+  .how .worked { margin-top: 0; padding-top: 0; border-top: 0;
                  font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
   .how .worked b { font-family: var(--sans); }
 
@@ -401,10 +406,6 @@
             <h2>To buy</h2>
             <span class="hint" id="suggestHint">what has run low</span>
           </div>
-          <!-- Where the Buy column comes from, in the buyer's own terms. A
-               suggestion nobody can retrace is a suggestion nobody overrules,
-               which is how a wrong one becomes an order. -->
-          <div class="how" id="how"></div>
           <div class="table-wrap"><table>
             <thead><tr><th>Item</th><th class="num">Sold</th><th class="num">Stock</th>
               <th class="num">Weeks cover</th><th class="num">Buy</th>
@@ -415,6 +416,20 @@
             <button id="createOrders">Draft every line</button>
             <button class="ghost" id="loadSample">Run one item low</button>
           </div><div class="readout" id="createOut" hidden></div></div>
+        </div>
+
+        <!-- Where every number on this page comes from, in the buyer's own
+             terms. Its own section rather than a preamble to the table: a
+             suggestion nobody can retrace is a suggestion nobody overrules,
+             which is how a wrong one becomes an order — but it is read once
+             and then skipped, so it must not sit between a buyer and the rows
+             they came for. -->
+        <div class="panel">
+          <div class="panel-head">
+            <h2>How this works</h2>
+            <span class="hint">what to buy, who from, and when it lands</span>
+          </div>
+          <div class="how" id="how"></div>
         </div>
 
         <div class="panel">
@@ -1114,11 +1129,59 @@
         + ` — buy ${line.suggest_quantity.toLocaleString("en-US")}.</div>`;
     }
 
-    $("how").innerHTML =
-      `<b>How the Buy column is worked out</b>`
-      + `<div class="steps">${steps.map(([k, v]) =>
+    // Who the line is placed with. These are the three things _rank() compares
+    // and the order it compares them in, which is the order they cost money.
+    const chosen = [
+      ["Who can", "only suppliers this exact SKU is attached to are candidates"],
+      ["Cost", "the whole line at their own minimum and pack size — not unit price, "
+        + "because a lower price with a 1,000 minimum bills more than a higher one "
+        + "that will take 400"],
+      ["Speed", "their lead time for this SKU where they have quoted one, otherwise "
+        + "their general one"],
+      ["Record", "short shipments, slipped dates and silence already raised against "
+        + "them here"],
+    ];
+
+    // The arrival estimate, leg by leg. Location is in three of these and is
+    // worth saying plainly, because "where they are" reads as an address and is
+    // really a timezone, a holiday calendar and a distance.
+    const lands = [
+      ["Waiting", "their clock, not ours — an order finished at 3am their time waits "
+        + "for their next working hour"],
+      ["Making", "measured from your own completed orders with them where there are "
+        + "enough, otherwise the lead time they quoted"],
+      ["Closed", "public holidays in their country during the making window — this is "
+        + "what catches Chinese New Year, which shuts mills for a fortnight"],
+      ["Travelling", "distance from their country to Riyadh, by sea or air. A straight "
+        + "line, not a shipping route, and estimated rather than tracked"],
+      ["Landing", `a flat ${p.customs_clearance_days} days for customs and delivery, `
+        + `until enough of your own receipts exist to measure it`],
+    ];
+
+    const group = (title, rows, aside) =>
+      `<section class="how-group"><b>${title}</b>`
+      + `<div class="steps">${rows.map(([k, v]) =>
           `<span class="step"><em>${k}</em>${v}</span>`).join("")}</div>`
-      + worked;
+      + (aside ? `<div class="aside">${aside}</div>` : "")
+      + `</section>`;
+
+    $("how").innerHTML =
+      group("How the Buy column is worked out", steps)
+      + (worked ? `<section class="how-group">${worked}</section>` : "")
+      + group("How the supplier is chosen", chosen,
+          "Whether they are open right now is shown but does not rank — it decides "
+          + "when a message gets read, not what the line costs. Prices are not "
+          + "converted between currencies either: that needs a rate somebody owns, "
+          + "so a supplier quoting in another one is left visible rather than "
+          + "compared on an invented one.")
+      + group("How the arrival date is worked out", lands,
+          (p.weather_advisory
+            ? "Weather at the origin is shown beside the estimate and never turned "
+              + "into days. "
+            : "")
+          + "Every leg says whether it was measured from your own orders, quoted by "
+          + "the supplier, read off a calendar, or assumed — so a date resting on "
+          + "assumptions cannot read like one resting on history.");
   }
 
   // "300 / 50" and "9-18" are two numbers in one box: fewer fields to cross, and

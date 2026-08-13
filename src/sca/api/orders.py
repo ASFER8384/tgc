@@ -91,6 +91,12 @@ async def suggest(session: SessionDep, actor: ActorDep) -> dict:
             "demand_window_weeks": settings.demand_window_weeks,
             "reorder_cover_weeks": settings.reorder_cover_weeks,
             "target_cover_weeks": settings.target_cover_weeks,
+            # The arrival estimate's two configured terms, sent for the same
+            # reason as the three above: the page explains them, and an
+            # explanation that repeats a number rather than reading it goes
+            # stale the first time somebody tunes it.
+            "customs_clearance_days": settings.customs_clearance_days,
+            "weather_advisory": settings.weather_advisory,
         },
         "by_supplier": [
             {
