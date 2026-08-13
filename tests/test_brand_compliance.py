@@ -245,6 +245,32 @@ async def test_a_finding_names_the_version_that_was_applied(client):
 
 
 @pytest.mark.asyncio
+async def test_retiring_a_rule_does_not_inflate_coverage(client):
+    """Found by retiring a rule in the console, which reported "2 of 1 checked".
+
+    A rule that has left the standard is no longer something the site can be
+    judged on, so a check made against it stops counting as coverage.
+    """
+    await client.post("/brand/sites", json=SITE)
+    await client.post("/brand/standards", json=HERO)
+    await client.post("/brand/standards", json=PRICE)
+    observation = await _observe(client)
+    await client.post(f"/brand/observations/{observation}/review", json={
+        "checks": [
+            {"standard_code": "ALN-HERO", "passed": True},
+            {"standard_code": "PRICE-CUR", "passed": True},
+        ],
+    })
+    assert (await _site(client))["rules_checked"] == 2
+
+    await client.delete("/brand/standards/ALN-HERO")
+    site = await _site(client)
+    assert site["rules_applicable"] == 1
+    assert site["rules_checked"] == 1
+    assert site["rules_checked"] <= site["rules_applicable"]
+
+
+@pytest.mark.asyncio
 async def test_a_retired_rule_cannot_be_applied(client):
     await client.post("/brand/sites", json=SITE)
     await client.post("/brand/standards", json=HERO)

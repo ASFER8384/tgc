@@ -185,11 +185,19 @@ class ComplianceService:
 
         state.last_observed_at = latest.captured_at.isoformat()
         state.last_observation_id = latest.id
-        checks = list(
-            await self.session.scalars(
+        # Only checks against rules that are still in the standard and still
+        # apply here. A rule retired since the review was done is no longer
+        # something this site can be judged on, and counting it would report
+        # more coverage than there are rules to cover — literally "2 of 1
+        # checked", which is what retiring a rule used to produce.
+        live = {s.id for s in applicable}
+        checks = [
+            c
+            for c in await self.session.scalars(
                 select(Check).where(Check.observation_id == latest.id)
             )
-        )
+            if c.standard_id in live
+        ]
         state.rules_checked = len(checks)
         state.rules_passed = sum(1 for c in checks if c.passed)
 
