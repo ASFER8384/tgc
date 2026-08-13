@@ -26,6 +26,9 @@ dependencies = [
   # it is knowable a year ahead, and an order placed against a 21 day plan in
   # late January is not late by accident.
   "holidays>=0.57",
+  # Multipart form parsing, for the only route on the platform that receives a
+  # file from a browser rather than from a mailbox: a photograph of a site.
+  "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +46,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 sca = ["console/*.html"]
 cdp = ["console/*.html"]
+brand = ["console/*.html"]
 
 # setuptools is the build backend; this repeats the src layout for Poetry, which
 # does not read the key above. Some hosts autodetect Poetry whenever they see a

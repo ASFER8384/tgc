@@ -1,0 +1,844 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>TGC Brand Compliance</title>
+<style>
+  :root {
+    --ground: #f6f5f2;
+    --panel: #ffffff;
+    --sunk: #eeece7;
+    --ink: #1d1a16;
+    --ink-soft: #4a453d;
+    --muted: #746d62;
+    --rule: #dedad2;
+    --accent: #8a5a1f;
+    --accent-ink: #ffffff;
+    --accent-soft: #f3e9dc;
+    --high: #a3341f;
+    --high-soft: #f8e6e2;
+    --medium: #8a6410;
+    --low: #4a6b52;
+    --ok: #37674a;
+    --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14120f; --panel: #1c1916; --sunk: #23201c;
+      --ink: #efeae2; --ink-soft: #cdc6ba; --muted: #9b9284; --rule: #332e28;
+      --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
+      --high: #e0846c; --high-soft: #2f1d18; --medium: #d8ab4e; --low: #86b294; --ok: #86b294;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #14120f; --panel: #1c1916; --sunk: #23201c;
+    --ink: #efeae2; --ink-soft: #cdc6ba; --muted: #9b9284; --rule: #332e28;
+    --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
+    --high: #e0846c; --high-soft: #2f1d18; --medium: #d8ab4e; --low: #86b294; --ok: #86b294;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+         font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .app { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1.25rem 5rem;
+         display: flex; flex-direction: column; gap: 1.25rem; }
+
+  .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+         gap: 1rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
+  .top h1 { font-family: var(--display); font-size: 1.6rem; font-weight: 600; margin: 0;
+            letter-spacing: -0.01em; }
+  .top .eyebrow { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.15em;
+                  text-transform: uppercase; color: var(--muted); }
+  .conn { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono);
+          font-size: 0.72rem; color: var(--muted); }
+
+  button { font: inherit; background: var(--accent); color: var(--accent-ink);
+           border: 1px solid var(--accent); border-radius: 3px; padding: 0.4rem 0.85rem;
+           cursor: pointer; font-weight: 600; }
+  button.ghost { background: transparent; color: var(--accent); }
+  button.small { padding: 0.2rem 0.5rem; font-size: 0.76rem; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  dialog { border: 1px solid var(--rule); border-radius: 4px; background: var(--panel);
+           color: var(--ink); padding: 0; max-width: min(560px, 96vw); width: 100%; }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+  dialog .panel-head { padding: 0.9rem 1.2rem; }
+  dialog .panel-body { padding: 0 1.2rem 1.2rem; display: flex; flex-direction: column;
+                       gap: 0.8rem; max-height: 78vh; overflow-y: auto; }
+
+  .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; }
+  .panel-head { padding: 0.8rem 1rem; border-bottom: 1px solid var(--rule); display: flex;
+                align-items: baseline; justify-content: space-between; gap: 0.75rem;
+                flex-wrap: wrap; }
+  .panel-head h2 { font-size: 0.95rem; font-weight: 650; margin: 0; }
+  .panel-head .hint { font-size: 0.78rem; color: var(--muted); }
+  .panel-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem; }
+
+  /* What is known about the estate, including what is not known. Coverage is
+     first because a site nobody has visited is the one most likely to be wrong. */
+  .cost { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+          gap: 0.6rem; }
+  .cost .tile { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
+                padding: 0.75rem 0.9rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .cost .label { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em;
+                 text-transform: uppercase; color: var(--muted); }
+  .cost .big { font-family: var(--display); font-size: 1.6rem; line-height: 1.05;
+               font-variant-numeric: tabular-nums; }
+  .cost .big small { font-size: 0.78rem; font-family: var(--sans); color: var(--muted); }
+  .cost .says { font-size: 0.74rem; line-height: 1.35; color: var(--muted); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
+  .table-wrap { overflow-x: auto; }
+  th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule);
+           white-space: nowrap; }
+  th { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.11em;
+       text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  tbody tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .tag { display: inline-block; font-family: var(--mono); font-size: 0.63rem; font-weight: 700;
+         letter-spacing: 0.06em; text-transform: uppercase; padding: 0.1rem 0.36rem;
+         border: 1px solid currentColor; border-radius: 2px; }
+  /* The state a site reads as. Never observed is deliberately the loudest: it is
+     the one people mistake for compliant. */
+  .st-never-observed { color: var(--high); }
+  .st-not-reviewed { color: var(--medium); }
+  .st-stale { color: var(--medium); }
+  .st-failing { color: var(--high); }
+  .st-partly-checked { color: var(--ink-soft); }
+  .st-checked { color: var(--ok); }
+  .sev-high { color: var(--high); }
+  .sev-medium { color: var(--medium); }
+  .sev-low { color: var(--low); }
+  .cls { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.07em;
+         text-transform: uppercase; color: var(--muted); }
+
+  .note { padding: 0.7rem 1rem; border-bottom: 1px solid var(--rule);
+          background: var(--sunk); font-size: 0.8rem; line-height: 1.5; color: var(--ink-soft); }
+  .note b { font-weight: 600; color: var(--ink); }
+
+  textarea, input, select { font: inherit; color: inherit; background: var(--panel);
+    border: 1px solid var(--rule); border-radius: 3px; padding: 0.45rem 0.6rem; width: 100%; }
+  input[type="checkbox"], input[type="radio"], input[type="file"] {
+    width: auto; padding: 0; border: none; background: none;
+  }
+  textarea { min-height: 90px; resize: vertical; }
+  label.field { display: flex; flex-direction: column; gap: 0.3rem; font-family: var(--mono);
+                font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase;
+                color: var(--muted); }
+  label.field > input, label.field > textarea, label.field > select { font-family: var(--sans);
+    font-size: 0.9rem; letter-spacing: 0; text-transform: none; color: var(--ink); }
+  .fieldnote { display: block; font-size: 0.74rem; color: var(--muted); margin-top: 0.3rem;
+               font-family: var(--sans); letter-spacing: 0; text-transform: none; }
+
+  .split { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+           gap: 1.25rem; align-items: start; }
+  @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+  .obslist .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.5rem;
+                  align-items: center; padding: 0.6rem 1rem; border-top: 1px solid var(--rule);
+                  cursor: pointer; border-left: 3px solid transparent; }
+  .obslist .row:hover { background: var(--sunk); }
+  .obslist .row.on { background: var(--accent-soft); border-left-color: var(--accent); }
+  .obslist .who { font-weight: 600; font-size: 0.9rem; }
+  .obslist .where { display: block; font-size: 0.73rem; color: var(--muted); font-weight: 400; }
+
+  /* One rule per row, with pass and fail as two visible choices rather than a
+     tick that means pass and an absence that means nothing. An unanswered rule
+     stays unanswered, and is not counted as coverage. */
+  .rules .rule { display: grid; grid-template-columns: minmax(0, 1fr) 11rem;
+                 gap: 0.7rem; align-items: start; padding: 0.65rem 1rem;
+                 border-bottom: 1px solid var(--rule); }
+  .rules .rule:last-child { border-bottom: none; }
+  .rules .title { font-weight: 600; font-size: 0.87rem; }
+  .rules .text { display: block; font-size: 0.78rem; color: var(--muted); white-space: normal; }
+  .rules .verdict { display: flex; gap: 0.3rem; justify-content: flex-end; }
+  .rules .verdict button { font-size: 0.72rem; padding: 0.18rem 0.5rem; background: transparent;
+                           color: var(--muted); border-color: var(--rule); font-weight: 500; }
+  .rules .verdict button[aria-pressed="true"] { font-weight: 700; }
+  .rules .verdict button.pass[aria-pressed="true"] { color: var(--ok); border-color: var(--ok); }
+  .rules .verdict button.fail[aria-pressed="true"] { color: var(--high); border-color: var(--high); }
+  .rules .why { grid-column: 1 / -1; }
+  .rules .why input { font-size: 0.8rem; padding: 0.3rem 0.45rem; }
+
+  .shots { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.8rem 1rem; }
+  .shots img { max-height: 190px; border-radius: 3px; border: 1px solid var(--rule); }
+  .shots .none { color: var(--muted); font-size: 0.82rem; }
+
+  .finding { border-bottom: 1px solid var(--rule); padding: 0.75rem 1rem; display: flex;
+             flex-direction: column; gap: 0.3rem; }
+  .finding:last-child { border-bottom: none; }
+  .finding .row { display: flex; align-items: baseline; gap: 0.5rem;
+                  justify-content: space-between; flex-wrap: wrap; }
+  .finding .detail { font-size: 0.86rem; }
+  .finding .meta { font-size: 0.78rem; color: var(--muted); }
+
+  .readout { background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px;
+             padding: 0.7rem 0.85rem; font-family: var(--mono); font-size: 0.76rem;
+             white-space: pre-wrap; word-break: break-word; }
+  .empty { padding: 1.3rem 1rem; text-align: center; color: var(--muted); font-size: 0.86rem; }
+  .bar { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  footer { border-top: 1px solid var(--rule); padding-top: 0.9rem; color: var(--muted);
+           font-size: 0.78rem; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div>
+      <h1 id="pageTitle">Sites</h1>
+      <span class="eyebrow" id="pageSub"></span>
+    </div>
+    <div class="conn">
+      <span id="connLabel" hidden></span>
+      <button class="small" id="openSite" hidden>New site</button>
+      <button class="small" id="openStandard" hidden>New rule</button>
+      <button class="small" id="openCapture" hidden>Add observation</button>
+      <button class="ghost small" id="refresh">Refresh</button>
+    </div>
+  </div>
+
+  <!-- Sites -->
+  <div data-view="sites">
+    <div class="cost" id="estate"></div>
+    <div class="panel" style="margin-top:1.25rem">
+      <div class="panel-head">
+        <h2>Sites</h2>
+        <span class="hint" id="sitesHint">worst first — unchecked above clean</span>
+      </div>
+      <!-- The sentence this page exists to prevent somebody saying. -->
+      <div class="note">
+        <b>No site is called compliant here.</b> A site reads as <i>checked</i> only when every
+        rule that applies to it was actually applied at the last look. Nothing against a site far
+        more often means nobody went than means it was in good order, so the two are named
+        differently.
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Site</th><th>Kind</th><th>Reads as</th><th class="num">Checked</th>
+          <th class="num">Open</th><th>Last seen</th><th></th></tr></thead>
+        <tbody id="sites"><tr><td colspan="7" class="empty">loading</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- The standard -->
+  <div data-view="standards" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>The standard</h2>
+        <span class="hint" id="standardsHint"></span>
+      </div>
+      <div class="note">
+        Rules are <b>versioned, never edited</b>. Changing one publishes the next version and
+        retires the current one, so a judgement made in March still points at what the standard
+        said in March. A rule nobody can apply consistently by hand will not become checkable by
+        machine merely by being written down here.
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Code</th><th>Rule</th><th>Class</th><th>Severity</th>
+          <th>Applies to</th><th></th></tr></thead>
+        <tbody id="standards"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- Review -->
+  <div data-view="review" hidden>
+    <div class="split">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Waiting to be reviewed</h2>
+          <span class="hint" id="pendingHint"></span>
+        </div>
+        <div class="obslist" id="pending"><div class="empty">loading</div></div>
+      </div>
+      <div class="panel" id="reviewPane">
+        <div class="empty">Pick an observation to review it against the standard.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Findings -->
+  <div data-view="findings" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Open findings</h2>
+        <span class="hint" id="findingsHint"></span>
+      </div>
+      <div id="findings"><div class="empty">loading</div></div>
+    </div>
+  </div>
+
+  <footer>
+    Judgements here are made by people. Nothing in this module inspects an image — it records
+    what was looked at, what was decided, and the photograph it was decided from, which is also
+    what a model would have to be trained on later.
+  </footer>
+</div>
+
+<dialog id="siteDialog">
+  <div class="panel-head"><h2 id="siteTitle">New site</h2>
+    <button type="button" class="ghost small" id="siteClose">Close</button></div>
+  <div class="panel-body">
+    <label class="field">Code<input id="siteCode" placeholder="RUH-ALN-01" /></label>
+    <label class="field">Name<input id="siteName" placeholder="Aleena — Riyadh Park activation" /></label>
+    <label class="field">Brand
+      <select id="siteBrand">
+        <option value="">All brands</option>
+        <option value="aleena">Aleena</option>
+        <option value="rawash">Rawash</option>
+        <option value="aynola">Aynola</option>
+      </select></label>
+    <label class="field">Kind
+      <select id="siteKind">
+        <option value="activation">Activation</option>
+        <option value="store">Store</option>
+        <option value="partner">Partner counter</option>
+        <option value="digital">Digital channel</option>
+      </select>
+      <span class="fieldnote">A partner site cannot be photographed on our say-so, and a digital
+        channel has nothing to photograph. The kind decides which rules apply.</span></label>
+    <label class="field">City<input id="siteCity" placeholder="Riyadh" /></label>
+    <label class="field">Open from / until
+      <input id="siteDates" placeholder="2026-08-01 / 2026-09-15" />
+      <span class="fieldnote">A lapse found after an activation closes cannot be corrected.</span></label>
+    <label class="field">Who to tell<input id="siteContact" placeholder="name or number" /></label>
+    <div class="bar"><button id="saveSite">Save site</button></div>
+    <div class="readout" id="siteOut" hidden></div>
+  </div>
+</dialog>
+
+<dialog id="standardDialog">
+  <div class="panel-head"><h2 id="standardTitle">New rule</h2>
+    <button type="button" class="ghost small" id="standardClose">Close</button></div>
+  <div class="panel-body">
+    <label class="field">Code<input id="stdCode" placeholder="ALN-HERO" /></label>
+    <label class="field">Title<input id="stdTitle" placeholder="Hero product at eye level" /></label>
+    <label class="field">The rule, as somebody has to apply it
+      <textarea id="stdRule" placeholder="The campaign hero sits on the top shelf of the fixture, unobstructed, with nothing placed in front of it."></textarea>
+      <span class="fieldnote">Write it so two people would reach the same verdict. If you cannot,
+        that is worth knowing now rather than after it has been automated.</span></label>
+    <label class="field">Class
+      <select id="stdClass">
+        <option value="presence">Presence — is the thing there</option>
+        <option value="configuration">Configuration — is it arranged right</option>
+        <option value="state">State — is it clean, tidy, undamaged</option>
+        <option value="text">Text — does it match the approved wording or price</option>
+        <option value="identity">Identity — mark, colour, proportion</option>
+      </select></label>
+    <label class="field">Severity
+      <select id="stdSeverity">
+        <option value="high">High</option>
+        <option value="medium" selected>Medium</option>
+        <option value="low">Low</option>
+      </select></label>
+    <label class="field">Only for brand
+      <select id="stdBrand">
+        <option value="">Every brand</option>
+        <option value="aleena">Aleena</option>
+        <option value="rawash">Rawash</option>
+        <option value="aynola">Aynola</option>
+      </select></label>
+    <label class="field">Only for kind of site
+      <select id="stdKind">
+        <option value="">Every kind</option>
+        <option value="activation">Activation</option>
+        <option value="store">Store</option>
+        <option value="partner">Partner counter</option>
+        <option value="digital">Digital channel</option>
+      </select></label>
+    <div class="bar"><button id="saveStandard">Publish rule</button></div>
+    <div class="readout" id="standardOut" hidden></div>
+  </div>
+</dialog>
+
+<dialog id="captureDialog">
+  <div class="panel-head"><h2>Add observation</h2>
+    <button type="button" class="ghost small" id="captureClose">Close</button></div>
+  <div class="panel-body">
+    <label class="field">Site<select id="capSite"></select></label>
+    <label class="field">How it was captured
+      <select id="capSource">
+        <option value="mobile">Photographed on a phone</option>
+        <option value="fixed">Frame from a fixed camera</option>
+        <option value="digital">Digital asset — no capture</option>
+        <option value="desk">Recorded at a desk</option>
+      </select>
+      <span class="fieldnote">Carried with the observation, because a deliberate photograph and
+        an oblique security frame are not equally good evidence.</span></label>
+    <label class="field">Who<input id="capBy" placeholder="name" /></label>
+    <label class="field">Campaign<input id="capCampaign" placeholder="AW26 launch" /></label>
+    <label class="field">Note<input id="capNote" placeholder="anything the photo does not show" /></label>
+    <label class="field">Photographs
+      <input id="capFiles" type="file" accept="image/*" multiple />
+      <span class="fieldnote">Stored as sent. Nothing here blurs faces — if people are in frame,
+        that is what gets kept.</span></label>
+    <div class="bar"><button id="saveCapture">Add</button></div>
+    <div class="readout" id="captureOut" hidden></div>
+  </div>
+</dialog>
+
+<script>
+  const API = "";
+  const $ = (id) => document.getElementById(id);
+  const KEY_STORAGE = "sca.apiKey";
+  const state = { key: "", view: "sites", sites: [], selected: null, verdicts: {} };
+
+  async function api(path, options = {}) {
+    const res = await fetch(API + path, {
+      ...options,
+      headers: { "X-API-Key": state.key, "Content-Type": "application/json",
+                 ...(options.headers || {}) },
+    });
+    if (!res.ok) {
+      let detail = res.status + " " + res.statusText;
+      try { const b = await res.json(); if (b.detail) detail = b.detail; } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  const day = (v) => (v ? new Date(v).toLocaleDateString("en-GB",
+      { day: "2-digit", month: "short" }) : "—");
+  const slug = (s) => String(s).replace(/\s+/g, "-");
+  const show = (el, text) => { el.hidden = false; el.textContent = text; };
+
+  async function busy(button, work) {
+    if (button.disabled) return;
+    button.disabled = true;
+    try { return await work(); } finally { button.disabled = false; }
+  }
+
+  // ------------------------------------------------------------------ sites
+  async function loadSites() {
+    const e = await api("/brand/sites");
+    state.sites = e.sites;
+
+    const tiles = [
+      { label: "Sites", big: e.sites_total,
+        says: `${e.standards_active} live rule(s) in the standard` },
+      { label: "Never observed", big: e.sites_never_observed,
+        says: e.sites_never_observed
+          ? "nobody has looked at these at all"
+          : "every site has been looked at at least once" },
+      { label: "Gone stale", big: e.sites_stale,
+        says: `last looked at more than ${e.stale_after_days} days ago` },
+      { label: "Open findings", big: e.findings_open,
+        says: e.findings_high
+          ? `${e.findings_high} of them high severity`
+          : "none of them high severity" },
+    ];
+    $("estate").innerHTML = tiles.map((t) => `
+      <div class="tile">
+        <span class="label">${t.label}</span>
+        <span class="big">${t.big}</span>
+        <span class="says">${t.says}</span>
+      </div>`).join("");
+
+    $("sites").innerHTML = e.sites.length ? e.sites.map((s) => `
+      <tr>
+        <td><strong>${s.name}</strong><br>
+          <span style="color:var(--muted)">${s.code}${s.city ? " · " + s.city : ""}${
+            s.brand ? " · " + s.brand : ""}</span></td>
+        <td>${s.kind}${s.open_now === false
+          ? '<br><span style="color:var(--muted);font-size:0.76rem">closed</span>' : ""}</td>
+        <td><span class="tag st-${slug(s.reads_as)}">${s.reads_as}</span></td>
+        <td class="num">${s.rules_checked} / ${s.rules_applicable}${s.rules_checked
+          ? `<br><span style="color:var(--muted);font-size:0.76rem">${s.rules_passed} passed</span>`
+          : ""}</td>
+        <td class="num">${s.findings_open || "—"}</td>
+        <td>${s.last_observed_at ? day(s.last_observed_at) : "never"}</td>
+        <td><button class="ghost small" data-capture="${s.code}">Observe</button></td>
+      </tr>`).join("") : `<tr><td colspan="7" class="empty">No sites yet</td></tr>`;
+
+    $("sites").querySelectorAll("[data-capture]").forEach((b) =>
+      b.addEventListener("click", () => openCapture(b.dataset.capture)));
+    $("sitesHint").textContent =
+      `${e.sites_total} site(s) · worst first, unchecked above clean`;
+  }
+
+  // -------------------------------------------------------------- standards
+  async function loadStandards() {
+    const rows = await api("/brand/standards");
+    $("standardsHint").textContent = `${rows.length} live rule(s)`;
+    $("standards").innerHTML = rows.length ? rows.map((s) => `
+      <tr>
+        <td><strong>${s.code}</strong>
+          <span style="color:var(--muted)"> v${s.version}</span></td>
+        <td style="white-space:normal"><strong>${s.title}</strong><br>
+          <span style="color:var(--muted);font-size:0.82rem">${s.rule}</span></td>
+        <td><span class="cls">${s.compliance_class}</span></td>
+        <td><span class="tag sev-${s.severity}">${s.severity}</span></td>
+        <td>${s.brand || "all brands"}<br>
+          <span style="color:var(--muted);font-size:0.78rem">${s.site_kind || "all kinds"}</span></td>
+        <td><button class="ghost small" data-retire="${s.code}">Retire</button></td>
+      </tr>`).join("") : `<tr><td colspan="6" class="empty">No rules yet.
+        Nothing can be checked until the standard is written down.</td></tr>`;
+
+    $("standards").querySelectorAll("[data-retire]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, async () => {
+        await api(`/brand/standards/${b.dataset.retire}`, { method: "DELETE" });
+        await refreshAll();
+      })));
+  }
+
+  // ----------------------------------------------------------------- review
+  async function loadPending() {
+    const rows = await api("/brand/observations?pending=true");
+    $("pendingHint").textContent = `${rows.length} waiting`;
+    $("pending").innerHTML = rows.length ? rows.map((o) => `
+      <div class="row ${o.id === state.selected ? "on" : ""}" data-obs="${o.id}"
+           role="button" tabindex="0">
+        <span><span class="who">${o.site}</span>
+          <span class="where">${day(o.captured_at)} · ${o.source} · ${o.images} photo(s)</span></span>
+      </div>`).join("")
+      : `<div class="empty">Nothing waiting. Add an observation from a site.</div>`;
+
+    $("pending").querySelectorAll("[data-obs]").forEach((row) => {
+      const open = () => selectObservation(row.dataset.obs);
+      row.addEventListener("click", open);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+      });
+    });
+    if (rows.length && !rows.some((o) => o.id === state.selected)) {
+      selectObservation(rows[0].id);
+    } else if (!rows.length) {
+      state.selected = null;
+      $("reviewPane").innerHTML =
+        `<div class="empty">Nothing waiting to be reviewed.</div>`;
+    }
+  }
+
+  async function selectObservation(id) {
+    state.selected = id;
+    state.verdicts = {};
+    $("pending").querySelectorAll("[data-obs]").forEach((row) =>
+      row.classList.toggle("on", row.dataset.obs === id));
+
+    let o;
+    try { o = await api(`/brand/observations/${id}`); }
+    catch (err) {
+      $("reviewPane").innerHTML = `<div class="empty">Could not open: ${err.message}</div>`;
+      return;
+    }
+    if (state.selected !== id) return;
+
+    o.standards.forEach((s) => {
+      if (s.passed !== null) state.verdicts[s.code] = { passed: s.passed, note: s.note || "" };
+    });
+
+    $("reviewPane").innerHTML = `
+      <div class="panel-head">
+        <div><h2>${o.site ? o.site.name : "Unknown site"}</h2>
+          <span class="hint">${day(o.captured_at)} · ${o.source}${
+            o.captured_by ? " · " + o.captured_by : ""}${
+            o.campaign ? " · " + o.campaign : ""}</span></div>
+        <button class="ghost small" id="rejectObs">Cannot judge this</button>
+      </div>
+      <div class="shots">${o.images.length
+        ? o.images.map((i) => `<img src="/brand/images/${i.id}" alt="${i.filename}" />`).join("")
+        : `<span class="none">No photograph. Whatever is decided here rests on the note alone.</span>`}
+      </div>
+      ${o.note ? `<div class="note">${o.note}</div>` : ""}
+      <div class="rules" id="rules">${o.standards.length ? o.standards.map((s) => `
+        <div class="rule">
+          <span><span class="title">${s.title}</span>
+            <span class="text">${s.rule}</span>
+            <span class="cls">${s.code} v${s.version} · ${s.compliance_class}</span></span>
+          <span class="verdict">
+            <button type="button" class="pass" data-verdict="${s.code}" data-value="pass"
+              aria-pressed="${state.verdicts[s.code]?.passed === true}">Pass</button>
+            <button type="button" class="fail" data-verdict="${s.code}" data-value="fail"
+              aria-pressed="${state.verdicts[s.code]?.passed === false}">Fail</button>
+          </span>
+          <span class="why" ${state.verdicts[s.code]?.passed === false ? "" : "hidden"}
+                data-why="${s.code}">
+            <input data-note="${s.code}" placeholder="What is wrong? The site contact reads this."
+                   value="${state.verdicts[s.code]?.note || ""}" />
+          </span>
+        </div>`).join("")
+        : `<div class="empty">No rule applies to this site yet. Write the standard first.</div>`}
+      </div>
+      <div class="panel-body">
+        <div class="bar">
+          <button id="submitReview">Save review</button>
+          <span class="hint" id="reviewCount"></span>
+        </div>
+        <div class="readout" id="reviewOut" hidden></div>
+      </div>`;
+
+    $("rules").querySelectorAll("[data-verdict]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const code = b.dataset.verdict;
+        const passed = b.dataset.value === "pass";
+        state.verdicts[code] = { passed, note: state.verdicts[code]?.note || "" };
+        $("rules").querySelectorAll(`[data-verdict="${code}"]`).forEach((other) =>
+          other.setAttribute("aria-pressed",
+            String((other.dataset.value === "pass") === passed)));
+        // A failure needs saying why. A pass does not, because "it was fine" is
+        // the whole message.
+        const why = $("rules").querySelector(`[data-why="${code}"]`);
+        if (why) why.hidden = passed;
+        countReview();
+      }));
+
+    $("rules").querySelectorAll("[data-note]").forEach((input) =>
+      input.addEventListener("input", () => {
+        const code = input.dataset.note;
+        state.verdicts[code] = { passed: state.verdicts[code]?.passed ?? false,
+                                 note: input.value };
+      }));
+
+    $("submitReview").addEventListener("click", () => busy($("submitReview"), submitReview));
+    $("rejectObs").addEventListener("click", () => busy($("rejectObs"), async () => {
+      const reason = (prompt("Why can this not be judged? The person who took it is told.") || "").trim();
+      if (!reason) return;
+      await api(`/brand/observations/${id}/quality`, {
+        method: "POST", body: JSON.stringify({ quality: "unusable", reason }),
+      });
+      await refreshAll();
+    }));
+    countReview();
+  }
+
+  function countReview() {
+    const answered = Object.keys(state.verdicts).length;
+    const total = $("rules") ? $("rules").querySelectorAll(".rule").length : 0;
+    const el = $("reviewCount");
+    if (!el) return;
+    // Unanswered rules are named rather than hidden: they are the difference
+    // between a site that passed and a site that was partly looked at.
+    el.textContent = answered === total
+      ? `all ${total} rule(s) answered`
+      : `${answered} of ${total} answered · the rest stay unchecked`;
+  }
+
+  async function submitReview() {
+    const checks = Object.entries(state.verdicts).map(([standard_code, v]) => ({
+      standard_code, passed: v.passed, note: v.note || null,
+    }));
+    if (!checks.length) {
+      show($("reviewOut"), "Nothing answered yet.");
+      return;
+    }
+    try {
+      const out = await api(`/brand/observations/${state.selected}/review`, {
+        method: "POST", body: JSON.stringify({ checks }),
+      });
+      show($("reviewOut"),
+        `${out.checked} rule(s) applied — ${out.passed} passed, ${out.failed} failed.` +
+        (out.findings_raised.length ? `\nRaised: ${out.findings_raised.join(", ")}` : "") +
+        (out.already_open.length
+          ? `\nAlready open, not raised again: ${out.already_open.join(", ")}` : ""));
+      await refreshAll();
+    } catch (err) { show($("reviewOut"), "Failed: " + err.message); }
+  }
+
+  // --------------------------------------------------------------- findings
+  async function loadFindings() {
+    const rows = await api("/brand/findings");
+    $("findingsHint").textContent = `${rows.length} open`;
+    $("findings").innerHTML = rows.length ? rows.map((f) => `
+      <div class="finding">
+        <div class="row">
+          <span><span class="tag sev-${f.severity}">${f.severity}</span>
+            <strong style="margin-left:0.4rem">${f.site}</strong>
+            <span class="cls" style="margin-left:0.4rem">${f.standard} v${f.standard_version} ·
+              ${f.compliance_class}</span></span>
+          <span class="bar">
+            <button class="small" data-fix="${f.id}">Fixed</button>
+            <button class="ghost small" data-dismiss="${f.id}">Not a failure</button>
+          </span>
+        </div>
+        <div class="detail">${f.detail}</div>
+        <div class="meta">${f.standard_title} · raised ${day(f.raised_at)}${
+          f.contact ? " · tell " + f.contact : " · nobody named to tell"}${
+          f.closes_on ? ` · site closes ${day(f.closes_on)}` : ""}</div>
+        ${f.image_id ? `<div class="shots" style="padding:0.4rem 0">
+          <img src="/brand/images/${f.image_id}" alt="evidence" /></div>` : ""}
+      </div>`).join("") : `<div class="empty">Nothing open.</div>`;
+
+    const close = (id, status, note) => api(`/brand/findings/${id}/close`, {
+      method: "POST", body: JSON.stringify({ status, note }),
+    });
+    $("findings").querySelectorAll("[data-fix]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, async () => {
+        await close(b.dataset.fix, "fixed", null);
+        await refreshAll();
+      })));
+    $("findings").querySelectorAll("[data-dismiss]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, async () => {
+        // Dismissals are the signal that a rule is wrong, so the reason is
+        // required: a rule dismissed every time it fires needs rewriting, and
+        // that is only visible if somebody wrote down why.
+        const note = (prompt("Why is this not a failure? Read back later against the rule.") || "").trim();
+        if (!note) return;
+        await close(b.dataset.dismiss, "dismissed", note);
+        await refreshAll();
+      })));
+  }
+
+  // --------------------------------------------------------------- dialogs
+  function pair(value, separator) {
+    const parts = String(value || "").split(separator).map((p) => p.trim());
+    return [parts[0] || null, parts[1] || null];
+  }
+
+  $("openSite").addEventListener("click", () => {
+    ["siteCode", "siteName", "siteCity", "siteDates", "siteContact"].forEach((id) => {
+      $(id).value = "";
+    });
+    $("siteOut").hidden = true;
+    $("siteDialog").showModal();
+  });
+  $("siteClose").addEventListener("click", () => $("siteDialog").close());
+  $("saveSite").addEventListener("click", () => busy($("saveSite"), async () => {
+    const [opens, closes] = pair($("siteDates").value, "/");
+    try {
+      const out = await api("/brand/sites", { method: "POST", body: JSON.stringify({
+        code: $("siteCode").value.trim(),
+        name: $("siteName").value.trim(),
+        brand: $("siteBrand").value || null,
+        kind: $("siteKind").value,
+        city: $("siteCity").value.trim() || null,
+        opens_on: opens, closes_on: closes,
+        contact: $("siteContact").value.trim() || null,
+      }) });
+      show($("siteOut"), `${out.name} saved.`);
+      await refreshAll();
+    } catch (err) { show($("siteOut"), "Failed: " + err.message); }
+  }));
+
+  $("openStandard").addEventListener("click", () => {
+    ["stdCode", "stdTitle", "stdRule"].forEach((id) => { $(id).value = ""; });
+    $("standardOut").hidden = true;
+    $("standardDialog").showModal();
+  });
+  $("standardClose").addEventListener("click", () => $("standardDialog").close());
+  $("saveStandard").addEventListener("click", () => busy($("saveStandard"), async () => {
+    try {
+      const out = await api("/brand/standards", { method: "POST", body: JSON.stringify({
+        code: $("stdCode").value.trim(),
+        title: $("stdTitle").value.trim(),
+        rule: $("stdRule").value.trim(),
+        compliance_class: $("stdClass").value,
+        severity: $("stdSeverity").value,
+        brand: $("stdBrand").value || null,
+        site_kind: $("stdKind").value || null,
+      }) });
+      show($("standardOut"), out.changed
+        ? `${out.code} published as version ${out.version}.`
+        : `${out.code} is unchanged — no new version was created.`);
+      await refreshAll();
+    } catch (err) { show($("standardOut"), "Failed: " + err.message); }
+  }));
+
+  function openCapture(siteCode) {
+    $("capSite").innerHTML = state.sites
+      .map((s) => `<option value="${s.code}">${s.name}</option>`).join("");
+    if (siteCode) $("capSite").value = siteCode;
+    ["capBy", "capCampaign", "capNote"].forEach((id) => { $(id).value = ""; });
+    $("capFiles").value = "";
+    $("captureOut").hidden = true;
+    $("captureDialog").showModal();
+  }
+  $("openCapture").addEventListener("click", () => openCapture(null));
+  $("captureClose").addEventListener("click", () => $("captureDialog").close());
+  $("saveCapture").addEventListener("click", () => busy($("saveCapture"), async () => {
+    try {
+      const observation = await api("/brand/observations", {
+        method: "POST", body: JSON.stringify({
+          site_code: $("capSite").value,
+          source: $("capSource").value,
+          captured_by: $("capBy").value.trim() || null,
+          campaign: $("capCampaign").value.trim() || null,
+          note: $("capNote").value.trim() || null,
+        }),
+      });
+      // Uploaded one at a time, and a failure names the file rather than
+      // discarding the observation the others succeeded against.
+      const files = [...$("capFiles").files];
+      const failed = [];
+      for (const file of files) {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch(`/brand/observations/${observation.id}/images`, {
+          method: "POST", headers: { "X-API-Key": state.key }, body: form,
+        });
+        if (!res.ok) failed.push(file.name);
+      }
+      show($("captureOut"),
+        `Added. ${files.length - failed.length} of ${files.length} photo(s) stored.` +
+        (failed.length ? `\nFailed: ${failed.join(", ")}` : "") +
+        "\nIt is now waiting to be reviewed.");
+      await refreshAll();
+    } catch (err) { show($("captureOut"), "Failed: " + err.message); }
+  }));
+
+  $("refresh").addEventListener("click", () => busy($("refresh"), refreshAll));
+
+  async function refreshAll() {
+    await loadSites();
+    await Promise.all([loadStandards(), loadPending(), loadFindings()]);
+  }
+
+  // ------------------------------------------------------------------ views
+  const VIEWS = {
+    sites: ["Sites", "where the brand is presented, and what is known about each"],
+    standards: ["The standard", "the rules, versioned"],
+    review: ["Review", "apply the standard to what was seen"],
+    findings: ["Findings", "what somebody has to put right"],
+  };
+
+  window.applyView = function applyView(view) {
+    if (!VIEWS[view]) view = "sites";
+    state.view = view;
+    document.querySelectorAll("[data-view]").forEach((section) => {
+      section.hidden = section.dataset.view !== view;
+    });
+    const [title, sub] = VIEWS[view];
+    $("pageTitle").textContent = title;
+    $("pageSub").textContent = sub;
+    $("openSite").hidden = view !== "sites";
+    $("openCapture").hidden = view !== "sites" && view !== "review";
+    $("openStandard").hidden = view !== "standards";
+    document.querySelectorAll('.tgc-rail nav a[data-nav^="brand:"]').forEach((a) =>
+      a.classList.toggle("on", a.dataset.nav === "brand:" + view));
+  };
+
+  applyView(new URLSearchParams(location.search).get("view") || "sites");
+  window.addEventListener("popstate", () =>
+    applyView(new URLSearchParams(location.search).get("view") || "sites"));
+
+  async function connect() {
+    let key = window.__SCA_DEV_KEY__ || localStorage.getItem(KEY_STORAGE) || "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!key) {
+        key = (prompt("API key (SCA_API_KEY):") || "").trim();
+        if (!key) break;
+      }
+      const res = await fetch(API + "/brand/sites", { headers: { "X-API-Key": key } });
+      if (res.ok) {
+        state.key = key;
+        localStorage.setItem(KEY_STORAGE, key);
+        $("connLabel").hidden = true;
+        await refreshAll();
+        return;
+      }
+      localStorage.removeItem(KEY_STORAGE);
+      key = "";
+    }
+    show($("connLabel"), "no working API key");
+  }
+
+  connect();
+</script>
+</body>
+</html>

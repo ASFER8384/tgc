@@ -10,6 +10,7 @@ from sca.config import get_settings
 
 # Importing the package registers every model's metadata. A new model module must
 # be added to sca/models/__init__.py or autogenerate will silently miss its table.
+import brand.models  # noqa: F401  registers the brand compliance tables
 import cdp.models  # noqa: F401  registers the customer tables on the same metadata
 from sca.models import Base
 

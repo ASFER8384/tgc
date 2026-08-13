@@ -7,6 +7,8 @@ from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+import brand
+import brand.api as brand_api
 import cdp
 from cdp.api import automations, ingest, persons, proof, segments
 from sca.api import catalog, coordination, demo, inbound, orders
@@ -176,12 +178,50 @@ _NAV_GROUPS = (
         "10a8 8 0 100-16 8 8 0 000 16zm0 0v-2m-6.4-4H8m8 0h2.4",
     ),
     )),
+    # A third module, and the first whose findings are made by people rather than
+    # derived from records. It sits apart from procurement because a site is not
+    # a supplier and a rule is not an order — what they share is the platform
+    # underneath and the habit of never asserting more than was actually checked.
+    ("Brand", (
+    (
+        "brand:sites",
+        "/brand-console",
+        "Sites",
+        "M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+        "M15 11a3 3 0 11-6 0 3 3 0 016 0z",
+    ),
+    (
+        "brand:standards",
+        "/brand-console?view=standards",
+        "The standard",
+        "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414"
+        "a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+    ),
+    (
+        "brand:review",
+        "/brand-console?view=review",
+        "Review",
+        "M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+        "M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7"
+        "-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z",
+    ),
+    (
+        "brand:findings",
+        "/brand-console?view=findings",
+        "Findings",
+        "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c"
+        "-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
+    ),
+    )),
 )
 
 # Which section opens when the address carries no view of its own. Keyed by
 # route rather than by document, because /dashboard and /cdp are the same file
 # arriving at different destinations.
-_DEFAULT_VIEW = {"/dashboard": "dashboard", "/cdp": "dashboard", "/procure": "desk"}
+_DEFAULT_VIEW = {
+    "/dashboard": "dashboard", "/cdp": "dashboard",
+    "/procure": "desk", "/brand-console": "sites",
+}
 
 # The browser tab follows the address, not the file behind it. /dashboard is
 # served from the customer document, and a tab reading "CDP" there would put the
@@ -190,6 +230,7 @@ _PAGE_TITLE = {
     "/dashboard": "TGC Platform — Dashboard",
     "/cdp": "TGC Customers",
     "/procure": "TGC Procurement",
+    "/brand-console": "TGC Brand Compliance",
 }
 
 
@@ -304,6 +345,7 @@ def create_app() -> FastAPI:
 
     supplier_console = Path(__file__).parent / "console" / "index.html"
     customer_console = Path(cdp.__file__).parent / "console" / "index.html"
+    brand_console = Path(brand.__file__).parent / "console" / "index.html"
 
     def render(page: Path, active: str, route: str) -> HTMLResponse:
         """One page, plus the rail that says which half you are looking at.
@@ -356,6 +398,13 @@ def create_app() -> FastAPI:
     async def procurement_page() -> HTMLResponse:
         return render(supplier_console, "sca", "/procure")
 
+    # Not /brand: the API router already owns that prefix, and a page served
+    # there would shadow the endpoints the page itself calls.
+    @app.get("/brand-console", include_in_schema=False)
+    async def brand_page() -> HTMLResponse:
+        return render(brand_console, "brand", "/brand-console")
+
+    app.include_router(brand_api.router)
     app.include_router(catalog.router)
     app.include_router(orders.router)
     app.include_router(inbound.router)
