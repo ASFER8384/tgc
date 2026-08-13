@@ -1,10 +1,11 @@
 import json
 import logging
+import re
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 import cdp
 from cdp.api import automations, ingest, persons, proof, segments
@@ -107,7 +108,7 @@ _NAV_GROUPS = (
     ("", (
     (
         "cdp:dashboard",
-        "/cdp?view=dashboard",
+        "/dashboard",
         "Dashboard",
         "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 "
         "1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
@@ -156,20 +157,20 @@ _NAV_GROUPS = (
     ("Procurement", (
     (
         "sca:desk",
-        "/",
+        "/procure",
         "Buying desk",
         "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 "
         "4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4",
     ),
     (
         "sca:items",
-        "/?view=items",
+        "/procure?view=items",
         "Item list",
         "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
     ),
     (
         "sca:suppliers",
-        "/?view=suppliers",
+        "/procure?view=suppliers",
         "Supplier list",
         "M12 8c1.657 0 3-.895 3-2s-1.343-2-3-2-3 .895-3 2 1.343 2 3 2zm0 0v2m0 "
         "10a8 8 0 100-16 8 8 0 000 16zm0 0v-2m-6.4-4H8m8 0h2.4",
@@ -177,14 +178,22 @@ _NAV_GROUPS = (
     )),
 )
 
-# Which section a page opens on when the address carries no view. Both consoles
-# are single documents with several destinations in them, so this is the one
-# thing that differs between them.
-_DEFAULT_VIEW = {"cdp": "dashboard", "sca": "desk"}
-_PAGE_PATH = {"cdp": "/cdp", "sca": "/"}
+# Which section opens when the address carries no view of its own. Keyed by
+# route rather than by document, because /dashboard and /cdp are the same file
+# arriving at different destinations.
+_DEFAULT_VIEW = {"/dashboard": "dashboard", "/cdp": "dashboard", "/procure": "desk"}
+
+# The browser tab follows the address, not the file behind it. /dashboard is
+# served from the customer document, and a tab reading "CDP" there would put the
+# reader back inside the half the dashboard exists to sit above.
+_PAGE_TITLE = {
+    "/dashboard": "TGC Platform — Dashboard",
+    "/cdp": "TGC Customers",
+    "/procure": "TGC Procurement",
+}
 
 
-def _nav(active: str, env: str) -> str:
+def _nav(active: str, env: str, default_view: str) -> str:
     """`active` is the page; the rail marks the destination within it from the
     query, so that reloading a section keeps its own item lit."""
     links = "".join(
@@ -198,8 +207,7 @@ def _nav(active: str, env: str) -> str:
         )
         for group, items in _NAV_GROUPS
     )
-    base = _PAGE_PATH.get(active, "/")
-    default_view = _DEFAULT_VIEW.get(active, "dashboard")
+
     return f"""<div class="tgc-bar">
   <button type="button" aria-label="Open menu" aria-controls="tgcRail" aria-expanded="false"
           onclick="tgcRail(true)">
@@ -229,7 +237,6 @@ def _nav(active: str, env: str) -> str:
   }}
   (function () {{
     var page = {active!r};
-    var base = {base!r};
     var view = new URLSearchParams(location.search).get("view") || {default_view!r};
     var want = page + ":" + view;
     document.querySelectorAll(".tgc-rail nav a").forEach(function (a) {{
@@ -243,7 +250,11 @@ def _nav(active: str, env: str) -> str:
         if (typeof window.applyView !== "function") return;
         e.preventDefault();
         var next = a.dataset.nav.slice(page.length + 1);
-        history.pushState({{}}, "", base + "?view=" + next);
+        // The link's own address, not one assembled here. It is the only way a
+        // destination can sit somewhere other than under its document's path —
+        // the dashboard answers for both halves, so it is /dashboard and not a
+        // section of either one.
+        history.pushState({{}}, "", a.getAttribute("href"));
         window.applyView(next);
         document.querySelectorAll(".tgc-rail nav a").forEach(function (o) {{
           o.classList.toggle("on", o === a);
@@ -294,8 +305,13 @@ def create_app() -> FastAPI:
     supplier_console = Path(__file__).parent / "console" / "index.html"
     customer_console = Path(cdp.__file__).parent / "console" / "index.html"
 
-    def render(page: Path, active: str) -> HTMLResponse:
-        """One page, plus the rail that says which half you are looking at."""
+    def render(page: Path, active: str, route: str) -> HTMLResponse:
+        """One page, plus the rail that says which half you are looking at.
+
+        ``route`` rather than ``active`` decides which section opens, because
+        /dashboard and /cdp serve the same document and arrive at different
+        destinations in it.
+        """
         html = page.read_text(encoding="utf-8")
         # The key is injected as the page is served and never written into either
         # file, so it stays out of the repository and out of git history, and
@@ -308,18 +324,37 @@ def create_app() -> FastAPI:
         if settings.env == "local" or settings.console_auto_connect:
             head += f"<script>window.__SCA_DEV_KEY__ = {json.dumps(settings.api_key)};</script>"
         html = html.replace("</head>", head + "</head>", 1)
-        html = html.replace("<body>", "<body>" + _nav(active, settings.env), 1)
+        title = _PAGE_TITLE.get(route)
+        if title:
+            html = re.sub(r"<title>[^<]*</title>", f"<title>{title}</title>", html, count=1)
+        default_view = _DEFAULT_VIEW.get(route, "dashboard")
+        html = html.replace(
+            "<body>", "<body>" + _nav(active, settings.env, default_view), 1
+        )
         # No caching: the console changes far more often than the API, and a
         # stale copy looks like a bug in the API rather than in the browser.
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
+    # The dashboard answers for both halves — customers on one side of it, the
+    # supplier network on the other — so it has its own address rather than
+    # sitting inside one of them and implying it belongs there. It is served
+    # from the customer document because that is where its panels live; the URL
+    # is what the reader sees, and the file is an implementation detail.
     @app.get("/", include_in_schema=False)
-    async def supplier_page() -> HTMLResponse:
-        return render(supplier_console, "sca")
+    async def home() -> RedirectResponse:
+        return RedirectResponse("/dashboard", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+    @app.get("/dashboard", include_in_schema=False)
+    async def dashboard_page() -> HTMLResponse:
+        return render(customer_console, "cdp", "/dashboard")
 
     @app.get("/cdp", include_in_schema=False)
     async def customer_page() -> HTMLResponse:
-        return render(customer_console, "cdp")
+        return render(customer_console, "cdp", "/cdp")
+
+    @app.get("/procure", include_in_schema=False)
+    async def procurement_page() -> HTMLResponse:
+        return render(supplier_console, "sca", "/procure")
 
     app.include_router(catalog.router)
     app.include_router(orders.router)
