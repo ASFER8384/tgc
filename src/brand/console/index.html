@@ -461,9 +461,14 @@
       { label: "Gone stale", big: e.sites_stale,
         says: `last looked at more than ${e.stale_after_days} days ago` },
       { label: "Open findings", big: e.findings_open,
-        says: e.findings_high
-          ? `${e.findings_high} of them high severity`
-          : "none of them high severity" },
+        says: [
+          e.findings_high
+            ? `${e.findings_high} of them high severity`
+            : "none of them high severity",
+          e.findings_retired_rule
+            ? `${e.findings_retired_rule} more against a retired rule`
+            : "",
+        ].filter(Boolean).join(" · ") },
     ];
     $("estate").innerHTML = tiles.map((t) => `
       <div class="tile">
@@ -483,7 +488,10 @@
         <td class="num">${s.rules_checked} / ${s.rules_applicable}${s.rules_checked
           ? `<br><span style="color:var(--muted);font-size:0.76rem">${s.rules_passed} passed</span>`
           : ""}</td>
-        <td class="num">${s.findings_open || "—"}</td>
+        <td class="num">${s.findings_open || "—"}${s.findings_retired_rule
+          ? `<br><span style="color:var(--muted);font-size:0.76rem">+${
+              s.findings_retired_rule} retired rule</span>`
+          : ""}</td>
         <td>${s.last_observed_at ? day(s.last_observed_at) : "never"}</td>
         <td><button class="ghost small" data-capture="${s.code}">Observe</button></td>
       </tr>`).join("") : `<tr><td colspan="7" class="empty">No sites yet</td></tr>`;
@@ -683,7 +691,8 @@
           <span><span class="tag sev-${f.severity}">${f.severity}</span>
             <strong style="margin-left:0.4rem">${f.site}</strong>
             <span class="cls" style="margin-left:0.4rem">${f.standard} v${f.standard_version} ·
-              ${f.compliance_class}</span></span>
+              ${f.compliance_class}${f.standard_retired
+                ? " · rule since retired" : ""}</span></span>
           <span class="bar">
             <button class="small" data-fix="${f.id}">Fixed</button>
             <button class="ghost small" data-dismiss="${f.id}">Not a failure</button>

@@ -598,6 +598,11 @@ async def list_findings(
             # The version applied, so a rule rewritten since cannot make a past
             # finding look like it was judged against today's wording.
             "standard_version": standard.version if standard else None,
+            # The rule may have been retired or rewritten since. The finding
+            # stands — retiring a rule does not straighten the shelf — but it is
+            # marked, so a site reading "1 of 1 checked · 2 open" is explained
+            # rather than looking like a miscount.
+            "standard_retired": bool(standard and standard.retired_at),
             "compliance_class": standard.compliance_class if standard else None,
             "severity": f.severity,
             "detail": f.detail,

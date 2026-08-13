@@ -62,6 +62,12 @@ class SiteState:
     rules_passed: int = 0
     findings_open: int = 0
     findings_high: int = 0
+    # Open findings whose rule has since been retired or narrowed away from this
+    # site. Counted apart from the rest rather than folded in, because otherwise
+    # a site reads "1 of 1 checked" beside "2 open" and looks like an arithmetic
+    # error. The shelf is still wrong; the rule that caught it is simply no
+    # longer one this site is held to, and both of those are true at once.
+    findings_retired_rule: int = 0
     last_observed_at: str | None = None
     last_observation_id: str | None = None
     # Said in words, because this is the sentence people get wrong.
@@ -81,6 +87,7 @@ class Estate:
     sites_stale: int = 0
     findings_open: int = 0
     findings_high: int = 0
+    findings_retired_rule: int = 0
     standards_active: int = 0
     # Days after which an observation stops meaning anything about now. Reported
     # rather than hidden, so the reader can disagree with it.
@@ -104,25 +111,15 @@ class ComplianceService:
             if s.retired_at is None
         ]
 
-        # Open findings per site, and how many of them are the severe kind.
-        counts = dict(
-            (
-                await self.session.execute(
-                    select(Finding.site_id, func.count(Finding.id))
-                    .where(Finding.status == "open")
-                    .group_by(Finding.site_id)
-                )
-            ).all()
-        )
-        high = dict(
-            (
-                await self.session.execute(
-                    select(Finding.site_id, func.count(Finding.id))
-                    .where(Finding.status == "open", Finding.severity == "high")
-                    .group_by(Finding.site_id)
-                )
-            ).all()
-        )
+        # Open findings, fetched rather than counted in SQL, because whether one
+        # still counts against a site depends on whether its rule is still one
+        # that applies there — which is per-site work the database cannot do in
+        # a GROUP BY.
+        open_findings: dict[str, list[Finding]] = {}
+        for finding in await self.session.scalars(
+            select(Finding).where(Finding.status == "open")
+        ):
+            open_findings.setdefault(finding.site_id, []).append(finding)
 
         out = Estate(
             sites_total=len(sites),
@@ -130,12 +127,13 @@ class ComplianceService:
             stale_after_days=self.stale_after_days,
         )
         for site in sites:
-            state = await self._site_state(site, standards, now)
-            state.findings_open = int(counts.get(site.id, 0))
-            state.findings_high = int(high.get(site.id, 0))
+            state = await self._site_state(
+                site, standards, now, open_findings.get(site.id, [])
+            )
             out.sites.append(state.as_dict())
             out.findings_open += state.findings_open
             out.findings_high += state.findings_high
+            out.findings_retired_rule += state.findings_retired_rule
             if state.last_observed_at is None:
                 out.sites_never_observed += 1
             elif state.reads_as == "stale":
@@ -151,9 +149,14 @@ class ComplianceService:
         return out
 
     async def _site_state(
-        self, site: Site, standards: list[Standard], now: datetime
+        self,
+        site: Site,
+        standards: list[Standard],
+        now: datetime,
+        open_findings: list[Finding],
     ) -> SiteState:
         applicable = [s for s in standards if applies_to(s, site)]
+        live = {s.id for s in applicable}
         state = SiteState(
             id=site.id,
             code=site.code,
@@ -166,6 +169,11 @@ class ComplianceService:
             closes_on=site.closes_on.isoformat() if site.closes_on else None,
             rules_applicable=len(applicable),
         )
+        current = [f for f in open_findings if f.standard_id in live]
+        state.findings_open = len(current)
+        state.findings_high = sum(1 for f in current if f.severity == "high")
+        state.findings_retired_rule = len(open_findings) - len(current)
+
         today = now.date()
         if site.opens_on or site.closes_on:
             state.open_now = (site.opens_on is None or site.opens_on <= today) and (
@@ -190,7 +198,6 @@ class ComplianceService:
         # something this site can be judged on, and counting it would report
         # more coverage than there are rules to cover — literally "2 of 1
         # checked", which is what retiring a rule used to produce.
-        live = {s.id for s in applicable}
         checks = [
             c
             for c in await self.session.scalars(

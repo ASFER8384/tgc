@@ -271,6 +271,41 @@ async def test_retiring_a_rule_does_not_inflate_coverage(client):
 
 
 @pytest.mark.asyncio
+async def test_a_finding_against_a_retired_rule_is_counted_apart(client):
+    """The site read "1 of 1 checked · 2 open", which looks like a miscount.
+
+    It was not: one finding was against a rule retired since. That finding still
+    stands — retiring the rule does not straighten the shelf — but it is counted
+    separately, so the coverage figure and the open figure describe the same
+    standard as each other.
+    """
+    await client.post("/brand/sites", json=SITE)
+    await client.post("/brand/standards", json=HERO)
+    await client.post("/brand/standards", json=PRICE)
+    observation = await _observe(client)
+    await client.post(f"/brand/observations/{observation}/review", json={
+        "checks": [
+            {"standard_code": "ALN-HERO", "passed": False, "note": "hero on the bottom shelf"},
+            {"standard_code": "PRICE-CUR", "passed": False, "note": "sale ticket is last season"},
+        ],
+    })
+    site = await _site(client)
+    assert (site["findings_open"], site["findings_retired_rule"]) == (2, 0)
+
+    await client.delete("/brand/standards/ALN-HERO")
+    site = await _site(client)
+    assert site["rules_applicable"] == 1
+    assert site["findings_open"] == 1
+    assert site["findings_retired_rule"] == 1
+    # High severity travels with the finding that is still live, not the orphan.
+    assert site["findings_high"] == 0
+
+    findings = (await client.get("/brand/findings")).json()
+    marked = {f["standard"]: f["standard_retired"] for f in findings}
+    assert marked == {"ALN-HERO": True, "PRICE-CUR": False}
+
+
+@pytest.mark.asyncio
 async def test_a_retired_rule_cannot_be_applied(client):
     await client.post("/brand/sites", json=SITE)
     await client.post("/brand/standards", json=HERO)
