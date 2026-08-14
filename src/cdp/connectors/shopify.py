@@ -4,6 +4,7 @@ import hmac
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from cdp.config import get_settings
 from cdp.ingest.schemas import CanonicalEvent
 
 # Shopify vendor / product-tag values mapped to TGC brands. Vendor is the field
@@ -15,6 +16,23 @@ BRAND_BY_VENDOR = {
     "rawash": "rawash",
     "aynola": "aynola",
 }
+
+
+def _brand_map() -> dict[str, str]:
+    """The three known names, plus whatever the environment adds.
+
+    Merged rather than replaced: a store connected later should not have to
+    restate the brands that were already working, and a typo in one pair should
+    not silently unmap the others.
+    """
+    mapping = dict(BRAND_BY_VENDOR)
+    for pair in (get_settings().brand_by_vendor or "").split(","):
+        vendor, _, brand = pair.partition("=")
+        vendor, brand = vendor.strip().lower(), brand.strip().lower()
+        if vendor and brand:
+            mapping[vendor] = brand
+    return mapping
+
 
 SUPPORTED_TOPICS = (
     "orders/paid",
@@ -81,10 +99,15 @@ def _identifiers(payload: dict, *, is_customer_payload: bool) -> dict[str, str |
 
 
 def _brand_split(payload: dict) -> dict[str, Decimal]:
+    mapping = _brand_map()
+    # What an unrecognised vendor becomes. On a multi brand store "unassigned"
+    # is the right answer and is meant to be noticed; on a single brand store
+    # every line would read that way, so the environment can name the brand.
+    fallback = (get_settings().default_brand or "unassigned").strip().lower()
     split: dict[str, Decimal] = {}
     for line in payload.get("line_items") or []:
         vendor = (line.get("vendor") or "").strip().lower()
-        brand = BRAND_BY_VENDOR.get(vendor, "unassigned")
+        brand = mapping.get(vendor, fallback)
         price = Decimal(str(line.get("price") or "0")) * int(line.get("quantity") or 1)
         discount = sum(
             (Decimal(str(d.get("amount") or "0")) for d in line.get("discount_allocations") or []),

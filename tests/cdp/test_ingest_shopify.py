@@ -191,3 +191,37 @@ def test_the_pixel_id_is_still_a_device() -> None:
 
     assert event.identifiers["device_id"] == "abc123"
     assert event.identifiers["cart_token"] == "cart-token-7802"
+
+
+def test_a_new_store_names_its_own_vendor_without_a_deployment(monkeypatch) -> None:
+    """A single brand store called itself whatever it called itself, and getting
+    that wrong should be an environment variable rather than a release."""
+    from cdp.config import get_settings
+
+    monkeypatch.setenv("CDP_BRAND_BY_VENDOR", "The Abaya Co=aleena")
+    get_settings.cache_clear()
+    try:
+        split = shopify._brand_split(
+            shopify_order(total="200.00", lines=[("The Abaya Co", "200.00", 1)])
+        )
+        assert split == {"aleena": Decimal("200.00")}
+        # And the three already working are still mapped, not replaced.
+        assert shopify._brand_map()["rawash"] == "rawash"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_an_unnamed_vendor_can_fall_to_a_named_brand_instead_of_unassigned(monkeypatch) -> None:
+    """On a multi brand store "unassigned" is meant to be noticed. On a single
+    brand store every line reads that way, which is noise rather than a signal."""
+    from cdp.config import get_settings
+
+    monkeypatch.setenv("CDP_DEFAULT_BRAND", "aleena")
+    get_settings.cache_clear()
+    try:
+        split = shopify._brand_split(
+            shopify_order(total="90.00", lines=[("Whoever", "90.00", 1)])
+        )
+        assert split == {"aleena": Decimal("90.00")}
+    finally:
+        get_settings.cache_clear()

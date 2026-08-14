@@ -17,6 +17,21 @@ class Settings(BaseSettings):
 
     shopify_webhook_secret: str = ""
     default_country_code: str = "966"
+
+    # Which Shopify vendor is which TGC brand, as "vendor=brand" pairs separated
+    # by commas. Merged over the three built in names rather than replacing them,
+    # so adding a fourth store does not mean restating the first three.
+    #
+    # Configuration rather than code because the vendor field is maintained by
+    # whoever set the store up, and a single brand store will have called itself
+    # whatever it called itself. Getting that wrong should be an environment
+    # variable, not a deployment.
+    brand_by_vendor: str = ""
+    # What an unrecognised vendor becomes. Empty means "unassigned", which is
+    # deliberately visible in the console rather than silently dropped — on a
+    # multi brand store an unmapped vendor is a mistake worth seeing. On a single
+    # brand store it is noise, and naming the brand here is the honest fix.
+    default_brand: str = ""
     # Origins allowed to call the API from a browser. "*" while the console is a
     # static demo page on fabricated data; narrow this before real customers land.
     cors_allow_origins: tuple[str, ...] = ("*",)
