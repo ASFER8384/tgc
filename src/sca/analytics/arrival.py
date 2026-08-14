@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sca.analytics.geo import country_of, distance_km, origin
-from sca.config import get_settings
+from sca.config import Settings, get_settings
 from sca.models import AuditLog, PurchaseOrder, Supplier
 from sca.scheduling.windows import WorkingHours, hours_until_open, is_open
 
@@ -115,9 +115,9 @@ def _holiday_dates(country: str | None, start: date, end: date) -> list[tuple[da
 
 
 class ArrivalService:
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, *, settings: Settings | None = None):
         self.session = session
-        self.settings = get_settings()
+        self.settings = settings or get_settings()
 
     async def estimate(
         self, supplier: Supplier, *, mode: str | None = None, now: datetime | None = None

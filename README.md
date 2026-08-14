@@ -19,6 +19,12 @@ What works end to end today:
 
 - **Reorder planning** from stock and forecast, in weeks of cover, respecting
   minimum order quantity, pack size and the supplier's own lead time.
+- **A floor in units** per item, for the lines cover cannot speak to: an item
+  with no forecast and no sales history produces no suggestion however empty the
+  shelf gets, and this is what makes "never fewer than fifty" expressible.
+- **Buying policy on a page**, at `/procure?view=settings`: the reorder point,
+  the approval threshold, the chase window and the rest, changed by a buyer
+  without a deployment and with every value saying where it came from.
 - **Purchase orders** with a checked lifecycle, consolidated one per supplier.
 - **Approval gates**: value over a threshold, or a supplier who has never
   completed an order, cannot leave the building without a named approver.
@@ -52,7 +58,7 @@ docker compose up -d                              # postgres :5434, redis :6381
 Console at `http://localhost:8001/`, API reference at `/docs`.
 
 ```bash
-.venv/Scripts/python -m pytest -q                 # 35 tests, no container needed
+.venv/Scripts/python -m pytest -q                 # 285 tests, no container needed
 .venv/Scripts/python -m ruff check src tests scripts
 ```
 
@@ -93,6 +99,7 @@ Carrier APIs ────► tracking ──────────────
 | Scheduling | `sca/scheduling/` | Working hours arithmetic, including overlap between two parties. |
 | Reading | `sca/inbound/` | Deterministic extraction, then a confidence gate. Raw message stored verbatim. |
 | Carriers | `sca/carriers/` | One protocol, a working mock, real carriers are a class each. |
+| Policy | `sca/settings/` | Which numbers a buyer may change, and what a legal value is. Environment defaults, database overrides. |
 | API | `sca/api/` | HTTP only. Routers call services. |
 
 ### Decisions worth knowing
@@ -119,6 +126,27 @@ gate. The second is a supplier who has never completed an order: their first
 shipment is the most likely to go wrong and should never be triggered
 automatically.
 
+**Cover is the trigger; a units floor is the safety net.** Weeks of cover is the
+better rule and stays primary: it knows how fast a thing sells and how long the
+mill takes, where "below 50" knows neither and goes stale every season. But it
+needs a demand figure to divide by, so a new line nobody has bought yet produces
+nothing at all. `Item.min_stock` fills exactly that gap — it fires with no
+forecast, it cannot be overruled by healthy cover, and the quantity ordered is
+the larger of the two rules so a line tripping both does not trigger again the
+following week. Blank inherits the global default, and a zero is a decision that
+this line has no floor.
+
+**Policy lives in the database, defaults live in the environment.** Everything a
+buyer has authority over — the reorder point, the approval threshold, the chase
+window — was previously only an environment variable, which made raising a
+threshold a deployment and made the current one invisible to the people it
+governs. Overrides are now rows, resolved per request over the environment, so
+the page says of every value whether it is still the deployed default or
+somebody's decision and who made it. Credentials, the database URL and the
+switch that serves the API key into the console are deliberately not on that
+page: a policy table that can rewrite the API key is one a browser can lock the
+service out of its own data with.
+
 **Every exception carries a suggested action.** "No acknowledgement in 36 hours"
 is a report. "Chase them, they open in 40 minutes" is the product.
 
@@ -132,7 +160,10 @@ acceptable if everything it did can be listed afterwards.
   than silently accepted.
 - Sending is recorded, not performed: no SMTP or supplier API is wired yet.
 - The sweep runs when called, from the console button or a cron. No scheduler.
-- One shared API key. Buying approval in particular needs real named users.
+- One shared API key. Buying approval in particular needs real named users, and
+  it is the same gap on the settings page: every policy change is audited
+  against "api-key-user", which records that somebody moved the approval
+  threshold without recording who.
 
 ## Roadmap
 

@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sca.config import get_settings
+from sca.config import Settings, get_settings
 from sca.inbound.service import ACT_THRESHOLD
 from sca.models import InboundMessage, Issue, PurchaseOrder, Supplier
 from sca.scheduling.windows import WorkingHours, overlap_hours, working_hours_between
@@ -132,9 +132,9 @@ class Coordination:
 
 
 class CoordinationService:
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, *, settings: Settings | None = None):
         self.session = session
-        self.settings = get_settings()
+        self.settings = settings or get_settings()
 
     async def collect(self, *, now: datetime | None = None) -> Coordination:
         now = now or datetime.now(UTC)

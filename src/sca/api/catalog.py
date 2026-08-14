@@ -7,7 +7,8 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from sca.api.deps import ActorDep, SessionDep
+from sca.api.deps import ActorDep, RuntimeSettingsDep, SessionDep
+from sca.config import get_settings
 from sca.models import (
     AuditLog,
     Issue,
@@ -19,6 +20,7 @@ from sca.models import (
 )
 from sca.planning.demand import weekly_demand
 from sca.scheduling.windows import WorkingHours, is_open, local_now, next_open
+from sca.settings.knobs import KNOBS_BY_KEY, SettingError
 
 router = APIRouter(tags=["catalog"])
 
@@ -70,6 +72,12 @@ class ItemIn(BaseModel):
     moq: int = 1
     pack_size: int = 1
     unit_cost: Decimal = Decimal("0")
+    # The floor in units for this item, under which it is bought back up
+    # whatever the forecast says. Null rather than zero by default: null means
+    # "use the global default", zero means somebody decided this line has no
+    # floor, and the two must not collapse into each other on a form that
+    # leaves the box empty.
+    min_stock: int | None = None
 
 
 class StockIn(BaseModel):
@@ -270,12 +278,25 @@ async def upsert_item(body: ItemIn, session: SessionDep, actor: ActorDep) -> dic
 
 
 @router.get("/items")
-async def list_items(session: SessionDep, actor: ActorDep) -> list[dict]:
-    items = await session.scalars(select(Item).order_by(Item.sku))
+async def list_items(
+    session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep
+) -> list[dict]:
+    items = list(await session.scalars(select(Item).order_by(Item.sku)))
     stock = {s.sku: s for s in await session.scalars(select(StockSnapshot))}
     # Both numbers, always: the typed forecast is what drives buying, and the
     # measured one is what lets someone notice the typed figure has gone stale.
-    observed = await weekly_demand(session, now=datetime.now(UTC))
+    # Measured over each item own window where it sets one, so the figure here
+    # is the same one the planner will act on.
+    observed = await weekly_demand(
+        session,
+        now=datetime.now(UTC),
+        window_weeks=settings.demand_window_weeks,
+        windows={
+            i.sku: float(i.demand_window_weeks)
+            for i in items
+            if i.demand_window_weeks is not None
+        },
+    )
     out = []
     for item in items:
         snapshot = stock.get(item.sku)
@@ -283,6 +304,31 @@ async def list_items(session: SessionDep, actor: ActorDep) -> list[dict]:
         measured = observed.get(item.sku)
         weekly = manual if manual > 0 else (measured.weekly if measured else 0.0)
         available = (snapshot.on_hand + snapshot.on_order) if snapshot else 0
+        # The floor in force for this line, and whether stock is under it. The
+        # item's own figure wins where it has one, including a deliberate zero.
+        floor = (
+            item.min_stock
+            if item.min_stock is not None
+            else int(settings.min_stock_default or 0)
+        )
+        # Every threshold this line actually runs under, beside the one it set
+        # itself. A row inheriting a default must not look identical to one
+        # somebody set by hand to the same number.
+        policy = {
+            field: {
+                "own": _plain(getattr(item, field)),
+                "in_force": _plain(
+                    getattr(settings, setting) if getattr(item, field) is None
+                    else getattr(item, field)
+                ),
+            }
+            for field, setting in (
+                ("min_stock", "min_stock_default"),
+                ("reorder_cover_weeks", "reorder_cover_weeks"),
+                ("target_cover_weeks", "target_cover_weeks"),
+                ("demand_window_weeks", "demand_window_weeks"),
+            )
+        }
         out.append({
             "sku": item.sku,
             "name": item.name,
@@ -296,6 +342,14 @@ async def list_items(session: SessionDep, actor: ActorDep) -> list[dict]:
             "unit": item.unit,
             "moq": item.moq,
             "pack_size": item.pack_size,
+            # Both, because they answer different questions: the first is what
+            # this item was given, the second is what is actually being applied
+            # to it. A row inheriting the global default should not look
+            # identical to one somebody set by hand to the same number.
+            "min_stock": item.min_stock,
+            "min_stock_effective": floor,
+            "policy": policy,
+            "below_minimum": bool(floor > 0 and available < floor),
             "on_hand": snapshot.on_hand if snapshot else 0,
             "on_order": snapshot.on_order if snapshot else 0,
             "weekly_forecast": weekly,
@@ -315,6 +369,111 @@ async def list_items(session: SessionDep, actor: ActorDep) -> list[dict]:
             "weeks_cover": round(available / weekly, 1) if weekly else None,
         })
     return out
+
+
+class ItemPolicyIn(BaseModel):
+    """One item's own buying policy. Every field optional, null meaning "no
+    opinion, use the global setting of the same name"."""
+
+    min_stock: int | None = None
+    reorder_cover_weeks: float | None = None
+    target_cover_weeks: float | None = None
+    demand_window_weeks: float | None = None
+
+
+class PolicyIn(BaseModel):
+    """The policy for several items at once, because it is edited as a table.
+
+    Its own route rather than part of the item upsert: that one takes a whole
+    item and defaults everything absent, so a page wanting to change one
+    threshold would have to send the category, the pack size and the unit cost
+    back correctly or quietly overwrite them. Here an absent field is left
+    alone and an explicit null is a decision to inherit.
+    """
+
+    values: dict[str, ItemPolicyIn]
+
+
+@router.put("/items/policy")
+async def set_item_policy(body: PolicyIn, session: SessionDep, actor: ActorDep) -> dict:
+    items = {
+        item.sku: item
+        for item in await session.scalars(select(Item).where(Item.sku.in_(list(body.values))))
+    }
+    unknown = sorted(set(body.values) - set(items))
+    if unknown:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"no such item: {', '.join(unknown)}"
+        )
+
+    changed: list[dict] = []
+    for sku, wanted in body.values.items():
+        item = items[sku]
+        # Validated against the same bounds the global settings use, so a figure
+        # that would be refused on the settings page cannot be smuggled in per
+        # item. Cross-checked too: buying up to less cover than triggers the buy
+        # produces an order that arrives already below the reorder point.
+        resolved = _validated_item_policy(sku, item, wanted)
+        for field, value in resolved.items():
+            if getattr(item, field) == value:
+                continue
+            changed.append({
+                "sku": sku, "field": field,
+                "from": _plain(getattr(item, field)), "to": _plain(value),
+            })
+            setattr(item, field, value)
+
+    if changed:
+        session.add(
+            AuditLog(
+                actor=actor, action="items.policy", entity="item", entity_id="bulk",
+                meta={"changes": changed},
+            )
+        )
+    await session.flush()
+    return {"changed": changed}
+
+
+def _plain(value):
+    """Decimal columns come back as Decimal, which JSON will not carry."""
+    return None if value is None else float(value)
+
+
+def _validated_item_policy(sku: str, item: Item, wanted: ItemPolicyIn) -> dict:
+    fields = {
+        "min_stock": "min_stock_default",
+        "reorder_cover_weeks": "reorder_cover_weeks",
+        "target_cover_weeks": "target_cover_weeks",
+        "demand_window_weeks": "demand_window_weeks",
+    }
+    resolved: dict = {}
+    for field, knob_key in fields.items():
+        value = getattr(wanted, field)
+        if value is None:
+            resolved[field] = None
+            continue
+        try:
+            resolved[field] = KNOBS_BY_KEY[knob_key].parse(value)
+        except SettingError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f"{sku}: {exc}"
+            ) from exc
+
+    settings = get_settings()
+    reorder = resolved["reorder_cover_weeks"]
+    target = resolved["target_cover_weeks"]
+    # Against what this item will actually run under, not only against what this
+    # request happened to carry: setting one of the pair alone must not be able
+    # to walk the item into a state where every order arrives already low.
+    reorder = settings.reorder_cover_weeks if reorder is None else reorder
+    target = settings.target_cover_weeks if target is None else target
+    if float(target) <= float(reorder):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"{sku}: buy up to ({target}) must be more than reorder below ({reorder}), "
+            "or every order would arrive already below the reorder point",
+        )
+    return resolved
 
 
 @router.post("/stock", status_code=status.HTTP_201_CREATED)

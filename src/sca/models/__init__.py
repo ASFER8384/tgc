@@ -15,6 +15,7 @@ from sca.models.order import (
     PurchaseOrderLine,
     Shipment,
 )
+from sca.models.setting import AppSetting
 from sca.models.supplier import (
     CHANNELS,
     Item,
@@ -31,6 +32,7 @@ __all__ = [
     "MESSAGE_KINDS",
     "SEVERITIES",
     "STATUSES",
+    "AppSetting",
     "Attachment",
     "AuditLog",
     "Base",

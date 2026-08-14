@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sca.config import get_settings
+from sca.config import Settings, get_settings
 from sca.mail import MailError, OutboundMessage, get_mailer, resolve_recipient
 from sca.models import (
     ALLOWED_TRANSITIONS,
@@ -26,10 +26,15 @@ class OrderError(ValueError):
 
 
 class OrderService:
-    def __init__(self, session: AsyncSession, *, actor: str = "system"):
+    def __init__(
+        self, session: AsyncSession, *, actor: str = "system", settings: Settings | None = None
+    ):
         self.session = session
         self.actor = actor
-        self.settings = get_settings()
+        # The approval threshold reaches this service through here, so an order
+        # is gated on the policy in force when it was raised rather than on
+        # whatever was on the environment when the process started.
+        self.settings = settings or get_settings()
 
     # ---------------------------------------------------------------- creation
     async def create(

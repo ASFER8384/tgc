@@ -179,6 +179,31 @@
   .finding .detail { font-size: 0.86rem; }
   .finding .meta { font-size: 0.78rem; color: var(--muted); }
 
+  /* The record. One block per site and rule, with every time it went wrong
+     underneath it — the repetition is the point, so the count is the largest
+     thing on the row and the occurrences are subordinate to it. */
+  .repeat { border-bottom: 1px solid var(--rule); padding: 0.8rem 1rem; }
+  .repeat:last-child { border-bottom: none; }
+  .repeat .head { display: flex; align-items: baseline; gap: 0.6rem;
+                  justify-content: space-between; flex-wrap: wrap; }
+  .repeat .count { font-family: var(--display); font-size: 1.15rem; font-weight: 600; }
+  .repeat .count small { font-family: var(--mono); font-size: 0.68rem; color: var(--muted);
+                         letter-spacing: 0.08em; text-transform: uppercase;
+                         margin-left: 0.35rem; }
+  .repeat .rule { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
+  .repeat ol { list-style: none; margin: 0.6rem 0 0; padding: 0;
+               border-left: 2px solid var(--rule); }
+  .repeat li { padding: 0.4rem 0 0.4rem 0.75rem; font-size: 0.82rem; }
+  .repeat li + li { border-top: 1px solid var(--rule); }
+  .repeat .when { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+  /* Why it was closed, and by whom. On a dismissal this is the sentence that
+     has to be readable back against the rule — a rule dismissed every time it
+     fires is one that needs rewriting, and this is the only place that shows. */
+  .repeat .outcome { display: block; margin-top: 0.15rem; font-size: 0.78rem; }
+  .repeat .outcome.dismissed { color: var(--high); }
+  .repeat .outcome.fixed { color: var(--ok); }
+  .repeat .outcome.open { color: var(--medium); }
+
   .readout { background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px;
              padding: 0.7rem 0.85rem; font-family: var(--mono); font-size: 0.76rem;
              white-space: pre-wrap; word-break: break-word; }
@@ -272,6 +297,21 @@
         <span class="hint" id="findingsHint"></span>
       </div>
       <div id="findings"><div class="empty">loading</div></div>
+    </div>
+  </div>
+
+  <!-- The record. A finding leaves the queue the moment somebody marks it
+       fixed, which is right for working through today's corrections and wrong
+       for every other question — a shelf straightened four times this season is
+       a different problem from one straightened once, and a queue that deletes
+       its own past cannot tell them apart. -->
+  <div data-view="history" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>What keeps going wrong</h2>
+        <span class="hint" id="historyHint"></span>
+      </div>
+      <div id="history"><div class="empty">loading</div></div>
     </div>
   </div>
 
@@ -830,6 +870,65 @@
     releaseImages();
     await loadSites();
     await Promise.all([loadStandards(), loadPending(), loadFindings()]);
+    // Closing a finding is exactly what moves it out of the queue and into the
+    // record, so the record has to be redrawn when it is on screen — otherwise
+    // the thing that just disappeared appears nowhere at all.
+    if (state.view === "history") await loadHistory();
+  }
+
+  // ----------------------------------------------------------------- the record
+  // The same findings the queue drops the moment they are closed, kept and
+  // counted. Loaded when the page is opened rather than with the rest: it is
+  // read to answer a question, not watched.
+  async function loadHistory() {
+    if (!state.key) return;
+    let rows;
+    try {
+      rows = await api("/brand/findings/history");
+    } catch (err) {
+      $("history").innerHTML = `<div class="empty">Could not load: ${err.message}</div>`;
+      return;
+    }
+    const repeats = rows.filter((r) => r.times > 1).length;
+    $("historyHint").textContent = rows.length
+      ? `${rows.length} site and rule pair(s) · ${repeats} that went wrong more than once`
+      : "";
+
+    $("history").innerHTML = rows.length ? rows.map((r) => `
+      <div class="repeat">
+        <div class="head">
+          <span>
+            <strong>${r.site}</strong>
+            <span class="cls" style="margin-left:0.4rem">${r.standard} · ${
+              r.compliance_class}${r.standard_retired ? " · rule since retired" : ""}</span>
+            <div class="rule">${r.standard_title || ""}</div>
+          </span>
+          <span class="count">${r.times}<small>${
+            r.times === 1 ? "failure" : "failures"}</small>
+            ${r.open ? `<small style="color:var(--medium)">${r.open} still open</small>` : ""}
+            ${r.average_days_to_close !== null
+              ? `<small>${r.average_days_to_close}d to fix on average</small>` : ""}
+          </span>
+        </div>
+        <ol>${r.occurrences.map((o) => `
+          <li>
+            <span class="when">${day(o.raised_at)} · v${o.standard_version} · ${
+              o.severity}</span>
+            <div>${o.detail}</div>
+            <span class="outcome ${o.status}">${
+              o.status === "open"
+                ? "still open"
+                : `${o.status} ${o.closed_at ? day(o.closed_at) : ""}${
+                    o.days_to_close !== null ? ` · ${o.days_to_close} days` : ""}${
+                    o.closed_by ? ` · ${o.closed_by}` : ""}${
+                    // The reason, which only a dismissal is made to carry. Read
+                    // back against the rule, a dismissal repeated every time is
+                    // the rule failing rather than the site.
+                    o.closed_note ? ` — ${o.closed_note}` : ""}`}</span>
+          </li>`).join("")}</ol>
+      </div>`).join("")
+      : `<div class="empty">Nothing has been raised yet. This fills as findings are
+           closed — the queue keeps only what is still outstanding.</div>`;
   }
 
   // ------------------------------------------------------------------ views
@@ -838,6 +937,7 @@
     standards: ["The standard", "the rules, versioned"],
     review: ["Review", "apply the standard to what was seen"],
     findings: ["Findings", "what somebody has to put right"],
+    history: ["The record", "what keeps going wrong, how often, and how it ended"],
   };
 
   window.applyView = function applyView(view) {
@@ -852,6 +952,10 @@
     $("openSite").hidden = view !== "sites";
     $("openCapture").hidden = view !== "sites" && view !== "review";
     $("openStandard").hidden = view !== "standards";
+    // Fetched on arrival: the record is read to answer a question rather than
+    // watched, and a review of today's photographs is no reason to recount a
+    // season of findings.
+    if (view === "history") loadHistory();
     document.querySelectorAll('.tgc-rail nav a[data-nav^="brand:"]').forEach((a) =>
       a.classList.toggle("on", a.dataset.nav === "brand:" + view));
   };

@@ -60,6 +60,30 @@ class Item(Base, TimestampMixin):
     moq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     pack_size: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     unit_cost: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    # The floor nobody wants to go under, in units, regardless of what the
+    # forecast says. Cover in weeks is the better trigger and stays the primary
+    # one, but it can only speak where there is a demand figure to divide by —
+    # and the items with no history are exactly the new lines and the slow
+    # movers a buyer most wants a hard minimum on. Null means "use whatever the
+    # global default is", which is not the same as zero: zero is somebody saying
+    # this item has no floor.
+    min_stock: Mapped[int | None] = mapped_column(Integer)
+
+    # The rest of the buying policy, per item, all null and all falling back to
+    # the global setting of the same name.
+    #
+    # One set of numbers across a catalogue of woven abayas, bolts of silk and
+    # printed cartons was always a compromise. Silk is bought deep: the mill
+    # quotes long and the price moves. Cartons are bought thin: the warehouse
+    # cannot hold them and the supplier is up the road. Saying that needs three
+    # thresholds, and the system had one.
+    #
+    # On the item rather than the category, because the exceptions are what need
+    # saying — most lines want the default, and a category rule would still be
+    # the wrong number for the one seasonal item inside it.
+    reorder_cover_weeks: Mapped[float | None] = mapped_column(Numeric(6, 2))
+    target_cover_weeks: Mapped[float | None] = mapped_column(Numeric(6, 2))
+    demand_window_weeks: Mapped[float | None] = mapped_column(Numeric(6, 2))
 
 
 class SupplierItem(Base, TimestampMixin):

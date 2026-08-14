@@ -209,6 +209,94 @@ async def test_a_dismissal_does_not_erase_the_check_that_raised_it(client):
     assert [row["label"] for row in labels] == ["violation"]
 
 
+# ------------------------------------------------------------------ the record
+@pytest.mark.asyncio
+async def test_a_closed_finding_leaves_the_queue_and_joins_the_record(client):
+    """The queue empties on purpose; the record is where the past is kept.
+
+    A lapse corrected twice reads as nothing at all once both are closed, which
+    is right for somebody working through today's corrections and useless for
+    anyone asking whether this keeps happening.
+    """
+    await client.post("/brand/sites", json=SITE)
+    await client.post("/brand/standards", json=HERO)
+
+    for note in ("hero on the floor", "hero behind the till"):
+        observation = await _observe(client)
+        await client.post(f"/brand/observations/{observation}/review", json={
+            "checks": [{"standard_code": "ALN-HERO", "passed": False, "note": note}],
+        })
+        finding = (await client.get("/brand/findings")).json()[0]
+        await client.post(f"/brand/findings/{finding['id']}/close", json={
+            "status": "fixed", "note": None,
+        })
+
+    # Nothing outstanding, which is what the queue is for.
+    assert (await client.get("/brand/findings")).json() == []
+
+    record = (await client.get("/brand/findings/history")).json()
+    assert len(record) == 1
+    entry = record[0]
+    assert entry["times"] == 2
+    assert entry["open"] == 0
+    assert entry["fixed"] == 2
+    assert entry["standard"] == "ALN-HERO"
+    # Why, each time. Asserted as a set rather than in order: both were raised
+    # inside the same second here, and SQLite's now() has only second
+    # precision, so the ordering between them is not a property the code can
+    # promise in this fixture.
+    assert {o["detail"] for o in entry["occurrences"]} == {
+        "hero behind the till", "hero on the floor",
+    }
+    assert all(o["days_to_close"] is not None for o in entry["occurrences"])
+
+
+@pytest.mark.asyncio
+async def test_the_record_carries_the_reason_a_finding_was_dismissed(client):
+    """A rule dismissed every time it fires is a rule that needs rewriting, and
+    the reason is the only evidence of it."""
+    await client.post("/brand/sites", json=SITE)
+    await client.post("/brand/standards", json=HERO)
+    observation = await _observe(client)
+    await client.post(f"/brand/observations/{observation}/review", json={
+        "checks": [{"standard_code": "ALN-HERO", "passed": False, "note": "obstructed"}],
+    })
+    finding = (await client.get("/brand/findings")).json()[0]
+    await client.post(f"/brand/findings/{finding['id']}/close", json={
+        "status": "dismissed", "note": "the fixture was mid-restock",
+    })
+
+    entry = (await client.get("/brand/findings/history")).json()[0]
+    assert entry["dismissed"] == 1
+    assert entry["occurrences"][0]["closed_note"] == "the fixture was mid-restock"
+
+
+@pytest.mark.asyncio
+async def test_the_record_groups_a_rule_across_its_versions(client):
+    """Rewording a rule does not make a recurring lapse a new one."""
+    await client.post("/brand/sites", json=SITE)
+    await client.post("/brand/standards", json=HERO)
+    first = await _observe(client)
+    await client.post(f"/brand/observations/{first}/review", json={
+        "checks": [{"standard_code": "ALN-HERO", "passed": False, "note": "v1 failure"}],
+    })
+    await client.post(f"/brand/findings/{(await client.get('/brand/findings')).json()[0]['id']}"
+                      "/close", json={"status": "fixed", "note": None})
+
+    await client.post("/brand/standards", json=HERO | {"rule": "Hero unobstructed, top shelf."})
+    second = await _observe(client)
+    await client.post(f"/brand/observations/{second}/review", json={
+        "checks": [{"standard_code": "ALN-HERO", "passed": False, "note": "v2 failure"}],
+    })
+
+    record = (await client.get("/brand/findings/history")).json()
+    assert len(record) == 1
+    assert record[0]["times"] == 2
+    assert record[0]["open"] == 1
+    # Each occurrence still names the version that was actually applied.
+    assert sorted(o["standard_version"] for o in record[0]["occurrences"]) == [1, 2]
+
+
 # ----------------------------------------------------------------- standards
 @pytest.mark.asyncio
 async def test_revising_a_rule_supersedes_it_rather_than_editing_it(client):

@@ -13,7 +13,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sca.config import get_settings
+from sca.config import Settings, get_settings
 from sca.models import Issue, Item, StockSnapshot, Supplier, SupplierItem
 from sca.planning.demand import Demand, weekly_demand
 from sca.scheduling.windows import WorkingHours, is_open
@@ -24,7 +24,11 @@ class Suggestion:
     sku: str
     description: str
     supplier_id: str
-    weeks_cover: float
+    # None where there is no demand figure to divide by. A line can still be
+    # suggested there — a hard minimum in units does not need a forecast — and
+    # reporting nought weeks of cover for an item nobody has bought yet would be
+    # a measurement rather than the absence of one.
+    weeks_cover: float | None
     suggest_quantity: int
     unit_cost: Decimal
     line_total: Decimal
@@ -34,6 +38,12 @@ class Suggestion:
     # behind it was typed by a colleague or measured from sales.
     forecast_source: str
     weekly_demand: float
+    # The floor in units this line is held above, and whether it is under it.
+    # Carried separately from the reason text because the console colours the
+    # row on it: a line below a minimum somebody set by hand is not the same
+    # kind of suggestion as one that merely ran low on cover.
+    minimum: int = 0
+    below_minimum: bool = False
     observed: Demand | None = None
     # Everyone who could make this line, best first, each priced at their own
     # minimum. The buyer picks; the first is only where the cursor starts.
@@ -50,13 +60,15 @@ class Suggestion:
             "sku": self.sku,
             "description": self.description,
             "supplier_id": self.supplier_id,
-            "weeks_cover": round(self.weeks_cover, 1),
+            "weeks_cover": round(self.weeks_cover, 1) if self.weeks_cover is not None else None,
             "suggest_quantity": self.suggest_quantity,
             "unit_cost": str(self.unit_cost),
             "line_total": str(self.line_total),
             "reason": self.reason,
             "forecast_source": self.forecast_source,
             "weekly_demand": round(self.weekly_demand, 1),
+            "minimum": self.minimum,
+            "below_minimum": self.below_minimum,
             "observed": self.observed.as_dict() if self.observed else None,
             "alternatives": self.alternatives,
             "options": self.options,
@@ -64,16 +76,30 @@ class Suggestion:
 
 
 class PlanningService:
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, *, settings: Settings | None = None):
         self.session = session
-        self.settings = get_settings()
+        # Passed in by the API, which resolves the console's overrides over the
+        # environment. Falling back to the environment keeps this callable from
+        # a script or a test without one.
+        self.settings = settings or get_settings()
 
     async def suggest(self, *, now: datetime | None = None) -> list[Suggestion]:
         now = now or datetime.now(UTC)
         items = {i.sku: i for i in await self.session.scalars(select(Item))}
         stock = {s.sku: s for s in await self.session.scalars(select(StockSnapshot))}
         suppliers = {s.id: s for s in await self.session.scalars(select(Supplier))}
-        observed = await weekly_demand(self.session, now=now)
+        observed = await weekly_demand(
+            self.session,
+            now=now,
+            window_weeks=self.settings.demand_window_weeks,
+            # Per item where one is set. A seasonal line measured over the same
+            # six months as a carton is the wrong number, not a steadier one.
+            windows={
+                sku: float(item.demand_window_weeks)
+                for sku, item in items.items()
+                if item.demand_window_weeks is not None
+            },
+        )
         # Who can actually make each SKU, and on what terms. An item still names
         # a supplier, which is used when nobody has been linked to it yet — but
         # where links exist they win, because they are the ones a person chose
@@ -119,15 +145,37 @@ class PlanningService:
                 weekly, source = measured.weekly, "sales"
 
             available = snapshot.on_hand + snapshot.on_order
-            if weekly <= 0:
-                # No forecast and nothing sold means no opinion. Suggesting
-                # anything here would be inventing demand, which is how
+
+            # The floor in units, which needs no forecast to be true. The item's
+            # own figure wins where one is set, including a deliberate zero:
+            # somebody who says this line has no minimum is answering the
+            # question, and the global default should not overrule them.
+            floor = self._policy(item, "min_stock", "min_stock_default")
+            floor = int(floor or 0)
+            below_floor = floor > 0 and available < floor
+            # This item's thresholds, or the deployment's where it has none.
+            reorder_weeks = float(
+                self._policy(item, "reorder_cover_weeks", "reorder_cover_weeks"))
+            target_weeks = float(
+                self._policy(item, "target_cover_weeks", "target_cover_weeks"))
+
+            if weekly <= 0 and not below_floor:
+                # No forecast, nothing sold, and no floor anybody set. Suggesting
+                # something here would be inventing demand, which is how
                 # automation loses trust.
                 continue
 
-            weeks_cover = available / weekly
-            target_units = self.settings.target_cover_weeks * weekly
-            raw_quantity = max(0.0, target_units - available)
+            weeks_cover = available / weekly if weekly > 0 else None
+            # Two quantities, whichever is larger. Cover answers "enough for how
+            # long", the floor answers "never fewer than this", and an item that
+            # trips both wants the bigger of the two — topping up to a fifty
+            # piece minimum while the forecast says eight weeks needs four
+            # hundred would leave it triggering again the following week.
+            raw_quantity = max(
+                target_weeks * weekly - available if weekly > 0 else 0.0,
+                float(floor - available) if below_floor else 0.0,
+                0.0,
+            )
 
             # Whoever this line costs least with — priced for the quantity
             # actually needed, not per unit.
@@ -156,8 +204,14 @@ class PlanningService:
 
             # Lead time is part of the trigger, not an afterthought: a mill that
             # takes six weeks must be ordered from before cover runs to four.
-            trigger = max(self.settings.reorder_cover_weeks, lead_days / 7)
-            if weeks_cover >= trigger:
+            #
+            # The floor is checked separately and cannot be overruled by cover.
+            # An item under its minimum is bought back up even where the
+            # forecast says there is a season of stock in the building, because
+            # the minimum is somebody stating a policy and the cover figure is
+            # the system's estimate of one.
+            trigger = max(reorder_weeks, lead_days / 7)
+            if weeks_cover is not None and weeks_cover >= trigger and not below_floor:
                 continue
             out.append(
                 Suggestion(
@@ -169,36 +223,76 @@ class PlanningService:
                     unit_cost=unit_cost,
                     line_total=(unit_cost * quantity).quantize(Decimal("0.01")),
                     options=ranked,
-                    reason=(
-                        f"{weeks_cover:.1f} weeks of cover against a "
-                        f"{lead_days} day lead time"
-                        + (
-                            f", on {measured.units} sold in "
-                            f"{measured.weeks:.0f} weeks"
-                            + (
-                                " on sale"
-                                if measured.availability != "uncorrected"
-                                else ""
-                            )
-                            # The stockout is named rather than silently divided
-                            # out, because it is the part a buyer would query
-                            # and the part that raised the figure.
-                            + (
-                                f", {measured.stockout_weeks:.0f} weeks out of stock"
-                                if measured.stockout_weeks >= 1
-                                else ""
-                            )
-                            if source == "sales" and measured
-                            else ""
-                        )
+                    reason=self._reason(
+                        weeks_cover=weeks_cover,
+                        lead_days=lead_days,
+                        source=source,
+                        measured=measured,
+                        available=available,
+                        floor=floor,
+                        below_floor=below_floor,
                     ),
-                    forecast_source=source,
+                    forecast_source=source if weekly > 0 else "minimum",
                     weekly_demand=weekly,
+                    minimum=floor,
+                    below_minimum=below_floor,
                     observed=measured,
                 )
             )
-        out.sort(key=lambda s: s.weeks_cover)
+        # Lowest cover first. A line under a hard minimum with no demand figure
+        # has no cover to sort by and leads instead: somebody stated a floor and
+        # the shelf is under it, which needs no forecast to be worth acting on.
+        out.sort(key=lambda s: s.weeks_cover if s.weeks_cover is not None else -1.0)
         return out
+
+    def _policy(self, item, field: str, setting: str):
+        """This item's own figure, or the deployment's where it has none.
+
+        Null and not zero is what separates the two. A zero minimum is somebody
+        saying this line has no floor; a null is somebody not having an opinion,
+        and a deployment that later raises the default should move the second
+        and leave the first alone.
+        """
+        value = getattr(item, field, None)
+        return getattr(self.settings, setting) if value is None else value
+
+    @staticmethod
+    def _reason(
+        *,
+        weeks_cover: float | None,
+        lead_days: int,
+        source: str,
+        measured: Demand | None,
+        available: int,
+        floor: int,
+        below_floor: bool,
+    ) -> str:
+        """One line a buyer can check the suggestion against.
+
+        The floor is stated first where it is the thing that fired, because it
+        is the part somebody typed in and therefore the part they can argue
+        with. Cover follows where there is one; on an item with no demand figure
+        there is nothing honest to say about weeks, so nothing is said.
+        """
+        parts: list[str] = []
+        if below_floor:
+            parts.append(f"{available} available against a minimum of {floor}")
+        if weeks_cover is not None:
+            parts.append(
+                f"{weeks_cover:.1f} weeks of cover against a {lead_days} day lead time"
+            )
+        else:
+            parts.append(f"no forecast and nothing sold, {lead_days} day lead time")
+        if source == "sales" and measured:
+            detail = f"on {measured.units} sold in {measured.weeks:.0f} weeks"
+            if measured.availability != "uncorrected":
+                detail += " on sale"
+            # The stockout is named rather than silently divided out, because it
+            # is the part a buyer would query and the part that raised the figure.
+            if measured.stockout_weeks >= 1:
+                detail += f", {measured.stockout_weeks:.0f} weeks out of stock"
+            parts.append(detail)
+        return ", ".join(parts)
 
     @classmethod
     def _rank(cls, options, suppliers, trouble, raw_quantity, now) -> list[dict]:

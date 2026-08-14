@@ -8,9 +8,8 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from sca.api.deps import ActorDep, SessionDep
+from sca.api.deps import ActorDep, RuntimeSettingsDep, SessionDep
 from sca.carriers.base import get_carrier
-from sca.config import get_settings
 from sca.models import (
     Attachment,
     Document,
@@ -73,13 +72,14 @@ class CancelIn(BaseModel):
 
 # ------------------------------------------------------------------- planning
 @router.post("/planning/suggest")
-async def suggest(session: SessionDep, actor: ActorDep) -> dict:
-    suggestions = await PlanningService(session).suggest()
+async def suggest(
+    session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep
+) -> dict:
+    suggestions = await PlanningService(session, settings=settings).suggest()
     grouped: dict[str, list[dict]] = {}
     for suggestion in suggestions:
         grouped.setdefault(suggestion.supplier_id, []).append(suggestion.as_dict())
     suppliers = {s.id: s.name for s in await session.scalars(select(Supplier))}
-    settings = get_settings()
     return {
         "count": len(suggestions),
         # The rule, sent rather than restated in the console. A buyer approving
@@ -91,6 +91,11 @@ async def suggest(session: SessionDep, actor: ActorDep) -> dict:
             "demand_window_weeks": settings.demand_window_weeks,
             "reorder_cover_weeks": settings.reorder_cover_weeks,
             "target_cover_weeks": settings.target_cover_weeks,
+            # The floor in units, which fires with no forecast at all. Sent
+            # for the same reason as the rest: the page explains the rule and
+            # an explanation that hardcodes a number goes stale the first time
+            # somebody tunes it on the settings page.
+            "min_stock_default": settings.min_stock_default,
             # The arrival estimate's two configured terms, sent for the same
             # reason as the three above: the page explains them, and an
             # explanation that repeats a number rather than reading it goes
@@ -123,16 +128,19 @@ class CreateOrdersIn(BaseModel):
 
 @router.post("/planning/create-orders", status_code=status.HTTP_201_CREATED)
 async def create_from_suggestions(
-    session: SessionDep, actor: ActorDep, body: CreateOrdersIn | None = None
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
+    body: CreateOrdersIn | None = None,
 ) -> dict:
     """One draft per supplier, not one per line: a buyer sends an order, not a
     stream of individual requests, and consolidating is what earns the freight."""
     wanted = set(body.skus) if body and body.skus else None
     picked = dict(body.supplier_by_sku) if body else {}
-    suggestions = await PlanningService(session).suggest()
+    suggestions = await PlanningService(session, settings=settings).suggest()
     if wanted is not None:
         suggestions = [s for s in suggestions if s.sku in wanted]
-    service = OrderService(session, actor=actor)
+    service = OrderService(session, actor=actor, settings=settings)
     grouped: dict[str, list[dict]] = {}
     for suggestion in suggestions:
         supplier_id = suggestion.supplier_id
@@ -175,9 +183,11 @@ async def create_from_suggestions(
 
 # --------------------------------------------------------------------- orders
 @router.post("/purchase-orders", status_code=status.HTTP_201_CREATED)
-async def create_order(body: OrderIn, session: SessionDep, actor: ActorDep) -> dict:
+async def create_order(
+    body: OrderIn, session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep
+) -> dict:
     try:
-        order = await OrderService(session, actor=actor).create(
+        order = await OrderService(session, actor=actor, settings=settings).create(
             body.supplier_id,
             [line.model_dump() for line in body.lines],
             origin=body.origin,
@@ -231,11 +241,17 @@ async def get_order(number: str, session: SessionDep, actor: ActorDep) -> dict:
 
 @router.post("/purchase-orders/{number}/approve")
 async def approve_order(
-    number: str, body: ApproveIn, session: SessionDep, actor: ActorDep
+    number: str,
+    body: ApproveIn,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
 ) -> dict:
     order = await _by_number(session, number)
     try:
-        await OrderService(session, actor=actor).approve(order, approver=body.approver)
+        await OrderService(session, actor=actor, settings=settings).approve(
+            order, approver=body.approver
+        )
     except OrderError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return await _order_detail(session, order)
@@ -243,7 +259,11 @@ async def approve_order(
 
 @router.post("/purchase-orders/{number}/send")
 async def send_order(
-    number: str, session: SessionDep, actor: ActorDep, body: SendIn | None = None
+    number: str,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
+    body: SendIn | None = None,
 ) -> dict:
     order = await _by_number(session, number)
     if order.status == "pending_approval":
@@ -252,7 +272,7 @@ async def send_order(
             f"{order.number} needs approval first: {order.approval_reason}",
         )
     try:
-        result = await OrderService(session, actor=actor).send(
+        result = await OrderService(session, actor=actor, settings=settings).send(
             order,
             subject=body.subject if body else None,
             message=body.body if body else None,
@@ -264,7 +284,9 @@ async def send_order(
 
 
 @router.get("/purchase-orders/{number}/message")
-async def order_message(number: str, session: SessionDep, actor: ActorDep) -> dict:
+async def order_message(
+    number: str, session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep
+) -> dict:
     """The exact text that would go to the supplier, before anything is sent.
 
     A GET, deliberately: reading the message must never change the order. Until a
@@ -283,7 +305,7 @@ async def order_message(number: str, session: SessionDep, actor: ActorDep) -> di
     )
     return compose_order_email(
         order, supplier, lines,
-        ack_deadline_hours=get_settings().ack_reminder_hours,
+        ack_deadline_hours=settings.ack_reminder_hours,
         now=datetime.now(UTC),
     )
 
@@ -297,7 +319,11 @@ class MessagePreviewIn(BaseModel):
 
 @router.post("/purchase-orders/{number}/message")
 async def preview_message(
-    number: str, body: MessagePreviewIn, session: SessionDep, actor: ActorDep
+    number: str,
+    body: MessagePreviewIn,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
 ) -> dict:
     """The message as it would read if these figures were saved.
 
@@ -341,19 +367,23 @@ async def preview_message(
     )
     return compose_order_email(
         draft, supplier, lines,
-        ack_deadline_hours=get_settings().ack_reminder_hours,
+        ack_deadline_hours=settings.ack_reminder_hours,
         now=datetime.now(UTC),
     )
 
 
 @router.post("/purchase-orders/{number}/revise")
 async def revise_order(
-    number: str, body: ReviseIn, session: SessionDep, actor: ActorDep
+    number: str,
+    body: ReviseIn,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
 ) -> dict:
     """Counter a supplier's price or quantity, and put the order back in play."""
     order = await _by_number(session, number)
     try:
-        await OrderService(session, actor=actor).revise(
+        await OrderService(session, actor=actor, settings=settings).revise(
             order, [line.model_dump() for line in body.lines], reason=body.reason
         )
     except OrderError as exc:
@@ -363,11 +393,17 @@ async def revise_order(
 
 @router.post("/purchase-orders/{number}/cancel")
 async def cancel_order(
-    number: str, body: CancelIn, session: SessionDep, actor: ActorDep
+    number: str,
+    body: CancelIn,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
 ) -> dict:
     order = await _by_number(session, number)
     try:
-        await OrderService(session, actor=actor).cancel(order, reason=body.reason)
+        await OrderService(session, actor=actor, settings=settings).cancel(
+            order, reason=body.reason
+        )
     except OrderError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return await _order_detail(session, order)
@@ -375,10 +411,16 @@ async def cancel_order(
 
 @router.post("/purchase-orders/{number}/receive")
 async def receive_order(
-    number: str, body: ReceiveIn, session: SessionDep, actor: ActorDep
+    number: str,
+    body: ReceiveIn,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
 ) -> dict:
     order = await _by_number(session, number)
-    issues = await OrderService(session, actor=actor).receive(order, body.received)
+    issues = await OrderService(session, actor=actor, settings=settings).receive(
+        order, body.received
+    )
     detail = await _order_detail(session, order)
     return detail | {"issues_raised": [i.detail for i in issues]}
 
@@ -432,14 +474,14 @@ async def refresh_shipment(shipment_id: str, session: SessionDep, actor: ActorDe
 
 # ----------------------------------------------------------------- exceptions
 @router.post("/agent/sweep")
-async def sweep(session: SessionDep, actor: ActorDep) -> dict:
+async def sweep(session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep) -> dict:
     """What the scheduled agent run does, exposed as a button.
 
     Two jobs: release orders whose queued send time has arrived, and chase
     suppliers who have gone quiet. Both are things a person would otherwise do at
     an inconvenient hour.
     """
-    service = OrderService(session, actor="agent")
+    service = OrderService(session, actor="agent", settings=settings)
     released = []
     for order in await service.due_to_send():
         result = await service.send(order)

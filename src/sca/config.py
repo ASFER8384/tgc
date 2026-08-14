@@ -27,6 +27,22 @@ class Settings(BaseSettings):
     # enough that last season stops voting on this season's buying.
     demand_window_weeks: float = 8.0
 
+    # A floor in units, under which an item is bought back up whatever the
+    # forecast says. Cover in weeks is the better trigger and remains the
+    # primary one — it is the number a buyer thinks in, and it accounts for how
+    # long the mill takes. But it can only speak where there is a demand figure
+    # to divide by, and an item with no forecast and no sales history produces
+    # no opinion at all however empty the shelf gets. That silence is correct
+    # for a system that refuses to invent demand, and wrong for the buyer who
+    # simply never wants fewer than fifty abayas in the building.
+    #
+    # Zero is off, which is the default: a global floor applied to a catalogue
+    # of fabric, finished garments and cartons would be the same number for a
+    # bolt of silk and a box of labels. The useful setting is per item, on
+    # Item.min_stock; this exists so a category with consistent packaging can be
+    # covered in one place, and so the console has something to show.
+    min_stock_default: int = 0
+
     # Approval gates. Anything at or above this value, or with a supplier that has
     # never completed an order, needs a human before it leaves the building.
     approval_threshold_sar: float = 25000.0

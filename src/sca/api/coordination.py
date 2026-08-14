@@ -6,8 +6,7 @@ from sqlalchemy import select
 from sca.analytics.arrival import MODES, ArrivalService
 from sca.analytics.supplier import SupplierAnalyticsService
 from sca.analytics.weather import advisory
-from sca.api.deps import ActorDep, SessionDep
-from sca.config import get_settings
+from sca.api.deps import ActorDep, RuntimeSettingsDep, SessionDep
 from sca.coordination.service import CoordinationService
 from sca.models import Supplier
 
@@ -15,14 +14,16 @@ router = APIRouter(tags=["ops"])
 
 
 @router.get("/coordination")
-async def coordination(session: SessionDep, actor: ActorDep) -> dict:
+async def coordination(
+    session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep
+) -> dict:
     """Round trips, cycle time by timezone, and how much ran without a human.
 
     Returned as one document rather than five endpoints because every number is
     read against the others: replies per order means little without knowing the
     overlap the replies had to cross.
     """
-    return (await CoordinationService(session).collect()).as_dict()
+    return (await CoordinationService(session, settings=settings).collect()).as_dict()
 
 
 @router.get("/suppliers/{code}/analytics")
@@ -42,7 +43,11 @@ async def supplier_analytics(code: str, session: SessionDep, actor: ActorDep) ->
 
 @router.get("/suppliers/{code}/arrival")
 async def arrival(
-    code: str, session: SessionDep, actor: ActorDep, mode: str | None = None
+    code: str,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
+    mode: str | None = None,
 ) -> dict:
     """If we order today, roughly when does it land — and on what grounds.
 
@@ -59,9 +64,9 @@ async def arrival(
             f"unknown mode {mode}, have {', '.join(sorted(MODES))}",
         )
 
-    service = ArrivalService(session)
+    service = ArrivalService(session, settings=settings)
     estimate = await service.estimate(supplier, mode=mode)
-    if get_settings().weather_advisory:
+    if settings.weather_advisory:
         estimate.weather = await advisory(supplier.country)
 
     others = {}

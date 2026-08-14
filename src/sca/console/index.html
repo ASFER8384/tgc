@@ -89,7 +89,15 @@
 
   /* These are forms, not tables, so they are narrower than the message dialogs —
      a 1040px column of single fields reads as a page that lost its layout. */
-  #supplierDialog, #itemDialog { max-width: min(560px, 96vw); }
+  #supplierDialog, #itemDialog, #cancelDialog { max-width: min(560px, 96vw); }
+  /* Wider than the other forms: every row carries a quantity, a price and the
+     line total beside each other, and squeezing those into 560px puts three
+     numbers on top of one another. */
+  #orderDialog { max-width: min(680px, 96vw); }
+  /* The one button on the page that destroys something. Coloured as a warning
+     rather than as the house action, so it does not read as the obvious thing
+     to press on a dialog somebody opened to look at an order. */
+  #cancelConfirm { background: var(--high); border-color: var(--high); color: #fff; }
   #supplierDialog .panel-body > div, #itemDialog .panel-body > div {
     display: flex; flex-direction: column; gap: 0.8rem;
   }
@@ -126,6 +134,36 @@
                           padding: 0; font-family: var(--mono); font-size: 0.6rem;
                           letter-spacing: 0.08em; text-transform: uppercase;
                           color: var(--muted); text-align: left; }
+  /* The supplier picker on a manual order line spans the row: the choice is
+     between mills whose names and terms do not fit a third of the width, and it
+     governs the two numbers under it. */
+  .skupick .terms .wide { grid-column: 1 / -1; }
+  .makerlabel { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em;
+                text-transform: uppercase; color: var(--muted); display: block;
+                margin-bottom: 0.3rem; }
+  /* Every mill that makes this line, side by side. A dropdown would hide the
+     one comparison the whole form exists to show — a lower unit price against a
+     minimum five times larger, which is what decides the bill. */
+  .makers { display: flex; flex-direction: column; gap: 0.2rem; margin-top: 0.3rem;
+            border: 1px solid var(--rule); border-radius: 4px; padding: 0.3rem;
+            background: var(--panel); }
+  .makers .maker { display: grid; grid-template-columns: 1.1rem minmax(0, 1fr);
+                   gap: 0.55rem; align-items: center; padding: 0.45rem 0.5rem;
+                   border: 1px solid transparent; border-radius: 3px; cursor: pointer;
+                   text-align: left; font-family: var(--sans); text-transform: none;
+                   letter-spacing: 0; }
+  /* The radio sits on the row's first line, not centred against a two line
+     block — centred, it floated between the name and the terms under it and
+     read as belonging to neither. */
+  .makers .maker > input { justify-self: start; align-self: center; margin: 0; }
+  .makers .maker:hover { background: var(--sunk); }
+  .makers .maker:has(input:checked) { background: var(--accent-soft);
+                                      border-color: var(--accent); }
+  .makers .who { display: block; font-size: 0.82rem; font-weight: 600; color: var(--ink); }
+  .makers .terms-line { display: block; font-family: var(--mono); font-size: 0.72rem;
+                        color: var(--muted); }
+  .makers .best { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.06em;
+                  text-transform: uppercase; color: var(--accent); font-weight: 650; }
   .skupick .terms input { font-family: var(--sans); font-size: 0.8rem;
                           letter-spacing: 0; text-transform: none; color: var(--ink);
                           padding: 0.25rem 0.4rem; }
@@ -352,6 +390,50 @@
              white-space: pre-wrap; word-break: break-word; }
   .empty { padding: 1.3rem 1rem; text-align: center; color: var(--muted); font-size: 0.86rem; }
   .bar { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  /* ------------------------------------------------------------ the settings page
+     A list of groups beside one group's fields, rather than every setting on a
+     single scroll. The approval threshold and the customs allowance have nothing
+     to do with each other, and a page that puts them in the same column invites
+     somebody to change one while looking for the other. */
+  .setgroups { display: flex; flex-direction: column; }
+  .setgroups button { background: transparent; color: var(--ink); border: none;
+                      border-bottom: 1px solid var(--rule); border-radius: 0;
+                      text-align: left; padding: 0.7rem 1rem; font-weight: 500;
+                      display: flex; flex-direction: column; gap: 0.1rem; }
+  .setgroups button:last-child { border-bottom: none; }
+  .setgroups button:hover { background: var(--sunk); }
+  .setgroups button.on { background: var(--accent-soft); color: var(--ink);
+                         box-shadow: inset 3px 0 0 var(--accent); font-weight: 650; }
+  .setgroups button span { font-family: var(--mono); font-size: 0.68rem;
+                           letter-spacing: 0.08em; text-transform: uppercase;
+                           color: var(--muted); }
+  .setfields { padding: 1rem; display: flex; flex-direction: column; gap: 1.4rem; }
+  /* The number and its unit on one line: "4 weeks of cover" is the sentence the
+     setting actually is, and splitting the unit into a caption above made every
+     field read as a bare number somebody has to remember the meaning of. */
+  .setrow .entry { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .setrow .entry input[type="number"], .setrow .entry input[type="text"] {
+    width: 9rem; font-family: var(--mono);
+  }
+  .setrow .entry .unit { font-family: var(--mono); font-size: 0.76rem; color: var(--muted); }
+  .setrow .cap { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.06em;
+                 text-transform: uppercase; color: var(--ink-soft); font-weight: 650;
+                 display: block; margin-bottom: 0.35rem; }
+  .setrow .why { font-size: 0.8rem; color: var(--muted); margin-top: 0.4rem;
+                 max-width: 62ch; }
+  /* Where the value came from. Kept on every field, not only the changed ones:
+     "this is still whatever the environment says" is the answer to the question
+     people actually arrive with, and a badge that appears only sometimes makes
+     its absence mean nothing. */
+  .setrow .from { font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+                  margin-top: 0.35rem; display: flex; align-items: center; gap: 0.5rem;
+                  flex-wrap: wrap; }
+  .setrow .from b { font-weight: 650; color: var(--ink-soft); }
+  .setrow.changed .cap { color: var(--accent); }
+  .setrow .bad { color: var(--high); font-size: 0.8rem; margin-top: 0.35rem; }
+  .setbar { border-top: 1px solid var(--rule); padding: 0.8rem 1rem; display: flex;
+            gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+
   footer { border-top: 1px solid var(--rule); padding-top: 0.9rem; color: var(--muted);
            font-size: 0.78rem; }
 </style>
@@ -375,6 +457,12 @@
            on the item list the only thing anyone wants to add is an item, and
            making them pick again after arriving is a question already answered
            by which page they are on. -->
+      <!-- Buying that did not come from the forecast. The desk exists to raise
+           orders the plan asked for, and there is always a reason it did not:
+           a sample run, a replacement for something damaged, a launch nobody
+           has sold anything against yet. Without this those went through the
+           API or not at all. -->
+      <button class="small" id="openNewOrder" hidden>New order</button>
       <button class="small" id="openAddItem" hidden>New item</button>
       <button class="small" id="openAddSupplier" hidden>New supplier</button>
       <button class="ghost small" id="pollMail">Check mailbox</button>
@@ -511,6 +599,33 @@
     </div>
   </div>
 
+  <!-- The policy behind every suggestion on the buying desk, in one place a
+       buyer can reach. These numbers were only ever on the environment, which
+       made raising an approval threshold a deployment and made the current one
+       invisible to the people it governs. -->
+  <div data-view="settings" hidden>
+    <div class="split">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Policy</h2>
+          <span class="hint" id="setEnv"></span>
+        </div>
+        <div class="setgroups" id="setGroups"><div class="empty">loading</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2 id="setTitle">Settings</h2>
+          <span class="hint" id="setHint"></span>
+        </div>
+        <div class="setfields" id="setFields"><div class="empty">loading</div></div>
+        <div class="setbar">
+          <button id="setSave">Save</button>
+          <span class="hint" id="setState"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <footer>
     Demo environment with fabricated suppliers. Orders are queued against each supplier's own
     working hours, replies are read by rule and anything the rules cannot settle is filed for a
@@ -636,6 +751,17 @@
         <input id="itemStock" value="260 / 0" placeholder="260 / 0" /></label>
       <label class="field">Weekly forecast
         <input id="itemForecast" value="90" placeholder="90" /></label>
+      <!-- The floor that needs no forecast. Cover in weeks is the better trigger
+           and stays the main one, but it can only speak where something has been
+           sold or typed in — so a new line with no history produces no
+           suggestion however empty the shelf gets. This is what makes "never
+           fewer than fifty" expressible at all. -->
+      <label class="field">Never hold fewer than
+        <input id="itemMinStock" type="number" min="0" placeholder="none" />
+        <span class="fieldnote">Units. Blank uses the global default on
+          <a href="/procure?view=settings">Settings</a>; a zero means this line has
+          no floor at all. Stock under this is bought back up whatever the forecast
+          says.</span></label>
       <div class="bar"><button id="addItem">Add item</button></div>
       <div class="readout" id="itemOut" hidden></div>
     </div>
@@ -655,6 +781,80 @@
       <div class="bar">
         <button type="button" id="emailCopy">Copy</button>
         <button type="button" class="ghost" id="emailClose">Close</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<!-- An order raised by hand rather than by the plan. Same lifecycle, same
+     approval gates, same scheduled send — the only difference is what started
+     it, which is recorded as the origin so "why did we buy this" has an answer
+     that is not "the forecast said so". -->
+<dialog id="orderDialog">
+  <div class="panel-head">
+    <h2>New order</h2>
+    <button type="button" class="ghost small" id="orderClose">Close</button>
+  </div>
+  <div class="panel-body">
+    <!-- Two steps, in the order the decision is actually made. What to buy is
+         settled first; who to buy it from is one question about the basket, not
+         a question repeated on every line — a purchase order goes to one
+         supplier, so asking per item invited a basket no single order could
+         carry. Asking once, afterwards, also puts the comparison where it
+         means something: the whole order's cost at each mill, rather than a
+         unit price that says nothing until a quantity exists. -->
+    <div id="orderStepItems">
+      <label class="field">Find an item
+        <input id="orderSearch" placeholder="abaya, silk, box" /></label>
+      <div class="pickfield">
+        <span class="picklabel">What are you ordering?</span>
+        <div class="skupick" id="orderSkus"></div>
+      </div>
+      <div class="readout" id="orderPicked" hidden></div>
+      <div class="bar">
+        <button id="orderNext">Choose a supplier</button>
+      </div>
+    </div>
+
+    <div id="orderStepSupplier" hidden>
+      <div class="readout" id="orderBasket"></div>
+      <div class="pickfield">
+        <span class="picklabel">Who can deliver it</span>
+        <div class="makers" id="orderSuppliers"></div>
+      </div>
+      <div class="readout" id="orderTotal" hidden></div>
+      <div class="readout" id="orderOut" hidden></div>
+      <div class="bar">
+        <button id="placeOrder">Raise the order</button>
+        <button class="ghost" id="orderBack">Back to the items</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<!-- Cancelling was the one destructive action still asking through the browser's
+     own prompt box, which shows the order number and nothing else — not what it
+     is worth, not who it is with, and not whether the supplier has already been
+     told to start work. Those are exactly the facts somebody needs in front of
+     them before walking away from a commitment, and a native prompt cannot
+     carry them. -->
+<dialog id="cancelDialog">
+  <form method="dialog">
+    <div class="panel-head">
+      <h2 id="cancelTitle">Cancel order</h2>
+      <span class="hint" id="cancelHint"></span>
+    </div>
+    <div class="panel-body">
+      <div class="readout" id="cancelWarn" hidden></div>
+      <label class="field">Why, in one line
+        <input id="cancelReason" placeholder="Duplicate of PO-5008, raised twice on the same shortfall" />
+        <span class="fieldnote">Recorded against the order and used to close any
+          exceptions it raised, so it has to say enough to make sense to whoever
+          reads the order next.</span></label>
+      <div class="readout" id="cancelOut" hidden></div>
+      <div class="bar">
+        <button type="button" id="cancelConfirm">Cancel the order</button>
+        <button type="button" class="ghost" id="cancelClose">Keep it</button>
       </div>
     </div>
   </form>
@@ -699,8 +899,20 @@
     });
     if (!res.ok) {
       let detail = res.status + " " + res.statusText;
-      try { const b = await res.json(); if (b.detail) detail = b.detail; } catch {}
-      throw new Error(detail);
+      let key = null;
+      try {
+        const b = await res.json();
+        // A rejected setting says which field it was about, so the message can
+        // go beside the box the person typed in rather than into a banner at
+        // the top that leaves them hunting for the offending value.
+        if (b.detail && typeof b.detail === "object") {
+          detail = b.detail.message || JSON.stringify(b.detail);
+          key = b.detail.key || null;
+        } else if (b.detail) { detail = b.detail; }
+      } catch {}
+      const error = new Error(detail);
+      error.key = key;
+      throw error;
     }
     return res.json();
   }
@@ -1226,7 +1438,15 @@
               ? `<br><span style="color:var(--muted);font-size:0.76rem">at least</span>`
               : ""}</td>
         <td class="num">${i.on_hand}${i.on_order
-          ? `<span style="color:var(--muted)"> +${i.on_order}</span>` : ""}</td>
+          ? `<span style="color:var(--muted)"> +${i.on_order}</span>` : ""}${
+          // The floor, where one is in force. Named on the row rather than only
+          // on the suggestion, because "why is this being bought when it has
+          // three months of cover" is asked from the catalogue.
+          i.min_stock_effective
+            ? `<br><span style="font-size:0.76rem;color:${
+                i.below_minimum ? "var(--high)" : "var(--muted)"}">min ${
+                i.min_stock_effective}${i.min_stock === null ? " (default)" : ""}</span>`
+            : ""}</td>
         <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}</td>
         <td style="white-space:normal">${supplies}</td>
         <td><button class="ghost small" data-edititem="${i.sku}">Edit</button></td></tr>`;
@@ -1276,7 +1496,14 @@
         <td><strong>${i.sku}</strong><br><span style="color:var(--muted)">${i.name}</span></td>
         <td class="num">${sold}${typed}</td>
         <td class="num">${i.on_hand}</td>
-        <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}</td>
+        <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}${
+          // A line under a hard floor is not the same suggestion as one that ran
+          // low on cover: somebody stated this number, and on an item with no
+          // sales history it is the only reason the row is here at all.
+          line.below_minimum
+            ? `<br><span style="color:var(--high);font-size:0.76rem">under ${
+                line.minimum}</span>`
+            : ""}</td>
         <td class="num" data-qty="${i.sku}">${line.suggest_quantity}</td>
         <td class="num" data-val="${i.sku}">${money(line.line_total)}</td>
         <td>${supplierCell(i, line)}</td>
@@ -1336,7 +1563,12 @@
         // completed one, so every order to them keeps needing approval.
         buttons.push(`<button class="small" data-receive="${o.number}">Receive</button>`);
       }
-      buttons.push(`<button class="ghost small" data-message="${o.number}">Email</button>`);
+      // "Email" read as an instruction to send one, which is what the Send
+      // button does. This opens the composed text to be read, and on an order
+      // already gone it is history rather than a draft — so the label says what
+      // pressing it does rather than naming the medium.
+      buttons.push(
+        `<button class="ghost small" data-message="${o.number}">View message</button>`);
       if (REVISABLE.includes(o.status)) {
         buttons.push(`<button class="ghost small" data-revise="${o.number}">Revise</button>`);
         buttons.push(`<button class="ghost small" data-cancel="${o.number}">Cancel</button>`);
@@ -1413,12 +1645,390 @@
     $("orders").querySelectorAll("[data-revise]").forEach((b) =>
       b.addEventListener("click", () => busy(b, () => revise(b.dataset.revise))));
     $("orders").querySelectorAll("[data-cancel]").forEach((b) =>
-      b.addEventListener("click", () => busy(b, async () => {
-        const reason = (prompt(`Cancel ${b.dataset.cancel}. Why?`) || "").trim();
-        if (!reason) return;
-        await act(`/purchase-orders/${b.dataset.cancel}/cancel`, { reason });
-      })));
+      b.addEventListener("click", () =>
+        openCancel(rows.find((o) => o.number === b.dataset.cancel))));
   }
+
+  // ------------------------------------------------------- an order by hand
+  // Everything the plan cannot raise: a sample run, a replacement for something
+  // damaged in transit, a launch nobody has sold anything against yet. It goes
+  // through the same lifecycle and the same approval gates as a forecast order —
+  // the difference is only in what started it, which the order records.
+  //
+  // Two steps, because that is the order the decision is made in. What to buy is
+  // settled first. Who to buy it from is then one question about the basket:
+  // a purchase order goes to one supplier, so asking per line invited a basket
+  // no single order could carry. Asked once, afterwards, the comparison is also
+  // worth something — the whole order priced at each mill, rather than a unit
+  // price that means nothing until a quantity exists.
+  const approvalThreshold = () => {
+    for (const group of settingsState.groups) {
+      for (const field of group.fields) {
+        if (field.key === "approval_threshold_sar") return Number(field.value);
+      }
+    }
+    return null;
+  };
+
+  // Which mill was picked for the basket, by code.
+  let orderSupplier = null;
+
+  // Everyone who can make this SKU, on their own terms.
+  function makersOf(sku) {
+    const out = [];
+    (state.suppliers || []).forEach((s) => {
+      const link = (state.links[s.code] || []).find((row) => row.sku === sku);
+      if (!link) return;
+      out.push({
+        id: s.id, code: s.code, name: s.name,
+        unit_cost: Number(link.unit_cost), currency: link.currency,
+        moq: link.moq, pack_size: link.pack_size,
+        lead: link.lead_time_days || s.lead_time_days,
+      });
+    });
+    return out;
+  }
+
+  async function openNewOrder() {
+    if (!(state.items || []).length) {
+      show($("createOut"), "No items yet. Add one on the Item list first.");
+      return;
+    }
+    orderSupplier = null;
+    $("orderSearch").value = "";
+    $("orderOut").hidden = true;
+    drawOrderList();
+    showOrderStep("items");
+    $("orderDialog").showModal();
+    $("orderSearch").focus();
+    // Only so the form can say in advance that the order will need approving.
+    // Failing to fetch it costs a warning, not the order.
+    loadSettings().then(() => { if (orderSupplier) drawOrderTotal(); }, () => {});
+  }
+
+  function showOrderStep(step) {
+    $("orderStepItems").hidden = step !== "items";
+    $("orderStepSupplier").hidden = step !== "supplier";
+  }
+
+  // ------------------------------------------------------------ step one: what
+  function drawOrderList() {
+    const host = $("orderSkus");
+    const needle = $("orderSearch").value.trim().toLowerCase();
+    // What is already ticked survives a search, or typing to find the second
+    // item would silently drop the first.
+    const chosen = {};
+    host.querySelectorAll('input[type="checkbox"]:checked').forEach((tick) => {
+      const qty = host.querySelector(`[data-qty="${tick.value}"]`);
+      chosen[tick.value] = qty ? qty.value : "";
+    });
+
+    const rows = (state.items || []).filter((i) => !needle
+      || i.sku.toLowerCase().includes(needle)
+      || (i.name || "").toLowerCase().includes(needle));
+
+    host.innerHTML = rows.length ? rows.map((i) => {
+      const makers = makersOf(i.sku);
+      if (!makers.length) {
+        // Shown rather than filtered out. An item nobody is attached to looks
+        // like a missing item if it simply is not in the list, and the fix —
+        // attach a supplier to it — is not one anybody guesses from an absence.
+        return `<div class="pickrow">
+          <label style="opacity:0.55"><input type="checkbox" disabled />
+            <span><span class="sku">${i.sku}</span>
+              <span class="of">${i.name || ""} · nobody is attached to this yet,
+                so it cannot be ordered</span></span></label>
+        </div>`;
+      }
+      return `<div class="pickrow">
+        <label><input type="checkbox" value="${i.sku}" />
+          <span><span class="sku">${i.sku}</span>
+            <span class="of">${i.name || ""} · ${makers.length === 1
+              ? "one supplier" : `${makers.length} suppliers`}</span></span></label>
+        <div class="terms" data-terms="${i.sku}" hidden>
+          <label>Quantity
+            <!-- The item's own minimum as a starting point. The mill's minimum
+                 may be higher and is checked once one has been chosen, which is
+                 the earliest anybody knows what it is. -->
+            <input data-qty="${i.sku}" type="number" min="0" value="${i.moq || 1}" /></label>
+        </div>
+      </div>`;
+    }).join("") : `<div class="none">Nothing matches that.</div>`;
+
+    host.querySelectorAll('input[type="checkbox"]:not([disabled])').forEach((box) => {
+      const terms = host.querySelector(`[data-terms="${box.value}"]`);
+      const was = chosen[box.value];
+      box.checked = was !== undefined;
+      terms.hidden = !box.checked;
+      if (was) host.querySelector(`[data-qty="${box.value}"]`).value = was;
+      box.addEventListener("change", () => {
+        terms.hidden = !box.checked;
+        drawOrderPicked();
+      });
+    });
+    host.querySelectorAll("[data-qty]").forEach((input) =>
+      input.addEventListener("input", drawOrderPicked));
+    drawOrderPicked();
+  }
+
+  // The basket as it stands: what, and how many. No prices yet — those belong to
+  // whoever ends up making it, and nobody has been chosen.
+  function basket() {
+    const host = $("orderSkus");
+    return [...host.querySelectorAll('input[type="checkbox"]:checked')].map((tick) => {
+      const box = host.querySelector(`[data-qty="${tick.value}"]`);
+      const item = (state.items || []).find((i) => i.sku === tick.value) || {};
+      return { sku: tick.value, name: item.name || "", quantity: Number(box ? box.value : 0) };
+    });
+  }
+
+  function drawOrderPicked() {
+    const lines = basket();
+    if (!lines.length) { $("orderPicked").hidden = true; return; }
+    show($("orderPicked"), lines.map((l) =>
+      `${l.sku}  ${l.quantity}  ${l.name}`).join("\n"));
+  }
+
+  // --------------------------------------------------------- step two: who from
+  function drawOrderSuppliers() {
+    const lines = basket();
+    show($("orderBasket"), lines.map((l) => `${l.sku}  ${l.quantity}  ${l.name}`).join("\n"));
+
+    // Everyone who makes anything in the basket, priced for the whole of it.
+    // Ranked on what the order actually costs rather than on unit price, and on
+    // coverage first: a mill that can deliver the lot in one order beats a
+    // cheaper one that can only take half of it and leaves the rest to chase.
+    const candidates = {};
+    lines.forEach((line) => {
+      makersOf(line.sku).forEach((maker) => {
+        const entry = candidates[maker.code] || (candidates[maker.code] = {
+          maker, covered: [], missing: [], total: 0, lead: 0,
+        });
+        entry.covered.push({ ...line, maker, unit_cost: maker.unit_cost });
+        entry.total += maker.unit_cost * line.quantity;
+        entry.lead = Math.max(entry.lead, maker.lead);
+      });
+    });
+    Object.values(candidates).forEach((entry) => {
+      entry.missing = lines.filter((l) =>
+        !entry.covered.some((c) => c.sku === l.sku)).map((l) => l.sku);
+    });
+
+    const ranked = Object.values(candidates).sort((a, b) =>
+      (b.covered.length - a.covered.length) || (a.total - b.total) || (a.lead - b.lead));
+
+    if (!ranked.length) {
+      $("orderSuppliers").innerHTML =
+        `<div class="none">Nobody is attached to any of these items.</div>`;
+      $("orderTotal").hidden = true;
+      return;
+    }
+    if (!ranked.some((r) => r.maker.code === orderSupplier)) orderSupplier = ranked[0].maker.code;
+
+    $("orderSuppliers").innerHTML = ranked.map((entry) => `
+      <label class="maker">
+        <input type="radio" name="orderSupplier" value="${entry.maker.code}"
+          ${entry.maker.code === orderSupplier ? "checked" : ""} />
+        <span>
+          <span class="who">${entry.maker.name}
+            <span class="best">${money(entry.total)} ${entry.maker.currency}</span></span>
+          <span class="terms-line">delivers ${entry.covered.length} of ${lines.length}
+            · ${entry.lead} days${entry.missing.length
+              ? ` · not ${entry.missing.join(", ")}` : ""}</span>
+        </span>
+      </label>`).join("");
+
+    drawOrderTotal();
+  }
+
+  // The lines the chosen mill will actually be sent, at their prices.
+  function orderLines() {
+    if (!orderSupplier) return [];
+    return basket().map((line) => {
+      const maker = makersOf(line.sku).find((m) => m.code === orderSupplier);
+      if (!maker) return null;
+      return { ...line, maker, price: maker.unit_cost, total: maker.unit_cost * line.quantity };
+    }).filter(Boolean);
+  }
+
+  function drawOrderTotal() {
+    const lines = orderLines();
+    if (!lines.length) { $("orderTotal").hidden = true; return; }
+    const maker = lines[0].maker;
+    const total = lines.reduce((sum, line) => sum + line.total, 0);
+    const notes = [`${maker.name} · ${lines.length} line(s) · ${money(total)} ${maker.currency}`];
+    notes.push(...lines.map((line) =>
+      `  ${line.sku}  ${line.quantity} × ${line.price}  = ${money(line.total)}`));
+
+    // What this mill cannot make. Named rather than dropped silently: the lines
+    // still need buying, and from somebody else.
+    const uncovered = basket().filter((l) => !lines.some((c) => c.sku === l.sku));
+    if (uncovered.length) {
+      notes.push(`${maker.name} does not make ${uncovered.map((l) => l.sku).join(", ")}`
+        + " — those lines will not be ordered. Raise them separately.");
+    }
+    // Their minimum is stated, not enforced. A sample run below it is a real
+    // thing to want, and the mill saying no is a conversation — but placing one
+    // without knowing you have is not.
+    const under = lines.filter((line) => line.maker.moq && line.quantity < line.maker.moq);
+    if (under.length) {
+      notes.push(`Below their minimum: ${under.map((line) =>
+        `${line.sku} ${line.quantity} against ${line.maker.moq}`).join(", ")}.`
+        + " They may refuse it.");
+    }
+    const odd = lines.filter((line) =>
+      line.maker.pack_size > 1 && line.quantity % line.maker.pack_size !== 0);
+    if (odd.length) {
+      notes.push(`Not a whole number of packs: ${odd.map((line) =>
+        `${line.sku} in ${line.maker.pack_size}s`).join(", ")}.`);
+    }
+    const threshold = approvalThreshold();
+    if (threshold !== null && total >= threshold) {
+      notes.push(`Over the ${money(threshold)} threshold, so it will need approving`
+        + " before it can be sent.");
+    }
+    show($("orderTotal"), notes.join("\n"));
+  }
+
+  // Bound once on the container rather than per redraw: the rows are replaced
+  // every time the basket changes, and a listener added alongside them would
+  // stack up one deep per redraw.
+  $("orderSuppliers").addEventListener("change", () => {
+    const picked = $("orderSuppliers").querySelector("input:checked");
+    orderSupplier = picked ? picked.value : null;
+    drawOrderTotal();
+  });
+
+  $("orderSearch").addEventListener("input", drawOrderList);
+  $("openNewOrder").addEventListener("click", openNewOrder);
+  $("orderClose").addEventListener("click", () => $("orderDialog").close());
+  $("orderBack").addEventListener("click", () => showOrderStep("items"));
+
+  $("orderNext").addEventListener("click", () => {
+    const lines = basket();
+    if (!lines.length) { show($("orderPicked"), "Tick at least one item."); return; }
+    const bad = lines.filter((line) => !(line.quantity > 0));
+    if (bad.length) {
+      show($("orderPicked"), "Every line needs a quantity: "
+        + bad.map((line) => line.sku).join(", "));
+      return;
+    }
+    $("orderOut").hidden = true;
+    drawOrderSuppliers();
+    showOrderStep("supplier");
+  });
+
+  $("placeOrder").addEventListener("click", () => busy($("placeOrder"), async () => {
+    const lines = orderLines();
+    if (!lines.length) { show($("orderOut"), "Pick a supplier first."); return; }
+    const maker = lines[0].maker;
+    let out;
+    try {
+      out = await api("/purchase-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          supplier_id: maker.id,
+          // Recorded on the order, so "why did we buy this" does not have to be
+          // answered with "the forecast said so" when the forecast did not.
+          origin: "manual",
+          lines: lines.map((line) => ({
+            sku: line.sku, quantity: line.quantity, unit_price: String(line.price),
+          })),
+        }),
+      });
+    } catch (err) {
+      // Reported inside the dialog, which is still open and still holds the
+      // basket. Closing on a failure would lose the whole thing.
+      show($("orderOut"), "Failed: " + err.message);
+      return;
+    }
+    // Only once the order is a fact. A redraw that fails afterwards must not
+    // read as the order not having been raised.
+    $("orderDialog").close();
+    show($("createOut"), `${out.number}  ${maker.name}  ${money(out.total_value)} `
+      + `${out.currency}  ${out.status.replace(/_/g, " ")}`
+      + (out.approval_reason ? `  (${out.approval_reason})` : ""));
+    try {
+      await refreshAll();
+    } catch (err) {
+      show($("createOut"), `${out.number} was raised, but the page could not reload: `
+        + err.message);
+    }
+  }));
+
+  // The order the cancel dialog is holding. One at a time, like the revise one.
+  let cancelling = null;
+
+  function openCancel(order) {
+    if (!order) return;
+    cancelling = order;
+    $("cancelTitle").textContent = `Cancel ${order.number}`;
+    $("cancelHint").textContent =
+      `${order.supplier} · ${money(order.total_value)} ${order.currency} · ` +
+      order.status.replace(/_/g, " ");
+    // Cancelling tells nobody. On an order that never left the building that is
+    // right; on one the supplier is already cutting fabric against it is the
+    // most important thing on the screen, so it is said here rather than left
+    // for the buyer to remember.
+    const gone = ["sent", "acknowledged", "in_transit"].includes(order.status);
+    if (gone) {
+      show($("cancelWarn"),
+        `${order.supplier} has already been sent this order and may have started `
+        + `work. Cancelling here records the decision and frees the stock it was `
+        + `covering, but sends them nothing — tell them yourself.`);
+    } else {
+      $("cancelWarn").hidden = true;
+    }
+    $("cancelReason").value = "";
+    $("cancelOut").hidden = true;
+    $("cancelDialog").showModal();
+    $("cancelReason").focus();
+  }
+
+  $("cancelClose").addEventListener("click", () => $("cancelDialog").close());
+
+  // Enter in the reason box confirms. Without this the surrounding form submits
+  // and the dialog closes having done nothing, which reads as the cancellation
+  // having gone through.
+  $("cancelReason").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    $("cancelConfirm").click();
+  });
+
+  $("cancelConfirm").addEventListener("click", () => busy($("cancelConfirm"), async () => {
+    const reason = $("cancelReason").value.trim();
+    if (!reason) {
+      // Refused rather than defaulted to "cancelled". A blank reason is how an
+      // order list fills up with cancellations nobody can account for.
+      show($("cancelOut"), "A reason is needed. It is what the order is left saying.");
+      $("cancelReason").focus();
+      return;
+    }
+    const number = cancelling.number;
+    try {
+      await api(`/purchase-orders/${number}/cancel`, {
+        method: "POST", body: JSON.stringify({ reason }),
+      });
+    } catch (err) {
+      // Reported inside the dialog, which is still open. Closing first and then
+      // failing would leave the message on a page the reader is no longer
+      // looking at, and the order still live.
+      show($("cancelOut"), "Failed: " + err.message);
+      return;
+    }
+    // Only once the cancellation is a fact. Redrawing is a separate thing that
+    // can fail on its own, and a failure there must not read as the order still
+    // being live — it is not.
+    $("cancelDialog").close();
+    show($("createOut"), `${number} cancelled: ${reason}`);
+    try {
+      await refreshAll();
+    } catch (err) {
+      show($("createOut"),
+        `${number} was cancelled, but the page could not reload: ${err.message}`);
+    }
+  }));
 
   // The order the dialog is currently editing. One dialog, one order at a time.
   let revising = null;
@@ -1654,6 +2264,11 @@
     // figure would turn it into a typed one the moment anybody pressed save, and
     // a typed forecast overrules the sales history from then on.
     $("itemForecast").value = i ? (i.entered_weekly ?? "") : "90";
+    // Blank where this item has none of its own, which is not the same as zero:
+    // blank inherits the global floor, zero says this line has no floor. Showing
+    // the inherited number here would turn it into one typed on this item the
+    // moment anybody pressed save.
+    $("itemMinStock").value = i ? (i.min_stock ?? "") : "";
     if (i) $("itemSupplier").value = i.supplier_id;
     $("itemOut").hidden = true;
     $("itemDialog").showModal();
@@ -1858,6 +2473,11 @@
         unit: editing ? editing.unit : "pcs",
         moq, pack_size: pack,
         unit_cost: $("itemCost").value.trim(),
+        // Blank means "no opinion, use the global floor", so it has to travel as
+        // null rather than as the zero an empty number box would coerce to —
+        // zero is a different answer, and it turns the floor off for this line.
+        min_stock: $("itemMinStock").value.trim() === ""
+          ? null : Number($("itemMinStock").value),
       }) });
       // Stock is a second call because an item and what is left of it are
       // different facts with different lifetimes: the item is set up once, the
@@ -1930,7 +2550,17 @@
     // this refresh may be about to change.
     state.stats = {};
     await loadSuppliers();
-    await Promise.all([loadSuggestions(), loadOrders(), loadIssues(), loadCoordination()]);
+    // Settled rather than all: these four panels are independent, and one of
+    // them failing used to reject the whole refresh — so an action that had
+    // actually succeeded, a cancellation say, left the order list showing the
+    // state before it and the caller reporting a failure that never happened.
+    const panels = await Promise.allSettled(
+      [loadSuggestions(), loadOrders(), loadIssues(), loadCoordination()]);
+    const broke = panels.filter((p) => p.status === "rejected");
+    if (broke.length) {
+      connectionProblem(`${broke.length} panel(s) failed to load: `
+        + broke.map((p) => p.reason && p.reason.message).filter(Boolean).join("; "));
+    }
     // Once more with everything landed: the supplier pane names the items it
     // lists, and the item list arrives after the first draw. Free — the arrival
     // estimate is cached, so this redraws rather than refetching.
@@ -1966,6 +2596,10 @@
         $("dot").hidden = true;
         $("connLabel").hidden = true;
         await refreshAll();
+        // The view was applied before there was a key to fetch anything with, so
+        // arriving straight at /procure?view=settings would otherwise sit on
+        // "loading" until the reader clicked something else and back.
+        if (state.view === "settings") await loadSettings();
         return;
       }
       localStorage.removeItem(KEY_STORAGE);
@@ -1982,6 +2616,279 @@
     connect();
   });
 
+  // ------------------------------------------------------------------ settings
+  // The policy behind the buying desk. Loaded when the page is opened rather
+  // than with everything else: it changes when somebody changes it, which is
+  // rarely, and refreshing the desk has no reason to refetch it.
+  const settingsState = { groups: [], group: null, env: "" };
+  // A section of the page that is not a setting on the environment: the floors
+  // per item, which live on the items themselves and are edited as a list.
+  const PER_ITEM = "Per item";
+  // Which global setting each per item column overrides. Only these four have a
+  // per item form; the approval threshold and the chase window are properties of
+  // the business rather than of a line, and there is nothing to override.
+  const ITEM_FIELD_FOR = {
+    reorder_cover_weeks: "reorder_cover_weeks",
+    target_cover_weeks: "target_cover_weeks",
+    min_stock_default: "min_stock",
+    demand_window_weeks: "demand_window_weeks",
+  };
+
+  const escapeHtml = (text) => String(text)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+  async function loadSettings(force = false) {
+    if (!state.key) return;
+    if (settingsState.groups.length && !force) return;
+    try {
+      drawSettings(await api("/settings"));
+    } catch (err) {
+      $("setFields").innerHTML = `<div class="empty">Could not load: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function drawSettings(view) {
+    settingsState.groups = view.groups;
+    settingsState.env = view.env;
+    const known = settingsState.group === PER_ITEM
+      || view.groups.some((g) => g.name === settingsState.group);
+    if (!settingsState.group || !known) {
+      settingsState.group = view.groups.length ? view.groups[0].name : null;
+    }
+    // How many of these somebody has actually taken a decision about. The rest
+    // are still whatever the environment says, which is the honest default and
+    // worth stating rather than implying by silence.
+    const set = view.groups.reduce(
+      (n, g) => n + g.fields.filter((f) => f.source === "set here").length, 0);
+    $("setEnv").textContent = `${view.env} · ${set || "none"} changed here`;
+
+    $("setGroups").innerHTML = view.groups.map((g) => {
+      const changed = g.fields.filter((f) => f.source === "set here").length;
+      return `<button type="button" data-group="${escapeHtml(g.name)}"
+        class="${g.name === settingsState.group ? "on" : ""}">${escapeHtml(g.name)}
+        <span>${g.fields.length} setting(s)${changed ? ` · ${changed} changed` : ""}</span>
+      </button>`;
+    }).join("")
+      // The per item floors, filed with the policy they override rather than
+      // buried one at a time in the item form. A minimum is a decision about
+      // buying, and deciding it for a catalogue means seeing the catalogue: set
+      // one line at a time behind a dialog, nobody can tell which items have a
+      // floor and which are relying on a default.
+      + `<button type="button" data-group="${PER_ITEM}"
+           class="${settingsState.group === PER_ITEM ? "on" : ""}">${PER_ITEM}
+           <span>${(state.items || []).filter((i) => i.policy
+             && Object.values(i.policy).some((p) => p.own !== null)).length} of ${
+             (state.items || []).length} item(s) overridden</span>
+         </button>`;
+    $("setGroups").querySelectorAll("[data-group]").forEach((b) =>
+      b.addEventListener("click", () => {
+        settingsState.group = b.dataset.group;
+        drawSettings({ groups: settingsState.groups, env: settingsState.env });
+      }));
+
+    drawSettingFields();
+  }
+
+  function drawSettingFields() {
+    if (settingsState.group === PER_ITEM) { drawItemPolicy(); return; }
+    const group = settingsState.groups.find((g) => g.name === settingsState.group);
+    if (!group) { $("setFields").innerHTML = `<div class="empty">Nothing here</div>`; return; }
+    $("setTitle").textContent = group.name;
+    $("setHint").textContent = "changes apply to the next suggestion, no restart";
+
+    $("setFields").innerHTML = group.fields.map((f) => {
+      const entry = f.kind === "bool"
+        ? `<label class="entry"><input type="checkbox" data-set="${f.key}"
+             ${f.value ? "checked" : ""} /> <span class="unit">on</span></label>`
+        : `<div class="entry">
+             <input data-set="${f.key}"
+                    type="${f.kind === "timezone" ? "text" : "number"}"
+                    ${f.kind === "int" ? 'step="1"' : ""}
+                    ${f.minimum !== null ? `min="${f.minimum}"` : ""}
+                    ${f.maximum !== null ? `max="${f.maximum}"` : ""}
+                    value="${escapeHtml(f.value)}" />
+             <span class="unit">${escapeHtml(f.unit || "")}</span>
+           </div>`;
+      // Where it came from, always — including "still the environment", which is
+      // the answer most of them have and the one a reader needs in order to know
+      // that nobody has quietly moved it.
+      // How many items are not listening to this. A default quietly overruled
+      // on half the catalogue is still shown as the policy everywhere else, and
+      // somebody tuning it here should know how far it actually reaches.
+      const overriding = (state.items || []).filter((i) =>
+        i.policy && i.policy[ITEM_FIELD_FOR[f.key]]
+        && i.policy[ITEM_FIELD_FOR[f.key]].own !== null).length;
+      const reach = ITEM_FIELD_FOR[f.key]
+        ? `<span>${overriding
+            ? `${overriding} item(s) set their own instead`
+            : "every item follows this"} · <a href="/procure?view=settings"
+              data-goto-peritem="1">per item</a></span>`
+        : "";
+      const from = f.source === "set here"
+        ? `<b>set here</b> by ${escapeHtml(f.updated_by || "someone")}
+           · ${escapeHtml(f.env_var)} says ${escapeHtml(f.default)}
+           <button type="button" class="ghost small" data-reset="${f.key}">Use that instead</button>`
+        : `from <b>${escapeHtml(f.env_var)}</b>`;
+      return `<div class="setrow" data-row="${f.key}">
+        <label class="cap">${escapeHtml(f.label)}</label>
+        ${entry}
+        <div class="why">${escapeHtml(f.help)}</div>
+        <div class="from">${from}${reach}</div>
+        ${f.problem ? `<div class="bad">${escapeHtml(f.problem)}</div>` : ""}
+        <div class="bad" data-error="${f.key}" hidden></div>
+      </div>`;
+    }).join("");
+
+    // The link jumps within the page rather than reloading it, so the settings
+    // already on screen are not refetched to move one section across.
+    $("setFields").querySelectorAll("[data-goto-peritem]").forEach((a) =>
+      a.addEventListener("click", (event) => {
+        event.preventDefault();
+        settingsState.group = PER_ITEM;
+        drawSettings({ groups: settingsState.groups, env: settingsState.env });
+      }));
+
+    $("setFields").querySelectorAll("[data-reset]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, async () => {
+        try { drawSettings(await api(`/settings/${b.dataset.reset}`, { method: "DELETE" })); }
+        catch (err) { $("setState").textContent = "Failed: " + err.message; }
+      })));
+  }
+
+  // The floors, one row per item, against the stock they are floors for. Shown
+  // together because the question is comparative — fifty is a lot of abayas and
+  // nothing at all in labels — and a form that asks for one number at a time
+  // cannot show you that.
+  // The four thresholds, per item, in one table. Every one of them falls back
+  // to the global setting of the same name, and the placeholder in each box is
+  // the number it is inheriting — so what a blank means is on screen rather
+  // than something to remember.
+  const ITEM_POLICY = [
+    ["reorder_cover_weeks", "Reorder below", "wks"],
+    ["target_cover_weeks", "Buy up to", "wks"],
+    ["min_stock", "Never fewer than", "units"],
+    ["demand_window_weeks", "Measure over", "wks"],
+  ];
+
+  function drawItemPolicy() {
+    const items = [...(state.items || [])].sort((a, b) => a.sku.localeCompare(b.sku));
+    $("setTitle").textContent = PER_ITEM;
+    $("setHint").textContent = "blank inherits the global setting";
+
+    // The global figure under each heading, so the two pages read as one rule
+    // with exceptions rather than as two competing sets of numbers. Taken from
+    // the first item's resolved policy: every item inheriting resolves to the
+    // same global, which is what "the default" means.
+    const sample = items.find((i) => i.policy) || {};
+    const head = ITEM_POLICY.map(([field, label, unit]) => {
+      const global = (sample.policy && sample.policy[field] && sample.policy[field].own === null)
+        ? sample.policy[field].in_force : null;
+      return `<th class="num">${label}<br>
+        <span style="font-weight:400;text-transform:none">${unit}${
+          global !== null ? ` · default ${global}` : ""}</span></th>`;
+    }).join("");
+
+    $("setFields").innerHTML = items.length ? `
+      <div class="why" style="max-width:64ch">
+        Exceptions to <b>When to buy</b>, which stays the default for everything
+        left blank here. Silk is bought deep because the mill quotes long and
+        the price moves; cartons are bought thin because the warehouse cannot
+        hold them — one number for both was always a compromise. The grey
+        figure inside each empty box is what that line is inheriting, and
+        anything typed over it wins for that line only.
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Item</th><th class="num">Stock</th>${head}</tr></thead>
+        <tbody>${items.map((i) => {
+          const policy = i.policy || {};
+          const cells = ITEM_POLICY.map(([field]) => {
+            const p = policy[field] || {};
+            return `<td class="num"><input data-policy="${escapeHtml(i.sku)}"
+              data-field="${field}" type="number" min="0" step="any"
+              style="width:5.5rem;font-family:var(--mono)"
+              placeholder="${p.in_force === null ? "—" : p.in_force}"
+              value="${p.own === null || p.own === undefined ? "" : p.own}" /></td>`;
+          }).join("");
+          return `<tr>
+            <td><strong>${escapeHtml(i.sku)}</strong><br>
+              <span style="color:var(--muted)">${escapeHtml(i.name || "")}</span></td>
+            <td class="num">${i.on_hand}${i.on_order
+              ? `<span style="color:var(--muted)"> +${i.on_order}</span>` : ""}${
+              i.below_minimum
+                ? `<br><span style="color:var(--high);font-size:0.76rem">under ${
+                    i.min_stock_effective}</span>`
+                : ""}</td>
+            ${cells}</tr>`;
+        }).join("")}</tbody>
+      </table></div>` : `<div class="empty">No items yet</div>`;
+  }
+
+  async function saveItemPolicy() {
+    const values = {};
+    $("setFields").querySelectorAll("[data-policy]").forEach((input) => {
+      const sku = input.dataset.policy;
+      const text = input.value.trim();
+      if (!values[sku]) values[sku] = {};
+      // Blank is null, not zero. Zero on a minimum says this line has no floor;
+      // null says use whatever the default is, and collapsing them would make
+      // it impossible to exempt one item from a policy set across the
+      // catalogue — or to let a later change of the default reach it.
+      values[sku][input.dataset.field] = text === "" ? null : Number(text);
+    });
+    try {
+      const out = await api("/items/policy", {
+        method: "PUT", body: JSON.stringify({ values }),
+      });
+      const said = (v) => (v === null ? "default" : v);
+      $("setState").textContent = out.changed.length
+        ? out.changed.map((c) =>
+            `${c.sku} ${c.field.replace(/_/g, " ")}: ${said(c.from)} → ${said(c.to)}`)
+          .join(" · ")
+        : "Nothing changed";
+      // The desk is showing suggestions made under the old thresholds, so it is
+      // recomputed rather than left to look current.
+      if (out.changed.length) {
+        await refreshAll();
+        drawItemPolicy();
+      }
+    } catch (err) {
+      $("setState").textContent = "Not saved: " + err.message;
+    }
+  }
+
+  $("setSave").addEventListener("click", () => busy($("setSave"), async () => {
+    if (settingsState.group === PER_ITEM) { await saveItemPolicy(); return; }
+    const values = {};
+    $("setFields").querySelectorAll("[data-set]").forEach((input) => {
+      values[input.dataset.set] =
+        input.type === "checkbox" ? input.checked : input.value.trim();
+    });
+    $("setFields").querySelectorAll("[data-error]").forEach((e) => { e.hidden = true; });
+    $("setState").textContent = "";
+    try {
+      const view = await api("/settings", {
+        method: "PUT", body: JSON.stringify({ values }),
+      });
+      drawSettings(view);
+      $("setState").textContent = view.changed.length
+        ? view.changed.map((c) => `${c.key}: ${c.from} → ${c.to}`).join(" · ")
+        : "Nothing changed";
+      // The desk is showing suggestions produced under the old policy, so it is
+      // recomputed rather than left to look current. This is the whole point of
+      // the page: a threshold that moves and a queue that does not have moved
+      // nothing a buyer can see.
+      if (view.changed.length) await refreshAll();
+    } catch (err) {
+      const box = err.key && $("setFields").querySelector(`[data-error="${err.key}"]`);
+      if (box) { box.hidden = false; box.textContent = err.message; }
+      // The offending field may live in a group that is not on screen — the two
+      // cover settings are checked against each other and sit together, but that
+      // is not guaranteed of the next rule anybody adds.
+      $("setState").textContent = box ? "Not saved" : "Not saved: " + err.message;
+    }
+  }));
+
   // Three sections in one document, switched by the rail without a reload — the
   // data behind them is loaded once and shared, and reloading to move between a
   // buying decision and the item it is about would refetch all of it.
@@ -1989,6 +2896,7 @@
     desk: ["Buying desk", "what needs you today"],
     items: ["Item list", "the catalogue — what we sell and what it costs"],
     suppliers: ["Supplier list", "who we buy from, and how far away they are"],
+    settings: ["Settings", "the policy every suggestion on the desk is made under"],
   };
 
   window.applyView = function applyView(view) {
@@ -2005,6 +2913,13 @@
     $("openAddItem").hidden = view !== "items";
     $("openAddSupplier").hidden = view !== "suppliers";
     $("pollMail").hidden = view !== "desk";
+    // Raising an order by hand belongs beside the orders, not beside the
+    // catalogue: it is a decision, and the desk is where decisions are made.
+    $("openNewOrder").hidden = view !== "desk";
+    // Fetched on arrival rather than with the rest of the desk: policy changes
+    // when somebody changes it, and refreshing a queue of orders is no reason to
+    // ask for it again.
+    if (view === "settings") loadSettings();
     // Kept in step with the address, which the rail changes without reloading —
     // so arriving here by the back button would otherwise leave the previous
     // section lit while a different one is on screen.

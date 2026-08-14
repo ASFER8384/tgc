@@ -137,9 +137,21 @@ def _sellable_weeks(
 
 
 async def weekly_demand(
-    session: AsyncSession, *, now: datetime, window_weeks: float | None = None
+    session: AsyncSession,
+    *,
+    now: datetime,
+    window_weeks: float | None = None,
+    windows: dict[str, float] | None = None,
 ) -> dict[str, Demand]:
     """Units sold per week per SKU across the trailing window.
+
+    ``windows`` overrides the window for named SKUs, because how far back to
+    read is a property of the thing being sold rather than of the deployment. An
+    evening abaya has a season; a printed carton does not, and averaging the
+    carton over six months only makes the number steadier while averaging the
+    abaya over six months makes it wrong. Everything absent from the map uses
+    ``window_weeks``, and the query still runs once — over the longest window
+    anybody asked for, with each SKU counted only within its own.
 
     The payload is read in Python rather than with a JSON query. Both dialects
     this runs on can index into JSON, but with different operators, and the
@@ -148,7 +160,11 @@ async def weekly_demand(
     """
     settings = get_settings()
     window = window_weeks if window_weeks is not None else settings.demand_window_weeks
-    cutoff = now - timedelta(weeks=window)
+    windows = windows or {}
+    # One query, over the widest window in play. Reading per SKU would be a
+    # query per line of the catalogue to answer a question about one table.
+    widest = max([window, *windows.values()]) if windows else window
+    cutoff = now - timedelta(weeks=widest)
 
     events = list(
         await session.scalars(
@@ -167,16 +183,27 @@ async def weekly_demand(
     if earliest.tzinfo is None:
         earliest = earliest.replace(tzinfo=now.tzinfo)
     observed = (now - earliest).total_seconds() / (7 * 24 * 3600)
-    weeks = min(max(observed, 1.0), window)
+
+    # How long this SKU is measured over: its own window where one is set,
+    # capped by how long the business has actually been trading. Trading history
+    # is a property of the shop and not of the line, so the cap is shared.
+    def span_of(sku: str) -> float:
+        return min(max(observed, 1.0), windows.get(sku, window))
 
     out: dict[str, Demand] = {}
     for event in events:
         counted: set[str] = set()
+        occurred = event.occurred_at
+        if occurred.tzinfo is None:
+            occurred = occurred.replace(tzinfo=now.tzinfo)
         for line in _lines(event.payload or {}):
             sku = (line.get("sku") or "").strip()
             if not sku:
                 # A line with no SKU is not an error — gift cards and shipping
                 # arrive this way — but it cannot be attributed to stock.
+                continue
+            # Outside this SKU's own window, even though it is inside the query's.
+            if occurred < now - timedelta(weeks=windows.get(sku, window)):
                 continue
             try:
                 quantity = int(line.get("quantity") or 1)
@@ -184,8 +211,9 @@ async def weekly_demand(
                 quantity = 1
             entry = out.get(sku)
             if entry is None:
+                span = span_of(sku)
                 entry = out[sku] = Demand(
-                    sku=sku, units=0, weeks=weeks, orders=0, span_weeks=weeks
+                    sku=sku, units=0, weeks=span, orders=0, span_weeks=span
                 )
             entry.units += max(quantity, 0)
             # One basket holding the same SKU on two lines is one order for it.
@@ -198,7 +226,6 @@ async def weekly_demand(
     # Now take the empty shelf out of the divisor. The period is the same one
     # the sales were counted over, so the two halves of the ratio describe the
     # same stretch of time.
-    span_start = max(cutoff, now - timedelta(weeks=weeks))
     ledger: dict[str, list[StockLevel]] = {}
     for reading in await session.scalars(
         select(StockLevel).where(StockLevel.sku.in_(list(out)))
@@ -209,6 +236,10 @@ async def weekly_demand(
         ledger.setdefault(reading.sku, []).append(reading)
 
     for sku, demand in out.items():
+        # Each SKU over its own period, which is the same one its sales were
+        # counted across — the two halves of the ratio have to describe the same
+        # stretch of time or the correction distorts rather than corrects.
+        span_start = now - timedelta(weeks=demand.span_weeks)
         sellable = _sellable_weeks(ledger.get(sku, []), span_start, now)
         if sellable is None:
             # Nothing recorded before this period began. The old behaviour, said

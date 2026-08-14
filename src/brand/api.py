@@ -616,6 +616,118 @@ async def list_findings(
     return out
 
 
+@router.get("/findings/history")
+async def finding_history(session: SessionDep, actor: ActorDep) -> list[dict]:
+    """Every failure ever raised, grouped by the site and the rule it broke.
+
+    The open list is a queue: a finding leaves it the moment somebody marks it
+    fixed, which is right for the person working through today's corrections and
+    wrong for every other question. A shelf that has been straightened four
+    times this season is a different problem from one straightened once, and the
+    queue cannot tell them apart — by design, since it deletes its own past.
+
+    So this is the other view of the same rows. It answers three things the
+    queue cannot: how often this went wrong, how long it took to put right each
+    time, and — where it was dismissed — why somebody decided it was not a
+    failure at all. That last one matters most: a rule dismissed every time it
+    fires is not catching lapses, it is a rule that needs rewriting, and nothing
+    else in the system would ever show you that.
+
+    Grouped across versions of a rule rather than per version. A wording change
+    does not make a recurring lapse a new one, and counting them apart would
+    hide exactly the repetition this exists to surface.
+    """
+    findings = list(await session.scalars(select(Finding).order_by(Finding.created_at.desc())))
+    if not findings:
+        return []
+
+    sites = {s.id: s for s in await session.scalars(select(Site))}
+    standards = {s.id: s for s in await session.scalars(select(Standard))}
+    checks = {
+        c.id: c
+        for c in await session.scalars(
+            select(Check).where(Check.id.in_([f.check_id for f in findings]))
+        )
+    }
+    images = dict(
+        (
+            await session.execute(
+                select(ObservationImage.observation_id, func.min(ObservationImage.id))
+                .group_by(ObservationImage.observation_id)
+            )
+        ).all()
+    )
+
+    groups: dict[tuple[str, str], dict] = {}
+    for finding in findings:
+        site = sites.get(finding.site_id)
+        standard = standards.get(finding.standard_id)
+        code = standard.code if standard else "unknown"
+        key = (finding.site_id, code)
+        group = groups.get(key)
+        if group is None:
+            group = groups[key] = {
+                "site": site.name if site else "unknown",
+                "site_code": site.code if site else None,
+                "contact": site.contact if site else None,
+                "standard": code,
+                "standard_title": standard.title if standard else None,
+                "compliance_class": standard.compliance_class if standard else None,
+                # Marked, because a rule nobody applies any more still explains
+                # a history that stops rather than a lapse that was fixed.
+                "standard_retired": bool(standard and standard.retired_at),
+                "times": 0, "open": 0, "fixed": 0, "dismissed": 0,
+                "occurrences": [],
+            }
+        group["times"] += 1
+        group[finding.status] = group.get(finding.status, 0) + 1
+
+        check = checks.get(finding.check_id)
+        # How long it sat before somebody put it right. Null while it is still
+        # open — an unfinished correction has no duration, and calling it zero
+        # or calling it "so far" would both read as a measurement.
+        days_to_close = None
+        if finding.closed_at is not None:
+            days_to_close = round(
+                (finding.closed_at - finding.created_at).total_seconds() / 86400, 1
+            )
+        group["occurrences"].append({
+            "id": finding.id,
+            "severity": finding.severity,
+            "detail": finding.detail,
+            "status": finding.status,
+            "standard_version": standard.version if standard else None,
+            "raised_at": finding.created_at.isoformat(),
+            "closed_at": finding.closed_at.isoformat() if finding.closed_at else None,
+            "closed_by": finding.closed_by,
+            # Why it was closed. On a dismissal this is the reason somebody gave
+            # for it not being a failure, which is the sentence that has to be
+            # readable back against the rule.
+            "closed_note": finding.closed_note,
+            "days_to_close": days_to_close,
+            "observation_id": check.observation_id if check else None,
+            "image_id": images.get(check.observation_id) if check else None,
+        })
+
+    out = list(groups.values())
+    for group in out:
+        closed = [
+            o["days_to_close"] for o in group["occurrences"] if o["days_to_close"] is not None
+        ]
+        group["average_days_to_close"] = (
+            round(sum(closed) / len(closed), 1) if closed else None
+        )
+        group["last_raised"] = group["occurrences"][0]["raised_at"]
+        group["first_raised"] = group["occurrences"][-1]["raised_at"]
+    # Most repeated first, then whatever is still open, then most recent. The
+    # thing worth reading is the lapse that keeps coming back. Two passes rather
+    # than one key, because the last term sorts the other way from the first two
+    # and Python's sort is stable.
+    out.sort(key=lambda g: g["last_raised"], reverse=True)
+    out.sort(key=lambda g: (-g["times"], -g["open"]))
+    return out
+
+
 @router.post("/findings/{finding_id}/close")
 async def close_finding(
     finding_id: str, body: CloseIn, session: SessionDep, actor: ActorDep
