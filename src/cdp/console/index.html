@@ -1353,7 +1353,15 @@
   const ALWAYS_SALE = new Set(["pos"]);
   const FIELDS = {
     pos: ["name", "phone", "email", "brand", "amount", "item", "consent"],
-    activation:  ["name", "phone", "brand", "product", "consent", "sale"],
+    // The mall stand captures a lead and nothing else. "She bought something"
+    // used to be offered here and it wrote a sale that moved no stock: the mall
+    // has no shelf of its own, so the units came off the storefront's, and the
+    // next Shopify pull overwrote that shelf with Shopify's own count and threw
+    // the movement away. The lead was real; the sale was a number that went
+    // nowhere. Withdrawn rather than fixed, because there is no mall stockroom
+    // to take it off — the day there is one, it becomes a location like any
+    // other and this line comes back.
+    activation:  ["name", "phone", "brand", "product", "consent"],
   };
 
   // Consent is per purpose, not one master switch. Subscribing to the newsletter
@@ -1368,6 +1376,10 @@
   const WRAP = { name: "wrapName", phone: "wrapPhone", email: "wrapEmail", brand: "wrapBrand", amount: "wrapAmount", product: "wrapProduct", consent: "wrapConsent", sale: "wrapSale", item: "wrapItem" };
 
   function isSale() {
+    // The tick is only honoured where the form still offers it. Reading a stale
+    // checked box on a source that no longer shows the row would write the very
+    // sale the row was withdrawn to prevent.
+    if (!FIELDS[state.source].includes("sale")) return ALWAYS_SALE.has(state.source);
     return ALWAYS_SALE.has(state.source) || $("fSale").checked;
   }
 
