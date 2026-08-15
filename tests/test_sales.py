@@ -60,7 +60,9 @@ async def test_the_movement_is_appended_to_the_ledger(client, session, shop):
     })
 
     rows = list(await session.scalars(
-        select(StockLevel).where(StockLevel.sku == "ALN-ABAYA-01")
+        select(StockLevel)
+        .where(StockLevel.sku == "ALN-ABAYA-01")
+        .where(StockLevel.location_code.is_(None))
     ))
     assert [r.on_hand for r in rows] == [8]
 
@@ -169,7 +171,7 @@ async def test_selling_more_than_the_record_holds_at_zero_and_says_so(client, se
     })).json()
 
     assert out["stock"] == [{"sku": "ALN-SCARF-02", "sold": 9, "was": 4, "now": 0}]
-    assert any("only 4 were on record" in note for note in out["notes"])
+    assert any("only 4 were on that shelf" in note for note in out["notes"])
     snapshot = await session.get(StockSnapshot, "ALN-SCARF-02")
     await session.refresh(snapshot)
     assert snapshot.on_hand == 0
@@ -345,3 +347,171 @@ async def test_a_lost_race_is_retried_once_and_no_further(session, monkeypatch):
             [IdentifierIn("pos_counter", "counter:till-2")], seen_at=datetime.now(UTC)
         )
     assert always["n"] == 2
+
+
+async def test_an_online_order_moves_the_same_shelf_a_counter_sale_does(client, session, shop):
+    """One shelf, whoever sold from it.
+
+    Shopify decremented its own count and this platform decremented nothing, so
+    the two numbers began drifting apart at the first web order and never
+    converged. The buying desk then planned against a shelf that had already
+    emptied.
+    """
+    import json as _json
+
+    from cdp.config import get_settings
+    from tests.cdp.factories import signed
+
+    # Signed with whatever secret this process actually loaded, not a constant
+    # from another package's fixtures — settings are cached, so which one is in
+    # force depends on what ran first.
+    secret = get_settings().shopify_webhook_secret
+
+    payload = {
+        "id": 99001,
+        "email": "noura@example.com",
+        "total_price": "840.00",
+        "currency": "SAR",
+        "financial_status": "paid",
+        "processed_at": "2026-08-01T10:00:00Z",
+        "created_at": "2026-08-01T10:00:00Z",
+        "updated_at": "2026-08-01T10:00:00Z",
+        "customer": {"id": 5001, "email": "noura@example.com", "first_name": "Noura"},
+        "line_items": [
+            {"vendor": "Aleena", "sku": "ALN-ABAYA-01", "price": "420.00", "quantity": 2},
+            # An item the catalogue has never heard of. The rest of the order
+            # still lands: a webhook has nobody to correct, and refusing the
+            # whole thing would lose the customer and the demand as well.
+            {"vendor": "Aleena", "sku": "NOT-A-REAL-SKU", "price": "10.00", "quantity": 5},
+        ],
+    }
+    body, mac = signed(secret, payload)
+    headers = {
+        "X-Shopify-Topic": "orders/paid",
+        "X-Shopify-Hmac-Sha256": mac,
+        "Content-Type": "application/json",
+    }
+
+    response = await client.post("/ingest/shopify", content=body, headers=headers)
+    assert response.status_code == 200, response.text
+
+    snapshot = await session.get(StockSnapshot, "ALN-ABAYA-01")
+    await session.refresh(snapshot)
+    assert snapshot.on_hand == 8, "the online sale did not come off the shelf"
+
+    # And the ledger, which is what demand is divided by.
+    rows = (
+        await session.scalars(
+            select(StockLevel)
+            .where(StockLevel.sku == "ALN-ABAYA-01")
+            .where(StockLevel.location_code.is_(None))
+        )
+    ).all()
+    assert [r.on_hand for r in rows] == [8]
+
+    # Shopify replays a topic whenever a 200 is slow. Twice off one shelf would
+    # be a stockout nobody had.
+    again = await client.post("/ingest/shopify", content=body, headers=headers)
+    assert again.status_code == 200
+    assert again.json()["duplicate"] is True
+    await session.refresh(snapshot)
+    assert snapshot.on_hand == 8
+
+    assert _json.loads(body)["id"] == 99001
+
+
+async def test_stock_is_held_per_shelf_and_the_total_follows(client, session, shop):
+    """Twenty abayas is not a fact about the group.
+
+    It is ten the website can ship and five in each shop, and only the first can
+    be promised to somebody online. What is pinned here is that the two records
+    move together: the shelf a sale came off, and the total buying reads.
+    """
+    from sca.models import StockAtLocation, StockLocation
+
+    session.add_all([
+        StockLocation(code="online", name="Shopify storefront", kind="online"),
+        StockLocation(code="riyadh", name="Riyadh shop"),
+        StockLocation(code="jeddah", name="Jeddah shop"),
+    ])
+    snapshot = await session.get(StockSnapshot, "ALN-ABAYA-01")
+    snapshot.on_hand = 20
+    session.add_all([
+        StockAtLocation(sku="ALN-ABAYA-01", location_code="online", on_hand=10),
+        StockAtLocation(sku="ALN-ABAYA-01", location_code="riyadh", on_hand=5),
+        StockAtLocation(sku="ALN-ABAYA-01", location_code="jeddah", on_hand=5),
+    ])
+    await session.flush()
+
+    response = await client.post(
+        "/sales",
+        json={"lines": [{"sku": "ALN-ABAYA-01", "quantity": 1, "unit_price": "420.00"}],
+              "till": "counter", "location": "jeddah", "phone": "0551110000"},
+    )
+    assert response.status_code == 201, response.text
+
+    await session.refresh(snapshot)
+    assert snapshot.on_hand == 19, "the group's total did not follow the sale"
+
+    shelves = {
+        row.location_code: row.on_hand
+        for row in await session.scalars(
+            select(StockAtLocation).where(StockAtLocation.sku == "ALN-ABAYA-01")
+        )
+    }
+    assert shelves == {"online": 10, "riyadh": 5, "jeddah": 4}, shelves
+
+    # And the ledger keeps both readings: the group's, which demand is divided
+    # by, and the shelf's.
+    levels = (
+        await session.scalars(
+            select(StockLevel).where(StockLevel.sku == "ALN-ABAYA-01")
+        )
+    ).all()
+    assert sorted(((r.location_code or ""), r.on_hand) for r in levels) == [
+        ("", 19), ("jeddah", 4),
+    ]
+
+
+async def test_a_shop_selling_what_it_does_not_have_does_not_write_down_the_others(
+    client, session, shop
+):
+    """A bad count in Jeddah is not a reason to lose stock in Riyadh.
+
+    The group is short by what actually left the shelf, not by what the sale
+    claimed — otherwise one miscounted shop quietly writes down the whole group
+    and the buying desk orders against stock that was never missing.
+    """
+    from sca.models import StockAtLocation, StockLocation
+
+    session.add_all([
+        StockLocation(code="online", name="Shopify storefront", kind="online"),
+        StockLocation(code="jeddah", name="Jeddah shop"),
+    ])
+    snapshot = await session.get(StockSnapshot, "ALN-ABAYA-01")
+    snapshot.on_hand = 12
+    session.add_all([
+        StockAtLocation(sku="ALN-ABAYA-01", location_code="online", on_hand=10),
+        StockAtLocation(sku="ALN-ABAYA-01", location_code="jeddah", on_hand=2),
+    ])
+    await session.flush()
+
+    response = await client.post(
+        "/sales",
+        json={"lines": [{"sku": "ALN-ABAYA-01", "quantity": 5, "unit_price": "420.00"}],
+              "location": "jeddah"},
+    )
+    assert response.status_code == 201, response.text
+    out = response.json()
+    assert any("count needs checking" in n for n in out["notes"]), out["notes"]
+
+    await session.refresh(snapshot)
+    # Two really left Jeddah, so the group is down two — not five.
+    assert snapshot.on_hand == 10
+    shelves = {
+        row.location_code: row.on_hand
+        for row in await session.scalars(
+            select(StockAtLocation).where(StockAtLocation.sku == "ALN-ABAYA-01")
+        )
+    }
+    assert shelves == {"online": 10, "jeddah": 0}

@@ -584,19 +584,46 @@
     </div>
   </div>
 
-  <!-- The catalogue. What each thing is, what it costs, who can make it and how
-       much of it is left — the record, rather than today's decision about it. -->
+  <!-- What is on each shelf, and what that adds up to. One number per item was
+       true while everything sold from one place; it stopped being true the
+       moment the storefront and the shops were both selling from it, and the
+       total on this page was short by everything Shopify held. -->
   <div data-view="items" hidden>
+    <!-- The storefront's own count, and whether it has ever been read. A page
+         that showed nought online without saying it had never asked would be
+         reporting an empty shelf it has no evidence about. -->
+    <div class="panel" id="storefrontPanel">
+      <div class="panel-head">
+        <h2>Storefront</h2>
+        <span class="hint" id="shopHint">loading</span>
+      </div>
+      <div id="shopBody" class="empty">loading</div>
+    </div>
+
     <div class="panel">
       <div class="panel-head">
-        <h2>Items</h2>
+        <h2>Stock</h2>
         <span class="hint" id="itemsHint">loading</span>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Item</th><th class="num">Unit cost</th><th class="num">Min / pack</th>
-          <th class="num">Sold</th><th class="num">Stock</th><th class="num">Weeks cover</th>
-          <th>Can supply</th><th></th></tr></thead>
+        <thead><tr id="itemHead"><th>Item</th><th class="num">Total</th><th></th></tr></thead>
         <tbody id="itemRows"><tr><td colspan="8" class="empty">loading</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <!-- Stock on the website belonging to no item here. A product added in
+         Shopify's admin without a SKU sells perfectly well and is invisible to
+         every count on this platform, which is a gap only ever found by running
+         out of something the books said was there. -->
+    <div class="panel" id="orphanPanel" hidden>
+      <div class="panel-head">
+        <h2>On Shopify, not in the catalogue</h2>
+        <span class="hint" id="orphanHint"></span>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Product</th><th>Variant</th><th>SKU</th><th>Vendor</th>
+          <th class="num">On Shopify</th></tr></thead>
+        <tbody id="orphanRows"></tbody>
       </table></div>
     </div>
   </div>
@@ -762,6 +789,16 @@
         <input id="itemSku" placeholder="ALN-SILK-NVY" /></label>
       <label class="field">Description
         <input id="itemName" placeholder="Navy silk, 140cm" /></label>
+      <!-- Which brand this belongs to. It was never on this form, so everything
+           added here was filed under no brand at all — and brand is what every
+           customer's spend, every segment and the whole Brand module are cut by.
+           Free text with the known names offered rather than a fixed list: a
+           fourth brand should not need a deployment. -->
+      <label class="field">Brand
+        <input id="itemBrand" list="brandNames" placeholder="aleena" />
+        <datalist id="brandNames"></datalist>
+        <span class="fieldnote" id="brandNote">Must match the vendor on Shopify,
+          or a customer's spend is filed under the wrong brand.</span></label>
       <label class="field">Unit cost
         <input id="itemCost" placeholder="42.00" /></label>
       <label class="field">Minimum order / pack size
@@ -1430,52 +1467,289 @@
     ];
   }
 
-  // The catalogue: the record of each thing, rather than today's decision about
-  // it. Cover is still shown, because "what is this and is it running out" is
-  // one question to a buyer even when the ordering happens on another page.
-  function drawCatalogue(items) {
-    $("itemsHint").textContent = items.length
-      ? `${items.length} item(s) · ${items.filter((i) => makers(i.sku).length > 1).length}`
-        + ` with more than one supplier`
-      : "";
-    const rows = [...items].sort((a, b) => a.sku.localeCompare(b.sku));
-    $("itemRows").innerHTML = rows.length ? rows.map((i) => {
-      const from = makers(i.sku);
-      // Named, not counted: which mill matters, and a bare "2" sends the reader
-      // to another page to find out who.
-      const supplies = from.length
-        ? from.map((s) => s.name).join(", ")
-        : `<span style="color:var(--high)">nobody — attach one on their record</span>`;
-      return `<tr>
-        <td><strong>${i.sku}</strong><br><span style="color:var(--muted)">${i.name}</span></td>
-        <td class="num">${i.unit_cost}</td>
-        <td class="num">${i.moq} / ${i.pack_size}</td>
-        <td class="num">${i.observed_weekly === null
-          ? `<span style="color:var(--muted)">—</span>`
-          : `${i.observed_weekly}<span style="color:var(--muted)">/wk</span>`}${
-          i.observed_stockout_weeks >= 1
-            ? `<br><span style="color:var(--muted);font-size:0.76rem">${
-                i.observed_stockout_weeks}wk out of stock</span>`
-            : i.observed_availability === "brief"
-              ? `<br><span style="color:var(--muted);font-size:0.76rem">at least</span>`
-              : ""}</td>
-        <td class="num">${i.on_hand}${i.on_order
-          ? `<span style="color:var(--muted)"> +${i.on_order}</span>` : ""}${
-          // The floor, where one is in force. Named on the row rather than only
-          // on the suggestion, because "why is this being bought when it has
-          // three months of cover" is asked from the catalogue.
+  // Inventory: what is on each shelf, and what that adds up to. The storefront
+  // gets its own column rather than being folded into the total, because they
+  // are answers to different questions — the total is what a buyer reorders
+  // against, and the storefront's share is the only part of it the website is
+  // allowed to promise anybody.
+  const escape = (s) => String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // Online first, then the shops by name. The rail of columns is built from
+  // whatever locations exist rather than hardcoded: a third shop opening should
+  // be a row in a table, not a deployment.
+  function shelfOrder(locations) {
+    return [...(locations || [])]
+      .filter((l) => l.active)
+      .sort((a, b) => (a.kind === "online" ? 0 : 1) - (b.kind === "online" ? 0 : 1)
+                    || a.name.localeCompare(b.name));
+  }
+
+  function drawCatalogue(inv, items) {
+    const byItem = {};
+    (items || []).forEach((i) => { byItem[i.sku] = i; });
+    const places = shelfOrder(inv.locations);
+    state.shelves = places;
+
+    $("itemHead").innerHTML = `<th>Item</th>`
+      + places.map((p) => `<th class="num">${escape(p.name)}</th>`).join("")
+      + `<th class="num">Total</th><th class="num">Sold</th>`
+      + `<th class="num">Weeks cover</th><th></th>`;
+    const span = places.length + 5;
+
+    const rows = [...inv.items].sort((a, b) => a.sku.localeCompare(b.sku));
+    $("itemRows").innerHTML = rows.length ? rows.map((row) => {
+      const i = byItem[row.sku] || {};
+      const at = {};
+      row.locations.forEach((l) => { at[l.code] = l.on_hand; });
+
+      const cells = places.map((p) => {
+        // An item nobody has split yet is not an item holding nothing. Its total
+        // is the only figure anybody entered, and drawing three zeroes under it
+        // would be inventing two counts that were never taken.
+        if (!row.split) return `<td class="num" style="color:var(--muted)">—</td>`;
+        const n = at[p.code];
+        if (n === undefined) return `<td class="num" style="color:var(--muted)">—</td>`;
+        return `<td class="num"${n === 0 ? ` style="color:var(--muted)"` : ""}>${n}</td>`;
+      }).join("");
+
+      // The stored total beside what the shelves add up to. They should agree,
+      // and the one time they will not is the one worth seeing — a sale that
+      // moved a shelf without its total, or a count half entered.
+      const disagrees = row.split && row.total !== row.shelf_total;
+
+      return `<tr data-sku="${escape(row.sku)}">
+        <td><button class="ghost small" data-expand="${escape(row.sku)}"
+              style="padding:0 0.35rem;margin-right:0.35rem">${
+              row.variants.length ? "+" : "·"}</button
+          ><strong>${escape(row.sku)}</strong>${row.brand
+            ? `<span style="color:var(--muted)"> · ${escape(row.brand)}</span>` : ""}
+          <br><span style="color:var(--muted)">${escape(row.name)}</span></td>
+        ${cells}
+        <td class="num"><strong>${row.total}</strong>${row.on_order
+          ? `<span style="color:var(--muted)"> +${row.on_order}</span>` : ""}${
+          disagrees
+            ? `<br><span style="font-size:0.76rem;color:var(--high)">shelves say ${
+                row.shelf_total}</span>`
+            : ""}${
           i.min_stock_effective
             ? `<br><span style="font-size:0.76rem;color:${
                 i.below_minimum ? "var(--high)" : "var(--muted)"}">min ${
                 i.min_stock_effective}${i.min_stock === null ? " (default)" : ""}</span>`
             : ""}</td>
-        <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}</td>
-        <td style="white-space:normal">${supplies}</td>
-        <td><button class="ghost small" data-edititem="${i.sku}">Edit</button></td></tr>`;
-    }).join("") : `<tr><td colspan="8" class="empty">No items yet</td></tr>`;
+        <td class="num">${i.observed_weekly == null
+          ? `<span style="color:var(--muted)">—</span>`
+          : `${i.observed_weekly}<span style="color:var(--muted)">/wk</span>`}</td>
+        <td class="num">${i.weeks_cover == null ? "—" : i.weeks_cover}</td>
+        <td><button class="ghost small" data-edititem="${escape(row.sku)}">Edit</button></td>
+      </tr>
+      <tr data-detail="${escape(row.sku)}" hidden><td colspan="${span}"
+        style="background:var(--sunk,rgba(127,127,127,0.06))">${variantBlock(row)}</td></tr>`;
+    }).join("") : `<tr><td colspan="${span}" class="empty">No items yet</td></tr>`;
+
+    const counted = rows.filter((r) => r.split).length;
+    $("itemsHint").textContent =
+      `${rows.length} item(s) · ${counted} split across shelves · `
+      + `${rows.reduce((n, r) => n + r.total, 0)} units in the group`;
 
     $("itemRows").querySelectorAll("[data-edititem]").forEach((b) =>
       b.addEventListener("click", () => openItem(b.dataset.edititem)));
+    $("itemRows").querySelectorAll("[data-expand]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const detail = $("itemRows").querySelector(`[data-detail="${b.dataset.expand}"]`);
+        if (!detail) return;
+        detail.hidden = !detail.hidden;
+        b.textContent = detail.hidden ? "+" : "−";
+      }));
+    $("itemRows").querySelectorAll("[data-savecount]").forEach((b) =>
+      b.addEventListener("click", () => saveCount(b.dataset.savecount)));
+  }
+
+  // Only the shelves somebody actually typed into are sent. A blank box is not a
+  // zero — it is an item this shop has never counted, and saving it as nought
+  // would write off stock on the strength of an empty field.
+  async function saveCount(sku) {
+    const out = $("itemRows").querySelector(`[data-countout="${sku}"]`);
+    const boxes = [...$("itemRows").querySelectorAll(`[data-count="${sku}"]`)]
+      .filter((i) => i.value !== "");
+    if (!boxes.length) { out.textContent = "nothing typed"; return; }
+    out.textContent = "saving…";
+    try {
+      let total = null;
+      for (const box of boxes) {
+        const r = await api("/inventory/count", {
+          method: "POST",
+          body: JSON.stringify({
+            sku, location: box.dataset.place, on_hand: Number(box.value),
+          }),
+        });
+        total = r.total;
+      }
+      out.textContent = `saved — the group holds ${total}`;
+      await loadInventory();
+    } catch (e) {
+      out.textContent = String(e.message || e);
+    }
+  }
+
+  // Counting a shelf. Stock arrives, stock is miscounted, and until now the only
+  // thing that could move a shop's figure was a sale — so a delivery of forty
+  // abayas into Jeddah was invisible until somebody sold one.
+  //
+  // The storefront is deliberately absent. Its count belongs to Shopify, which
+  // moves it on refunds and fulfilments nothing here is told about, so a box
+  // offered here would take a number the next pull throws away.
+  function countBlock(row) {
+    const shops = (state.shelves || []).filter((p) => p.kind !== "online");
+    if (!shops.length) return "";
+    const at = {};
+    row.locations.forEach((l) => { at[l.code] = l.on_hand; });
+    const boxes = shops.map((p) => `<label style="display:inline-flex;gap:0.35rem;
+        align-items:center;margin-right:0.75rem">
+        <span style="color:var(--muted)">${escape(p.name)}</span>
+        <input type="number" min="0" style="width:5.5rem"
+               data-count="${escape(row.sku)}" data-place="${escape(p.code)}"
+               value="${at[p.code] === undefined ? "" : at[p.code]}"
+               placeholder="${at[p.code] === undefined ? "not counted" : ""}">
+      </label>`).join("");
+    return `<div style="padding:0.6rem 0;border-top:1px solid var(--line,rgba(127,127,127,0.2))">
+      <div style="color:var(--muted);font-size:0.82rem;margin-bottom:0.4rem">
+        What is on the shelf — a count, not an adjustment. The group's total is
+        re-added from these. Shopify's own figure is changed in Shopify.
+      </div>
+      ${boxes}
+      <button class="small" data-savecount="${escape(row.sku)}">Save count</button>
+      <span class="hint" data-countout="${escape(row.sku)}"></span>
+    </div>`;
+  }
+
+  // What the storefront holds, broken out the way it is actually stocked. Twelve
+  // abayas is not twelve abayas — it is one Small and eleven Large, and only the
+  // first of those explains why the size somebody asked for was missing.
+  function variantBlock(row) {
+    if (!row.variants.length) {
+      return `<div class="none">Nothing on Shopify against this SKU.${
+        row.online ? "" : " Its stock here is all in the shops."}</div>`
+        + countBlock(row);
+    }
+    const lines = row.variants.map((v) => {
+      const named = (v.options || []).map((o) => `${escape(o.name)} ${escape(o.value)}`)
+        .join(" · ") || escape(v.title || "");
+      return `<tr>
+        <td>${named || `<span style="color:var(--muted)">the only one</span>`}</td>
+        <td class="num">${escape(v.price)}${v.currency
+          ? `<span style="color:var(--muted)"> ${escape(v.currency)}</span>` : ""}</td>
+        <td class="num">${v.tracked
+          ? v.on_hand
+          // Shopify sells an untracked variant forever and reports no quantity
+          // for it. Reading that as an empty shelf would be wrong in the one
+          // direction that reorders.
+          : `<span style="color:var(--muted)">not counted</span>`}</td>
+        <td>${v.status && v.status.toLowerCase() !== "active"
+          ? `<span style="color:var(--high)">${escape(v.status.toLowerCase())}</span>`
+          : `<span style="color:var(--muted)">live</span>`}</td></tr>`;
+    }).join("");
+    return `<div style="padding:0.5rem 0 0.25rem;color:var(--muted);font-size:0.82rem">
+        On Shopify as ${escape(row.variants[0].product)} — ${row.variants.length} variant(s),
+        ${row.online} unit(s) counted
+      </div>
+      <table style="width:100%"><thead><tr>
+        <th>Variant</th><th class="num">Price</th><th class="num">On Shopify</th><th>Status</th>
+      </tr></thead><tbody>${lines}</tbody></table>${countBlock(row)}`;
+  }
+
+  function drawStorefront(shop) {
+    if (!shop.connected) {
+      $("shopHint").textContent = "not connected";
+      $("shopBody").innerHTML = `<div class="none">
+        No storefront connected, so the online column is what this platform last
+        recorded rather than what Shopify holds. Set
+        <code>SCA_SHOPIFY_SHOP_DOMAIN</code> and <code>SCA_SHOPIFY_ADMIN_TOKEN</code>
+        — an Admin API token from a custom app, with <code>read_products</code> and
+        <code>read_inventory</code>. Nothing is ever written back to Shopify.
+      </div>`;
+      return;
+    }
+    const when = shop.last_synced
+      ? new Date(shop.last_synced).toLocaleString()
+      : "never read";
+    $("shopHint").textContent = shop.domain || "";
+    $("shopBody").innerHTML = `<div class="setrow"><div class="entry">
+        <span>${shop.variants} variant(s) mirrored · last read ${escape(when)}</span>
+        <button class="ghost small" id="shopCheck">See what would change</button>
+        <button class="small" id="shopPull">Read Shopify now</button>
+      </div><div id="shopOut" hidden class="hint"></div></div>`;
+    $("shopCheck").addEventListener("click", () => runPull(false));
+    $("shopPull").addEventListener("click", () => runPull(true));
+  }
+
+  // Report first, apply second, and the same words either way. This moves the
+  // number every reorder is decided against, so the first thing it should be
+  // possible to do with it is look.
+  async function runPull(apply) {
+    const out = $("shopOut");
+    show(out, apply ? "reading Shopify…" : "checking…");
+    try {
+      const r = await api(`/inventory/shopify/pull?apply=${apply}`, { method: "POST" });
+      if (!r.ok) { show(out, r.error); return; }
+      const moved = r.changes.length
+        ? r.changes.map((c) => `${c.sku} ${c.was} → ${c.now}`).join(" · ")
+        : "nothing to move — the online shelf already matches";
+      const notes = [
+        r.without_sku.length ? `${r.without_sku.length} variant(s) with no SKU` : "",
+        r.unknown_skus.length ? `${r.unknown_skus.length} SKU(s) not in the catalogue` : "",
+        r.not_on_shopify.length ? `${r.not_on_shopify.length} item(s) not on Shopify` : "",
+        // Named individually. This one is a customer's spend filed under the
+        // wrong brand, and a count would not say whose.
+        (r.brand_mismatch || []).length
+          ? "brand disagrees: " + r.brand_mismatch
+              .map((b) => `${b.sku} is ${b.here || "unset"} here, ${b.shopify} on Shopify`)
+              .join("; ")
+          : "",
+        r.truncated.length ? `truncated: ${r.truncated.join(", ")}` : "",
+      ].filter(Boolean).join(" · ");
+      show(out, `${r.shop || "Shopify"}: ${r.variants} variant(s) across ${r.products}`
+        + ` product(s). ${apply ? "Applied" : "Would change"}: ${moved}.`
+        + (notes ? ` (${notes})` : ""));
+      if (apply) await loadInventory();
+    } catch (e) {
+      show(out, String(e.message || e));
+    }
+  }
+
+  function drawOrphans(unmatched) {
+    $("orphanPanel").hidden = !unmatched.length;
+    if (!unmatched.length) return;
+    $("orphanHint").textContent =
+      `${unmatched.length} variant(s) · ${unmatched.reduce((n, v) => n + v.on_hand, 0)} units`;
+    $("orphanRows").innerHTML = unmatched.map((v) => `<tr>
+      <td>${escape(v.product)}</td>
+      <td>${escape(v.title || "")}</td>
+      <td>${v.sku
+        ? `<code>${escape(v.sku)}</code>`
+        : `<span style="color:var(--high)">no SKU on the variant</span>`}</td>
+      <td>${escape(v.vendor || "")}</td>
+      <td class="num">${v.tracked ? v.on_hand : "—"}</td></tr>`).join("");
+  }
+
+  // Fetched when the page is opened rather than with the buying desk: shelves
+  // move when somebody sells something, and refreshing a queue of orders is no
+  // reason to ask a storefront for its catalogue.
+  async function loadInventory() {
+    try {
+      const [inv, items] = await Promise.all([
+        api("/inventory"),
+        (state.items || []).length ? Promise.resolve(state.items) : api("/items"),
+      ]);
+      state.items = items;
+      state.inventory = inv;
+      drawStorefront(inv.shopify);
+      drawCatalogue(inv, items);
+      drawOrphans(inv.shopify.unmatched || []);
+    } catch (e) {
+      $("itemRows").innerHTML =
+        `<tr><td colspan="8" class="empty">Could not load stock: ${escape(e.message || e)}</td></tr>`;
+    }
   }
 
   async function loadSuggestions() {
@@ -1490,7 +1764,10 @@
     const buy = {};
     plan.by_supplier.forEach((g) => g.lines.forEach((l) => { buy[l.sku] = l; }));
     state.items = items;
-    drawCatalogue(items);
+    // The shelves are only drawn when somebody is looking at them. They need a
+    // second call and a storefront's catalogue, and neither belongs in the path
+    // that refreshes a queue of orders.
+    if (state.view === "items") loadInventory();
 
     const measured = items.filter((i) => i.observed_weekly !== null).length;
     $("suggestHint").textContent =
@@ -1713,7 +1990,7 @@
 
   async function openNewOrder() {
     if (!(state.items || []).length) {
-      show($("createOut"), "No items yet. Add one on the Item list first.");
+      show($("createOut"), "No items yet. Add one on the Inventory page first.");
       return;
     }
     orderSupplier = null;
@@ -2255,7 +2532,7 @@
             </div>
           </div>`;
         }).join("")
-        : `<div class="none">No items yet. Add one from the Items page first.</div>`;
+        : `<div class="none">No items yet. Add one from the Inventory page first.</div>`;
       // Set explicitly, never left to the browser: identical markup reappearing
       // makes it restore the last supplier's ticks onto this one.
       host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
@@ -2279,6 +2556,22 @@
     $("itemSku").value = i ? i.sku : "";
     $("itemSku").disabled = Boolean(i);
     $("itemName").value = i ? i.name : "";
+    $("itemBrand").value = i ? (i.brand || "") : "";
+    // Every brand already in use, from this catalogue and from the storefront's
+    // vendors. Offered rather than enforced — but a name typed freehand that no
+    // Shopify vendor matches is how a brand silently becomes two.
+    const brands = new Set();
+    (state.items || []).forEach((x) => { if (x.brand) brands.add(x.brand); });
+    ((state.inventory || {}).brands || []).forEach((b) => brands.add(b));
+    $("brandNames").innerHTML = [...brands].sort()
+      .map((b) => `<option value="${escape(b)}">`).join("");
+    // Where the storefront already answers this, say so rather than leaving
+    // somebody to guess at spelling that has to match exactly.
+    const vendor = i && ((state.inventory || {}).vendor_by_sku || {})[i.sku];
+    $("brandNote").textContent = vendor
+      ? `Shopify sells this under vendor "${vendor}".`
+      : "Must match the vendor on Shopify, or a customer's spend is filed under "
+        + "the wrong brand.";
     $("itemCost").value = i ? i.unit_cost : "";
     $("itemMoq").value = i ? `${i.moq} / ${i.pack_size}` : "300 / 50";
     $("itemStock").value = i ? `${i.on_hand} / ${i.on_order}` : "260 / 0";
@@ -2489,9 +2782,14 @@
         supplier_id: $("itemSupplier").value,
         // Carried through on an edit rather than defaulted. This form does not
         // ask for them, and sending the defaults back would move every item
-        // somebody edited into "general" and onto one brand.
+        // somebody edited into "general".
         category: editing ? editing.category : "general",
-        brand: editing ? editing.brand : "aleena",
+        // Asked for, not assumed. This defaulted to "aleena" for every new line,
+        // which is how a group with three brands ended up with a catalogue where
+        // the lipstick and the gift box were both Aleena — and brand is what
+        // every customer's spend and every segment is cut by, so the error was
+        // invisible here and wrong everywhere downstream.
+        brand: $("itemBrand").value.trim().toLowerCase() || null,
         unit: editing ? editing.unit : "pcs",
         moq, pack_size: pack,
         unit_cost: $("itemCost").value.trim(),
@@ -3005,7 +3303,7 @@
   // buying decision and the item it is about would refetch all of it.
   const VIEWS = {
     desk: ["Buying desk", "what needs you today"],
-    items: ["Item list", "the catalogue — what we sell and what it costs"],
+    items: ["Inventory", "what is on each shelf, and what the group holds"],
     suppliers: ["Supplier list", "who we buy from, and how far away they are"],
     settings: ["Settings", "the policy every suggestion on the desk is made under"],
   };
@@ -3031,6 +3329,7 @@
     // when somebody changes it, and refreshing a queue of orders is no reason to
     // ask for it again.
     if (view === "settings") loadSettings();
+    if (view === "items") loadInventory();
     if (view === "desk") loadGuidance();
     // Kept in step with the address, which the rail changes without reloading —
     // so arriving here by the back button would otherwise leave the previous

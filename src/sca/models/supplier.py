@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sca.models.base import Base, TimestampMixin, UTCDateTime, new_id
+from sca.models.base import Base, JSONType, TimestampMixin, UTCDateTime, new_id
 
 # Everything a supplier is coordinated through, and nothing about what they sell.
 # The category lives on the item so one mill can supply fabric to two brands.
@@ -124,6 +124,112 @@ class SupplierItem(Base, TimestampMixin):
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
+class StockLocation(Base, TimestampMixin):
+    """A shelf that can be sold from, and counted separately.
+
+    Stock was one number per item, which was true while everything sold from one
+    place. It stopped being true the moment the storefront and the shop were both
+    selling: twenty abayas is not a fact about the group, it is ten the website
+    can ship, five in one shop and five in another, and only the first of those
+    can be promised to somebody online.
+
+    The storefront is a single location because Shopify presents it as one. The
+    shops are separate because a customer standing in one of them cannot buy what
+    is in the other.
+
+    ``code`` rather than a generated id in the foreign keys, so a stock row says
+    "riyadh" and can be read without a join.
+    """
+
+    __tablename__ = "stock_locations"
+
+    code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # "online" or "retail". The push back to Shopify targets the online shelf
+    # alone: telling a storefront it holds stock sitting in a shop it cannot ship
+    # from is how a website oversells.
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="retail")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class StockAtLocation(Base, TimestampMixin):
+    """What is on one shelf, as against what the group holds.
+
+    The rolled-up total stays on ``StockSnapshot`` and remains what buying reads:
+    an order goes to a mill for the group, not for a shelf, and splitting the
+    reorder decision per location would order four times over. This table is what
+    makes the total truthful and what tells a sale which shelf it came off.
+    """
+
+    __tablename__ = "stock_at_location"
+
+    sku: Mapped[str] = mapped_column(String(64), primary_key=True)
+    location_code: Mapped[str] = mapped_column(
+        String(32), ForeignKey("stock_locations.code"), primary_key=True
+    )
+    on_hand: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    on_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class ShopifyVariant(Base, TimestampMixin):
+    """What the storefront says it holds, mirrored here so the two can be compared.
+
+    The storefront is the record for its own shelf and this table does not argue
+    with it. Shopify decrements on checkout, on a refund, on a manual correction
+    somebody makes in its admin, and on a fulfilment — none of which this platform
+    is told about. Any figure kept here that tried to *lead* Shopify's would be
+    wrong within a day and would then oversell the website.
+
+    So the direction is fixed: read from Shopify, write nothing back. The
+    storefront's own count becomes the ``online`` shelf, the shops' counts stay
+    the platform's, and the group total is what those add up to.
+
+    Variants are kept rather than folded into a per-SKU sum, because a sum cannot
+    answer the question a shop actually has — twelve abayas is not twelve abayas,
+    it is one Small and eleven Large, and only the first of those is why the size
+    somebody wants is missing. The sum is still what stock arithmetic uses; this
+    is what a person reads.
+
+    A variant with no SKU is kept too, with ``sku`` null. It is a real and common
+    fault — a product added in Shopify's admin without one — and it means those
+    units belong to no item here and are in no total. Dropping the row would hide
+    it; matching it on the product title would invent an answer.
+    """
+
+    __tablename__ = "shopify_variants"
+    __table_args__ = (Index("ix_shopify_variants_sku", "sku"),)
+
+    # Shopify's own id, so a re-pull updates rather than duplicates, and so the
+    # row can be found again in their admin.
+    variant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    product_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    sku: Mapped[str | None] = mapped_column(String(64))
+
+    product_title: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    handle: Mapped[str | None] = mapped_column(String(300))
+    # What the brand mapping keys off. Kept beside the stock so a line arriving
+    # under a vendor nobody has mapped can be seen here rather than only in the
+    # events it silently failed to file.
+    vendor: Mapped[str | None] = mapped_column(String(120))
+    status: Mapped[str | None] = mapped_column(String(16))
+
+    # "Small / Black" as Shopify renders it, and the same thing structured. Both,
+    # because the string is what a person recognises and the pairs are what a
+    # size curve can be counted from.
+    variant_title: Mapped[str | None] = mapped_column(String(300))
+    options: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+
+    price: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    currency: Mapped[str | None] = mapped_column(String(3))
+
+    on_hand: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Whether Shopify counts this variant at all. An untracked variant reports
+    # zero and sells forever, so its zero must not be read as an empty shelf.
+    tracked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    synced_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+
+
 class StockSnapshot(Base, TimestampMixin):
     """Current position per item, as told to us by inventory and the forecast.
 
@@ -169,6 +275,12 @@ class StockLevel(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     sku: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Which shelf this reading is about. Null means the group — every row written
+    # before locations existed is one of those, and it is what demand is divided
+    # by, so the meaning of the existing rows had to survive the change.
+    location_code: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("stock_locations.code"), nullable=True
+    )
     on_hand: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     on_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     recorded_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)

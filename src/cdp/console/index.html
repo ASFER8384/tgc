@@ -816,6 +816,18 @@
               <input id="fQty" type="number" min="1" step="1" value="1" />
             </div>
           </div>
+          <!-- Which shop rang it up. A sale in Jeddah cannot take stock out of
+               Riyadh, and until this was asked the sale came off whichever shelf
+               the API defaulted to — so a counter sale quietly wrote down the
+               storefront. Each option carries what that shop actually holds,
+               because "which shop" and "does that shop have one" are the same
+               question at a till. -->
+          <div class="field" id="wrapShop" hidden>
+            <label for="fShop">Which shop</label>
+            <select id="fShop"><option value="">— loading —</option></select>
+            <div class="hint" id="shopStockNote" style="margin-top:0.3rem"></div>
+          </div>
+
           <div class="checkline" id="wrapMoveStock" hidden>
             <input type="checkbox" id="fMoveStock" checked />
             <label for="fMoveStock" style="font-family:var(--sans); font-size:0.86rem; letter-spacing:0; text-transform:none; color:var(--ink)">Take it off the shelf — untick if the stock count already has</label>
@@ -829,6 +841,28 @@
           <div class="checkline" id="wrapConsent" hidden>
             <input type="checkbox" id="fConsent" checked />
             <label for="fConsent" style="font-family:var(--sans); font-size:0.86rem; letter-spacing:0; text-transform:none; color:var(--ink)">She ticked "message me on WhatsApp"</label>
+          </div>
+          <!-- What she agreed to, not what the group would like her to have
+               agreed to. A permission given at an Aleena till is an Aleena
+               permission and Rawash cannot lean on it — so the default is the one
+               brand, and the wider grant has to be a separate thing she was
+               actually asked. One permission per brand either way: they are
+               withdrawn one at a time, and a single row covering three brands
+               could not record her leaving one of them. -->
+          <div class="field" id="wrapConsentScope" hidden
+               style="margin-top:-0.4rem;padding-left:1.7rem">
+            <label style="display:block;margin-bottom:0.3rem">for which brand</label>
+            <label class="checkline" style="margin:0">
+              <input type="radio" name="consentScope" id="fScopeBrand" value="brand" checked />
+              <span id="scopeBrandLabel" style="font-family:var(--sans);font-size:0.86rem;
+                    letter-spacing:0;text-transform:none;color:var(--ink)">this brand only</span>
+            </label>
+            <label class="checkline" style="margin:0">
+              <input type="radio" name="consentScope" id="fScopeAll" value="all" />
+              <span style="font-family:var(--sans);font-size:0.86rem;letter-spacing:0;
+                    text-transform:none;color:var(--ink)">all brands — she agreed to hear
+                from the group</span>
+            </label>
           </div>
 
           <button id="submit">Record it</button>
@@ -1358,8 +1392,13 @@
     // A WhatsApp conversation that ended in a purchase is a sale and moves stock;
     // one that did not is a message about a product, and names it in words.
     $("wrapItem").hidden = !sale;
+    // Counter sales only. The mall stand is deliberately left as it was, and a
+    // shop box on its form would be asking a question its stock does not answer.
+    $("wrapShop").hidden = !(sale && state.source === "shopify_pos");
+    if (!$("wrapShop").hidden) drawShopPicker();
     $("wrapMoveStock").hidden = !sale;
     $("wrapProduct").hidden = sale ? true : !on.has("product");
+    refreshConsentScope();
     if (!ALWAYS_SALE.has(state.source)) {
       $("submit").textContent = sale ? "Record the sale" : "Capture lead";
     }
@@ -1390,7 +1429,56 @@
   async function loadItems() {
     try { state.items = await api("/items"); }
     catch { state.items = []; }
+    // What each shop holds, per item. Fetched beside the catalogue rather than
+    // when the shop box is opened: a till that has to wait for a round trip
+    // before it can say which shelf is empty will be used with it still loading.
+    try {
+      const inv = await api("/inventory");
+      state.shelves = (inv.locations || []).filter((l) => l.active && l.kind !== "online");
+      state.stockAt = {};
+      (inv.items || []).forEach((i) => {
+        state.stockAt[i.sku] = {};
+        (i.locations || []).forEach((l) => { state.stockAt[i.sku][l.code] = l.on_hand; });
+      });
+    } catch { state.shelves = []; state.stockAt = {}; }
     drawItemPicker();
+    drawShopPicker();
+  }
+
+  // The shops, each saying what it holds of the item currently picked. A shelf
+  // with none of it is offered but not selectable — greyed rather than hidden,
+  // because "Jeddah has none" is the answer somebody at the till needs, and a
+  // shop that vanished from the list would read as a shop that closed.
+  function drawShopPicker() {
+    const select = $("fShop");
+    if (!select) return;
+    const shops = state.shelves || [];
+    if (!shops.length) {
+      select.innerHTML = `<option value="">no shops set up</option>`;
+      $("shopStockNote").textContent = "";
+      return;
+    }
+    const sku = $("fSku") ? $("fSku").value : "";
+    const held = (state.stockAt || {})[sku] || {};
+    const wanted = select.value;
+    select.innerHTML = shops.map((s) => {
+      const n = held[s.code];
+      // Undefined is not zero. An item this shop has never counted is unknown,
+      // and refusing the sale on the strength of a missing row would stop a till
+      // over a gap in the records rather than a gap on the shelf.
+      const unknown = n === undefined;
+      const out = !unknown && n <= 0;
+      const label = unknown ? "not counted here" : `${n} left`;
+      return `<option value="${s.code}"${out ? " disabled" : ""}>${
+        s.name} — ${label}</option>`;
+    }).join("");
+    const usable = [...select.options].filter((o) => !o.disabled);
+    if (wanted && usable.some((o) => o.value === wanted)) select.value = wanted;
+    else if (usable.length) select.value = usable[0].value;
+    $("shopStockNote").textContent = usable.length
+      ? ""
+      : "None of this item on any shop shelf. Count it in on the Inventory page, "
+        + "or untick \"take it off the shelf\" if the count already has.";
   }
 
   function drawItemPicker() {
@@ -1404,7 +1492,32 @@
       ? list.map((i) => `<option value="${i.sku}">${i.sku} — ${i.name || ""}</option>`).join("")
       : `<option value="">no items in the catalogue yet</option>`;
     if (wanted && list.some((i) => i.sku === wanted)) select.value = wanted;
+    // The shops report per item, so changing the item changes which of them can
+    // sell it.
+    drawShopPicker();
   }
+
+  // Which brands this permission covers. The brands come off the form's own list
+  // rather than a second copy of them, so a fourth brand appears here the moment
+  // it appears there.
+  function consentBrands(brand) {
+    if (!$("fScopeAll").checked) return [brand || "aleena"];
+    return [...$("fBrand").options].map((o) => o.value);
+  }
+
+  // The scope choice only means something once she has agreed to anything, and
+  // the "this brand" wording has to name the brand actually picked — "this brand
+  // only" beside a Brand box she has not looked at is not a question anybody can
+  // answer honestly on her behalf.
+  function refreshConsentScope() {
+    const on = $("fConsent").checked && !$("wrapConsent").hidden;
+    $("wrapConsentScope").hidden = !on;
+    const picked = $("fBrand").selectedOptions[0];
+    const name = picked ? picked.textContent.split("—")[0].trim() : "this brand";
+    $("scopeBrandLabel").textContent = `${name} only`;
+  }
+  $("fConsent").addEventListener("change", refreshConsentScope);
+  $("fBrand").addEventListener("change", refreshConsentScope);
 
   /* ---------- submit ---------- */
   function stamp() {
@@ -1431,6 +1544,16 @@
     if (isSale() && !$("fSku").value) {
       return show("Pick an item. A sale with no item on it cannot reach demand, "
         + "so nothing would be reordered for it.", false);
+    }
+    // Nothing on any shop shelf, and the sale says to take one off. Refused
+    // rather than recorded against a shelf that would go straight to a shortfall
+    // note — the count is wrong or the item is genuinely gone, and both want
+    // somebody to look before the record is written.
+    if (isSale() && src === "shopify_pos" && $("fMoveStock").checked
+        && !$("fShop").value) {
+      return show("No shop has this item on the shelf. Count it in on the "
+        + "Inventory page, or untick \"take it off the shelf\" if the count "
+        + "already has.", false);
     }
 
     $("submit").disabled = true;
@@ -1471,6 +1594,11 @@
             email: email || null,
             name: name || null,
             move_stock: $("fMoveStock").checked,
+            // Which shelf this came off. Sent for a counter sale only — the mall
+            // stand is left exactly as it was, and sending a shop for it would
+            // change where its stock comes off without anybody asking for that.
+            ...(src === "shopify_pos" && $("fShop").value
+              ? { location: $("fShop").value } : {}),
             // The form asks for the basket total; the line wants a unit price.
             lines: [{
               sku: $("fSku").value,
@@ -1486,17 +1614,31 @@
       // permission for its own channel. Leaving the box unticked records nothing
       // rather than revoking: a sale should never silently cancel an opt in the
       // customer gave somewhere else. Revoking is done on her profile.
-      if (src !== "activation" && $("fConsent").checked && result.person_id) {
+      if ($("fConsent").checked && result.person_id) {
         const [purpose, csource, evidence] = CONSENT_RULE[src];
-        await api(`/persons/${result.person_id}/consent`, {
-          method: "POST",
-          // The brand on the form is the brand she agreed with. A WhatsApp
-          // opt-in during an Aleena order is an Aleena permission, and Rawash
-          // cannot lean on it.
-          body: JSON.stringify({
-            purpose, granted: true, source: csource, evidence, brand: brand || "aleena",
-          }),
-        });
+        // One row per brand, even when she agreed to all of them. A single row
+        // covering three brands could not record her leaving one, and leaving one
+        // is the thing customers actually do.
+        //
+        // The mall stand writes its own consent for the brand whose stand she was
+        // standing at, so that brand is already recorded and only the others are
+        // added here.
+        const already = src === "activation" ? [brand || "aleena"] : [];
+        const wanted = consentBrands(brand).filter((b) => !already.includes(b));
+        for (const b of wanted) {
+          await api(`/persons/${result.person_id}/consent`, {
+            method: "POST",
+            body: JSON.stringify({
+              purpose, granted: true, source: csource,
+              // The evidence says which of the two she was asked. "She ticked
+              // WhatsApp at an Aleena till" and "she agreed to hear from the
+              // group" are different claims, and a permission that cannot say
+              // which one it rests on cannot be defended later.
+              evidence: wanted.length > 1 ? `${evidence} — agreed across all brands` : evidence,
+              brand: b,
+            }),
+          });
+        }
       }
 
       if (result.duplicate) {
@@ -1588,9 +1730,44 @@
 
   // Each source sends a different shape, so the interesting field differs too.
   // This is the "what did they actually give us" line under each event.
+  // Which shelf a sale came off. A code is what the record holds; a person
+  // reading her history wants the shop's name, and an unknown code is shown as
+  // itself rather than hidden — a sale from somewhere nobody has named yet is
+  // worth seeing, not swallowing.
+  const LOCATION_LABEL = {
+    online: "Shopify storefront",
+    riyadh: "Riyadh shop",
+    jeddah: "Jeddah shop",
+  };
+  const locationName = (code) =>
+    LOCATION_LABEL[code] || String(code).replace(/[-_]/g, " ");
+
+  // What was actually in the basket. "Order paid — order seed-101539" says a
+  // sale happened and nothing about what she bought, which is the one thing the
+  // page is being read for.
+  function itemsOf(payload) {
+    const lines = (payload.line_items || (payload.order || {}).line_items || [])
+      .filter((l) => l && (l.sku || l.title));
+    if (!lines.length) return null;
+    const named = lines.slice(0, 2).map((l) => {
+      const what = l.sku || l.title;
+      const variant = l.variant_title && l.variant_title !== "mixed"
+        ? ` (${l.variant_title})` : "";
+      const many = Number(l.quantity) > 1 ? `${l.quantity} × ` : "";
+      return `${many}${what}${variant}`;
+    });
+    if (lines.length > 2) named.push(`+${lines.length - 2} more`);
+    return named.join(", ");
+  }
+
   function detailOf(e) {
     const p = e.payload || {};
+    // Ordered by what somebody scanning a timeline actually needs: what she
+    // bought, then where from. The order id is last because it identifies the
+    // record rather than describing it.
     const bits = [
+      itemsOf(p),
+      p.location && "at " + locationName(p.location),
       p.text, p.product, p.subject,
       p.campaign && "campaign " + p.campaign,
       p.link && "clicked " + p.link,
@@ -1600,7 +1777,7 @@
       p.brand_interest && "interested in " + p.brand_interest,
       p.order_id && "order " + p.order_id,
     ].filter(Boolean);
-    return bits.length ? ` <span class="detail">— ${bits.slice(0, 2).join(" · ")}</span>` : "";
+    return bits.length ? ` <span class="detail">— ${bits.slice(0, 3).join(" · ")}</span>` : "";
   }
 
   function closeProfile() {

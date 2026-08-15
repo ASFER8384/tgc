@@ -13,7 +13,7 @@ import cdp
 import forecast
 import forecast.api as forecast_api
 from cdp.api import automations, ingest, persons, proof, segments
-from sca.api import catalog, coordination, demo, inbound, orders, sales
+from sca.api import catalog, coordination, demo, inbound, inventory, orders, sales
 from sca.api import settings as settings_api
 from sca.config import get_settings
 
@@ -149,13 +149,27 @@ _NAV_GROUPS = (
         "M13 10V3L4 14h7v7l9-11h-7z",
     ),
     )),
-    # Three destinations, not one, because they run on different clocks. The desk
-    # is a queue somebody works every morning; the item and supplier lists are
-    # records that change when a SKU is added or a mill is onboarded. Filed
-    # together they buried the queue under reference data.
+    # Its own group rather than a page inside Procurement. What is on a shelf is
+    # not a buying decision — a shop assistant counting stock in Jeddah and a
+    # buyer placing an order with a mill are different people asking different
+    # questions. Filing the count under the ordering screens made it read as
+    # something only a buyer had reason to open, which is exactly backwards now
+    # that every shop holds its own.
+    ("Inventory", (
+    (
+        "sca:items",
+        "/procure?view=items",
+        "Inventory",
+        "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
+    ),
+    )),
+    # Separate destinations, because they run on different clocks. The desk is a
+    # queue somebody works every morning; the supplier list is a record that
+    # changes when a mill is onboarded. Filed together they buried the queue
+    # under reference data.
     #
-    # Procurement, not Supplier: two of the three entries are records *about*
-    # suppliers, so heading the group "Supplier" named it after its subject
+    # Procurement, not Supplier: the supplier list and the settings are records
+    # *about* suppliers, so heading the group "Supplier" named it after its subject
     # rather than after the work. For the same reason the desk is the buying
     # desk — "Supplier Desk" beside "Supplier list" said supplier twice and
     # neither of them said what you do there.
@@ -166,12 +180,6 @@ _NAV_GROUPS = (
         "Buying desk",
         "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 "
         "4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4",
-    ),
-    (
-        "sca:items",
-        "/procure?view=items",
-        "Item list",
-        "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
     ),
     (
         "sca:suppliers",
@@ -463,6 +471,7 @@ def create_app() -> FastAPI:
     app.include_router(brand_api.router)
     app.include_router(forecast_api.router)
     app.include_router(catalog.router)
+    app.include_router(inventory.router)
     app.include_router(settings_api.router)
     app.include_router(orders.router)
     app.include_router(sales.router)

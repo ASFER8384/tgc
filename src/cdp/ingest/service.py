@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cdp.identity.service import IdentityService
-from cdp.ingest.schemas import CanonicalEvent, IngestResult
+from cdp.ingest.schemas import PURCHASE_EVENTS, CanonicalEvent, IngestResult
 from cdp.models import AuditLog, Event, Person, RawEvent
 from cdp.profiles.service import ProfileService
 
@@ -58,7 +58,17 @@ class IngestService:
         self.identity = IdentityService(session, actor=actor, country_code=country_code)
         self.profiles = ProfileService(session)
 
-    async def ingest(self, event: CanonicalEvent, *, topic: str | None = None) -> IngestResult:
+    async def ingest(
+        self, event: CanonicalEvent, *, topic: str | None = None, moves_stock: bool = True
+    ) -> IngestResult:
+        """Record one thing a customer did, and move the shelf it came off.
+
+        ``moves_stock`` is off for callers that have already done it themselves.
+        The counter sale endpoint is one: it decides whether the shelf moves at
+        all, reports the shortfall when the count disagrees, and then writes its
+        event through here — so leaving this on would take the same units off
+        twice and invent a stockout nobody had.
+        """
         received_at = datetime.now(UTC)
 
         # Idempotency first. Every one of these platforms retries, and Shopify in
@@ -118,6 +128,30 @@ class IngestService:
                 person.display_name = event.display_name
             if event.language:
                 person.preferred_language = event.language
+
+        # The shelf moves for an online sale exactly as it does for a counter
+        # one. Until this existed, Shopify decremented its own count and this
+        # platform decremented nothing, so the two numbers drifted apart from the
+        # first web order and the buying desk planned against a shelf that had
+        # already emptied.
+        #
+        # After the dedupe check above, so a webhook replay — which Shopify does
+        # whenever a 200 is slow — cannot take the same units off twice.
+        #
+        # Imported here rather than at module scope: the customer half does not
+        # otherwise depend on the supplier half, and only this branch needs it.
+        if moves_stock and event.name in PURCHASE_EVENTS:
+            from sca.stock import lines_from_payload, sell_known_only
+
+            # The storefront's own shelf. Shopify presents itself as one
+            # location and can only ship what is on it — an online order must
+            # never quietly take stock out of a shop it cannot reach.
+            await sell_known_only(
+                self.session,
+                lines_from_payload(event.payload),
+                occurred=event.occurred_at,
+                location="online",
+            )
 
         raw.processed_at = datetime.now(UTC)
         await self.session.flush()

@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -130,6 +131,39 @@ class Settings(BaseSettings):
     # warning beside the estimate and never adds days to it. Off makes the
     # estimate a pure function of stored data, which is what the tests want.
     weather_advisory: bool = True
+
+    # The storefront, read-only. Without these three the Inventory page still
+    # works and says plainly that the online shelf has never been counted, which
+    # is better than a zero that looks like an answer.
+    #
+    # The token is an Admin API access token (shpat_…) from a custom app, and it
+    # needs read_products and read_inventory. Not write: this platform does not
+    # push stock to Shopify, because Shopify moves its own count on a checkout, a
+    # refund and a fulfilment that nothing here is told about, and a figure sent
+    # from here that tried to lead theirs would oversell the website.
+    # Both spellings accepted. The unprefixed ones are what a Shopify app's own
+    # setup writes into a .env, and refusing to read a variable that is already
+    # sitting there correctly would be pedantry with a support cost.
+    shopify_shop_domain: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "SCA_SHOPIFY_SHOP_DOMAIN", "SHOPIFY_SHOP_DOMAIN", "SHOPIFY_DOMAIN"
+        ),
+    )
+    # An access token, not the app's API key or secret. The key and secret are
+    # OAuth credentials — they identify the app to Shopify and are what a webhook
+    # signature is checked against; neither will authenticate an Admin API call.
+    # The token is what an install produces, and it starts shpat_.
+    shopify_admin_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "SCA_SHOPIFY_ADMIN_TOKEN", "SHOPIFY_ADMIN_TOKEN", "SHOPIFY_ACCESS_TOKEN"
+        ),
+    )
+    # Pinned rather than "latest": Shopify retires a version a year after it
+    # ships, and a query that silently changes shape under a running service is
+    # a stock figure that goes wrong without anybody deploying anything.
+    shopify_api_version: str = "2025-10"
 
     # The sample data button. On while this is a demonstration, including on the
     # deployed service, because a demo nobody can put data into demonstrates

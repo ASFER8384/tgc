@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cdp.config import get_settings
@@ -44,6 +45,28 @@ class ProfileService:
         return self._now or datetime.now(UTC)
 
     async def recompute(self, person_id: str) -> ProfileTraits:
+        """Rebuild one person's traits and brand affinity from her whole timeline.
+
+        The brand stats are rebuilt by deleting the rows and writing them again,
+        which two requests doing it at once turn into a primary key collision:
+        both delete, both insert, and the loser gets a 500 on a write that was
+        only ever going to produce the same numbers.
+
+        It is the shared walk-in record that makes this common. Every anonymous
+        cash sale lands on one standing record per till, so a busy counter has
+        several baskets recomputing the same person's affinity simultaneously —
+        the same shape of race as resolving her identity, one table further on.
+
+        Savepoint, and one retry. Twice is not a race.
+        """
+        try:
+            async with self.session.begin_nested():
+                return await self._recompute_once(person_id)
+        except IntegrityError:
+            async with self.session.begin_nested():
+                return await self._recompute_once(person_id)
+
+    async def _recompute_once(self, person_id: str) -> ProfileTraits:
         events = (
             await self.session.scalars(
                 select(Event).where(Event.person_id == person_id).order_by(Event.occurred_at)
