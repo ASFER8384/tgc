@@ -1577,6 +1577,25 @@
       }));
     $("itemRows").querySelectorAll("[data-savecount]").forEach((b) =>
       b.addEventListener("click", () => saveCount(b.dataset.savecount)));
+    // Switching a shelf to size counting is a view change, not a save. Nothing
+    // is written until the sizes are typed, so the shelf keeps the total it has
+    // until somebody replaces it with a real breakdown.
+    $("itemRows").querySelectorAll("[data-bysize]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.sizeMode = state.sizeMode || new Set();
+        state.sizeMode.add(b.dataset.bysize);
+        const open = [...$("itemRows").querySelectorAll("[data-detail]")]
+          .filter((r) => !r.hidden).map((r) => r.dataset.detail);
+        drawCatalogue(state.inventory, state.items);
+        // Redrawing collapses every row, so the ones that were open are put back
+        // — otherwise pressing "count by size" closes the panel you pressed it in.
+        open.forEach((sku) => {
+          const detail = $("itemRows").querySelector(`[data-detail="${sku}"]`);
+          const toggle = $("itemRows").querySelector(`[data-expand="${sku}"]`);
+          if (detail) detail.hidden = false;
+          if (toggle) toggle.textContent = "−";
+        });
+      }));
   }
 
   // Only the shelves somebody actually typed into are sent. A blank box is not a
@@ -1584,17 +1603,34 @@
   // would write off stock on the strength of an empty field.
   async function saveCount(sku) {
     const out = $("itemRows").querySelector(`[data-countout="${sku}"]`);
-    const boxes = [...$("itemRows").querySelectorAll(`[data-count="${sku}"]`)]
+    const shelfBoxes = [...$("itemRows").querySelectorAll(`[data-count="${sku}"]`)]
       .filter((i) => i.value !== "");
-    if (!boxes.length) { out.textContent = "nothing typed"; return; }
+    const sizeBoxes = [...$("itemRows").querySelectorAll(`[data-size="${sku}"]`)]
+      .filter((i) => i.value !== "");
+    if (!shelfBoxes.length && !sizeBoxes.length) {
+      out.textContent = "nothing typed"; return;
+    }
     out.textContent = "saving…";
     try {
       let total = null;
-      for (const box of boxes) {
+      // Shelf totals first, then sizes. Order matters where somebody has done
+      // both to one shop in one go: the sizes are the finer statement and have
+      // to be the one that stands, and doing them second means they do.
+      for (const box of shelfBoxes) {
         const r = await api("/inventory/count", {
           method: "POST",
           body: JSON.stringify({
             sku, location: box.dataset.place, on_hand: Number(box.value),
+          }),
+        });
+        total = r.total;
+      }
+      for (const box of sizeBoxes) {
+        const r = await api("/inventory/count/variant", {
+          method: "POST",
+          body: JSON.stringify({
+            sku, location: box.dataset.place, variant: box.dataset.variant,
+            on_hand: Number(box.value),
           }),
         });
         total = r.total;
@@ -1613,27 +1649,91 @@
   // The storefront is deliberately absent. Its count belongs to Shopify, which
   // moves it on refunds and fulfilments nothing here is told about, so a box
   // offered here would take a number the next pull throws away.
+  // The sizes this item is actually sold in, as the storefront names them. Only
+  // these can be counted: a shop inventing a size the catalogue does not carry
+  // produces a count that reconciles against nothing.
+  //
+  // The key is Shopify's own variant title, because that is the string a sale
+  // carries too — a size counted here and a size sold at the till have to be
+  // the same size, or the size curve is built from two vocabularies.
+  function sizesOf(row) {
+    return (row.variants || []).map((v) => ({
+      key: v.title || (v.options || []).map((o) => o.value).join(" / "),
+      label: (v.options || []).map((o) => o.value).join(" / ") || v.title || "—",
+    })).filter((s) => s.key);
+  }
+
+  // Which shelves are being counted size by size rather than as one number. A
+  // shelf that already has sizes on it is always in this mode — its total is the
+  // sum of them, so offering a single box would be offering a second way to set
+  // a figure that is derived.
+  function bySize(sku, code) {
+    return (state.sizeMode || new Set()).has(`${sku}|${code}`);
+  }
+
   function countBlock(row) {
     const shops = (state.shelves || []).filter((p) => p.kind !== "online");
     if (!shops.length) return "";
-    const at = {};
-    row.locations.forEach((l) => { at[l.code] = l.on_hand; });
-    const boxes = shops.map((p) => `<label style="display:inline-flex;gap:0.35rem;
-        align-items:center;margin-right:0.75rem">
-        <span style="color:var(--muted)">${escape(p.name)}</span>
-        <input type="number" min="0" style="width:5.5rem"
-               data-count="${escape(row.sku)}" data-place="${escape(p.code)}"
-               value="${at[p.code] === undefined ? "" : at[p.code]}"
-               placeholder="${at[p.code] === undefined ? "not counted" : ""}">
-      </label>`).join("");
+    const at = {}, counted = {};
+    row.locations.forEach((l) => { at[l.code] = l.on_hand; counted[l.code] = l.variants || {}; });
+    const sizes = sizesOf(row);
+
+    const lines = shops.map((p) => {
+      const held = counted[p.code] || {};
+      const open = Object.keys(held).length > 0 || bySize(row.sku, p.code);
+      const shelf = at[p.code];
+      const head = `<div style="min-width:9rem"><strong>${escape(p.name)}</strong>
+        <span style="color:var(--muted)"> ${shelf === undefined ? "not counted" : shelf}</span></div>`;
+
+      if (!open) {
+        return `<div style="display:flex;gap:0.6rem;align-items:center;
+                  flex-wrap:wrap;padding:0.3rem 0">
+          ${head}
+          <input type="number" min="0" style="width:6rem"
+                 data-count="${escape(row.sku)}" data-place="${escape(p.code)}"
+                 value="${shelf === undefined ? "" : shelf}"
+                 placeholder="${shelf === undefined ? "not counted" : ""}">
+          ${sizes.length ? `<button class="ghost small"
+            data-bysize="${escape(row.sku)}|${escape(p.code)}">count by size</button>` : ""}
+        </div>`;
+      }
+
+      // Blank where that size has never been counted here, and a number only
+      // where somebody wrote one. The two are different instructions to a shop
+      // and a zero would be the wrong one.
+      const boxes = sizes.map((s) => `<label style="display:inline-flex;gap:0.3rem;
+          align-items:center;margin-right:0.5rem">
+          <span style="color:var(--muted);font-size:0.8rem">${escape(s.label)}</span>
+          <input type="number" min="0" style="width:4rem"
+                 data-size="${escape(row.sku)}" data-place="${escape(p.code)}"
+                 data-variant="${escape(s.key)}"
+                 value="${held[s.key] === undefined ? "" : held[s.key]}"
+                 placeholder="—">
+        </label>`).join("");
+      const done = sizes.filter((s) => held[s.key] !== undefined).length;
+      return `<div style="padding:0.35rem 0">
+        <div style="display:flex;gap:0.6rem;align-items:baseline;flex-wrap:wrap">${head}
+          <span style="color:var(--muted);font-size:0.78rem">${
+            done ? `${done} of ${sizes.length} sizes counted` : "counting by size"}</span></div>
+        <div style="padding:0.3rem 0 0 0.2rem">${boxes}</div>
+      </div>`;
+    }).join("");
+
     return `<div style="padding:0.6rem 0;border-top:1px solid var(--line,rgba(127,127,127,0.2))">
       <div style="color:var(--muted);font-size:0.82rem;margin-bottom:0.4rem">
         What is on the shelf — a count, not an adjustment. The group's total is
         re-added from these. Shopify's own figure is changed in Shopify.
       </div>
-      ${boxes}
-      <button class="small" data-savecount="${escape(row.sku)}">Save count</button>
-      <span class="hint" data-countout="${escape(row.sku)}"></span>
+      ${lines}
+      <div style="padding-top:0.5rem">
+        <button class="small" data-savecount="${escape(row.sku)}">Save count</button>
+        <span class="hint" data-countout="${escape(row.sku)}"></span>
+      </div>
+      ${sizes.length ? `<div style="color:var(--muted);font-size:0.76rem;padding-top:0.4rem">
+        Counting by size is a job you finish: once one size is counted, that
+        shop's total becomes the sum of its sizes, so an uncounted size reads as
+        none rather than as unknown.
+      </div>` : ""}
     </div>`;
   }
 

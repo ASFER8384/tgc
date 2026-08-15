@@ -230,6 +230,37 @@ class ShopifyVariant(Base, TimestampMixin):
     synced_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
 
 
+class StockAtVariant(Base, TimestampMixin):
+    """What one shelf holds of one size, as against what it holds of the item.
+
+    A third level under the same rule as the two above it: the group's total is
+    the sum of its shelves, and a shelf's total is the sum of the variants
+    counted on it. Nothing here is derived downward — a shelf is never split
+    across sizes by guessing, because a guess about the size curve is exactly
+    the fact somebody is trying to establish.
+
+    **Empty means not counted, never zero.** No rows for a shelf is a shelf
+    nobody has broken down, and its item-level total stands untouched. This is
+    the whole reason for a separate table rather than a column on
+    ``StockAtLocation``: a column would need a value for every row on the day it
+    was added, and there is no honest value to give it.
+
+    The variant is Shopify's own label for the row — "Small", "Rose" — because
+    that string is what the storefront reports, what the till will offer and
+    what is printed on the ticket. Storing an id would be tidier and would mean
+    a shop counting a rail could not name what it was counting.
+    """
+
+    __tablename__ = "stock_at_variant"
+
+    sku: Mapped[str] = mapped_column(String(64), primary_key=True)
+    location_code: Mapped[str] = mapped_column(
+        String(32), ForeignKey("stock_locations.code"), primary_key=True
+    )
+    variant: Mapped[str] = mapped_column(String(120), primary_key=True)
+    on_hand: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class StockSnapshot(Base, TimestampMixin):
     """Current position per item, as told to us by inventory and the forecast.
 

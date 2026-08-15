@@ -23,6 +23,7 @@ from sca.models import (
     Item,
     ShopifyVariant,
     StockAtLocation,
+    StockAtVariant,
     StockLocation,
     StockSnapshot,
 )
@@ -60,6 +61,13 @@ async def inventory(session: SessionDep, actor: ActorDep, settings: SettingsDep)
     for row in await session.scalars(select(StockAtLocation)):
         shelves.setdefault(row.sku, {})[row.location_code] = row.on_hand
 
+    # The size breakdown, where a shelf has one. Absent rather than zero, so the
+    # page can tell "this shelf holds none of that size" from "nobody has
+    # counted it by size" — which are opposite instructions to a shop.
+    counted: dict[str, dict[str, dict[str, int]]] = {}
+    for row in await session.scalars(select(StockAtVariant)):
+        counted.setdefault(row.sku, {}).setdefault(row.location_code, {})[row.variant] = row.on_hand
+
     variants: dict[str, list[ShopifyVariant]] = {}
     orphans: list[ShopifyVariant] = []
     known = {i.sku for i in items}
@@ -81,12 +89,17 @@ async def inventory(session: SessionDep, actor: ActorDep, settings: SettingsDep)
     for item in items:
         snapshot = snapshots.get(item.sku)
         split = shelves.get(item.sku, {})
+        sizes = counted.get(item.sku, {})
         rows = [
             {
                 "code": code,
                 "name": by_code[code].name if code in by_code else code,
                 "kind": by_code[code].kind if code in by_code else "retail",
                 "on_hand": on_hand,
+                # What has been counted size by size on this shelf, and nothing
+                # at all where nobody has. An empty object is a shelf whose
+                # total is still the only figure anybody entered for it.
+                "variants": sizes.get(code, {}),
             }
             for code, on_hand in sorted(split.items())
         ]
@@ -195,6 +208,74 @@ async def record_count(body: CountIn, session: SessionDep, actor: ActorDep) -> d
         "location": body.location,
         "was": was,
         "now": becomes,
+        "total": snapshot.on_hand if snapshot else becomes,
+    }
+
+
+class VariantCountIn(BaseModel):
+    sku: str
+    location: str
+    variant: str
+    on_hand: int = FieldSpec(ge=0)
+
+
+@router.post("/count/variant")
+async def record_variant_count(
+    body: VariantCountIn, session: SessionDep, actor: ActorDep
+) -> dict:
+    """Count one size on one shelf.
+
+    Same rule as the shelf count above, one level down: what is written is what
+    somebody found, and everything above it is re-added rather than adjusted.
+
+    Worth knowing before the first one is saved: once any size is counted on a
+    shelf, that shelf's total becomes the sum of its sizes. A rail of three where
+    one Small is counted and nobody finishes now reads as one. Deliberate — the
+    alternative is carrying two units nobody counted inside a total everybody
+    trusts, which nothing would ever flag as wrong.
+    """
+    from sca.stock import set_variant
+
+    item = await session.scalar(select(Item).where(Item.sku == body.sku))
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no item with SKU {body.sku}")
+    place = await session.get(StockLocation, body.location)
+    if place is None or not place.active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no active location {body.location}")
+    if place.kind == "online":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"{place.name} is counted by Shopify, size by size. Change it there — "
+            "a figure saved here would be overwritten the next time it is read.",
+        )
+    if not body.variant.strip():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Name the size or shade being counted. A count against a blank one "
+            "would be a fourth kind of total nobody could reconcile.",
+        )
+
+    now = datetime.now(UTC)
+    was, becomes = await set_variant(
+        session, body.sku, body.location, body.variant, body.on_hand, occurred=now
+    )
+    shelf = await session.get(StockAtLocation, (body.sku, body.location))
+    snapshot = await session.get(StockSnapshot, body.sku)
+    session.add(AuditLog(
+        actor=actor,
+        action="inventory.count.variant",
+        entity="stock",
+        entity_id=f"{body.sku}/{body.variant}@{body.location}",
+        meta={"was": was, "now": becomes},
+    ))
+    return {
+        "sku": body.sku,
+        "location": body.location,
+        "variant": body.variant.strip(),
+        "was": was,
+        "now": becomes,
+        # Both levels above, so a caller can see what its one number did.
+        "shelf": shelf.on_hand if shelf else becomes,
         "total": snapshot.on_hand if snapshot else becomes,
     }
 

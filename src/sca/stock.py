@@ -21,7 +21,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sca.models import Item, StockAtLocation, StockLevel, StockSnapshot
+from sca.models import Item, StockAtLocation, StockAtVariant, StockLevel, StockSnapshot
 
 # Where a sale came off when nobody said. The storefront, because that is the
 # shelf whose count can be checked against Shopify in a second — a wrong guess
@@ -182,6 +182,96 @@ async def set_shelf(
     )
     await retotal(session, sku, occurred=occurred)
     return before, on_hand
+
+
+async def set_variant(
+    session: AsyncSession,
+    sku: str,
+    location: str,
+    variant: str,
+    on_hand: int,
+    *,
+    occurred: datetime,
+) -> tuple[int, int]:
+    """Count one size on one shelf, and re-add everything above it.
+
+    Three levels, one rule: the group is the sum of its shelves, a shelf is the
+    sum of the variants counted on it. So counting a Small in Jeddah re-adds
+    Jeddah, and re-adding Jeddah re-adds the group.
+
+    The consequence has to be said plainly, because it surprises people the
+    first time: **the moment any size is counted on a shelf, that shelf's total
+    becomes the sum of its sizes.** A shelf holding three abayas where somebody
+    counts one Small and stops now reads as holding one. That is not a bug and
+    it must not be softened by carrying the missing two as a remainder — a
+    remainder would be a number nobody counted, sitting in a total everybody
+    trusts, and it would never be corrected because nothing would flag it. If
+    the shelf really holds three, the other two get counted too.
+
+    Returns the variant's figure before and after.
+    """
+    on_hand = max(0, on_hand)
+    variant = variant.strip()
+    row = await session.get(StockAtVariant, (sku, location, variant))
+    if row is None:
+        row = StockAtVariant(sku=sku, location_code=location, variant=variant)
+        session.add(row)
+        await session.flush()
+    before = row.on_hand
+    row.on_hand = on_hand
+    await session.flush()
+    await refold(session, sku, location, occurred=occurred)
+    return before, on_hand
+
+
+async def refold(
+    session: AsyncSession, sku: str, location: str, *, occurred: datetime
+) -> int | None:
+    """Re-add one shelf from the sizes counted on it, then re-add the group.
+
+    A shelf with no variant rows is left alone. That is a shelf nobody has
+    broken down, not a shelf holding nothing, and its item-level count is the
+    only figure anybody has entered for it.
+    """
+    rows = (
+        await session.scalars(
+            select(StockAtVariant).where(
+                StockAtVariant.sku == sku, StockAtVariant.location_code == location
+            )
+        )
+    ).all()
+    if not rows:
+        return None
+    total = sum(max(0, r.on_hand) for r in rows)
+    shelf = await session.get(StockAtLocation, (sku, location))
+    if shelf is None:
+        shelf = StockAtLocation(sku=sku, location_code=location)
+        session.add(shelf)
+        await session.flush()
+    if shelf.on_hand != total:
+        shelf.on_hand = total
+        session.add(
+            StockLevel(
+                sku=sku, on_hand=total, on_order=shelf.on_order,
+                recorded_at=occurred, location_code=location,
+            )
+        )
+    await retotal(session, sku, occurred=occurred)
+    return total
+
+
+async def variants_at(session: AsyncSession, sku: str) -> dict[str, dict[str, int]]:
+    """Every size counted on every shelf for one item, as location to size to units.
+
+    Absent rather than zero where nothing has been counted, so a caller can tell
+    "this shelf holds none of that size" from "nobody has looked".
+    """
+    out: dict[str, dict[str, int]] = {}
+    for row in await session.scalars(
+        select(StockAtVariant).where(StockAtVariant.sku == sku)
+    ):
+        out.setdefault(row.location_code, {})[row.variant] = row.on_hand
+    return out
 
 
 async def retotal(session: AsyncSession, sku: str, *, occurred: datetime) -> int | None:
