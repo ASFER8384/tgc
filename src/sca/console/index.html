@@ -803,8 +803,22 @@
         <input id="itemCost" placeholder="42.00" /></label>
       <label class="field">Minimum order / pack size
         <input id="itemMoq" value="300 / 50" placeholder="300 / 50" /></label>
-      <label class="field">On hand / on order
-        <input id="itemStock" value="260 / 0" placeholder="260 / 0" /></label>
+      <!-- On hand is only a question for an item nobody has put on a shelf yet.
+           Once it is split, the total is the sum of the shops and the
+           storefront, and a box here was a second way to set it that did not
+           know about the first: it wrote the total, left every shelf untouched,
+           and was silently replaced by the shelves at the next count. On order
+           stays either way — that is a fact about the group, not about a shelf,
+           because an order goes to a mill for the business. -->
+      <label class="field" id="itemStockField">On hand / on order
+        <input id="itemStock" value="260 / 0" placeholder="260 / 0" />
+        <span class="fieldnote" id="itemStockNote"></span></label>
+      <label class="field" id="itemOrderField" hidden>On order
+        <input id="itemOnOrder" type="number" min="0" placeholder="0" />
+        <span class="fieldnote">What is coming from the mill, for the group.
+          What is <em>here</em> is counted per shop on the
+          <a href="/procure?view=items">stock table</a> — open the row and count
+          the shelf.</span></label>
       <label class="field">Weekly forecast
         <input id="itemForecast" value="90" placeholder="90" /></label>
       <!-- The floor that needs no forecast. Cover in weeks is the better trigger
@@ -2575,6 +2589,15 @@
     $("itemCost").value = i ? i.unit_cost : "";
     $("itemMoq").value = i ? `${i.moq} / ${i.pack_size}` : "300 / 50";
     $("itemStock").value = i ? `${i.on_hand} / ${i.on_order}` : "260 / 0";
+    // Which of the two boxes this item gets. An item spread across shelves has a
+    // total nobody types, so it is offered the one figure this form still owns.
+    const inv = (state.inventory || {}).items || [];
+    const split = Boolean(i && (inv.find((r) => r.sku === i.sku) || {}).split);
+    $("itemStockField").hidden = split;
+    $("itemOrderField").hidden = !split;
+    $("itemOnOrder").value = i ? i.on_order : "";
+    $("itemStockNote").textContent = i
+      ? "" : "Where it starts. Once it is counted per shop, that is where it lives.";
     // Blank where the number on screen came from sales. Prefilling the measured
     // figure would turn it into a typed one the moment anybody pressed save, and
     // a typed forecast overrules the sales history from then on.
@@ -2802,12 +2825,22 @@
       // Stock is a second call because an item and what is left of it are
       // different facts with different lifetimes: the item is set up once, the
       // count changes every day.
+      //
+      // on_hand is omitted for an item that is split across shelves — omitted
+      // rather than sent unchanged, because "the number I was shown" travelling
+      // back as an instruction is how a form that only meant to save a forecast
+      // ends up writing a stock position somebody counted an hour ago.
+      const splitItem = !$("itemStockField").hidden ? false : Boolean(editing);
       await api("/stock", { method: "POST", body: JSON.stringify({
-        sku, on_hand: onHand, on_order: onOrder,
+        sku,
+        ...(splitItem ? {} : { on_hand: onHand }),
+        on_order: splitItem ? Number($("itemOnOrder").value || 0) : onOrder,
         weekly_forecast: $("itemForecast").value.trim() || "0",
       }) });
-      show($("itemOut"), `${sku} ${editing ? "saved" : "added"} with ${onHand} on hand. ` +
-        (editing ? "" : "Recalculate to see whether it needs buying."));
+      show($("itemOut"), `${sku} ${editing ? "saved" : "added"}.` +
+        (splitItem ? " Stock is counted per shop on the stock table."
+                   : ` ${onHand} on hand.`) +
+        (editing ? "" : " Recalculate to see whether it needs buying."));
       if (!editing) {
         ["itemSku", "itemName", "itemCost"].forEach((id) => { $(id).value = ""; });
       }

@@ -13,6 +13,7 @@ from sca.models import (
     AuditLog,
     Issue,
     Item,
+    StockAtLocation,
     StockLevel,
     StockSnapshot,
     Supplier,
@@ -82,7 +83,16 @@ class ItemIn(BaseModel):
 
 class StockIn(BaseModel):
     sku: str
-    on_hand: int = 0
+    # Omitted leaves the position alone. It used to default to zero, so a caller
+    # pushing only a forecast wrote every unit off the books on the way past —
+    # and the ledger recorded the shelf as empty, which the demand correction
+    # then reads as a week nobody could buy.
+    #
+    # Where an item has shelves this figure is derived from them rather than
+    # owned here. Nothing on the console sends it for such an item; a push that
+    # does is answered with a note and holds only until the next count or
+    # storefront read re-adds the shelves.
+    on_hand: int | None = None
     on_order: int = 0
     weekly_forecast: Decimal = Decimal("0")
     # When this position was true, where that is not now. An upstream system
@@ -494,21 +504,46 @@ async def upsert_stock(body: StockIn, session: SessionDep, actor: ActorDep) -> d
     if snapshot is None:
         snapshot = StockSnapshot(sku=body.sku)
         session.add(snapshot)
-    moved = not known or snapshot.on_hand != body.on_hand or snapshot.on_order != body.on_order
-    snapshot.on_hand = body.on_hand
+    # Omitted means "no opinion", which is not the same as zero. Only a caller
+    # that actually named a figure gets to move the position.
+    on_hand = snapshot.on_hand if body.on_hand is None else body.on_hand
+    moved = not known or snapshot.on_hand != on_hand or snapshot.on_order != body.on_order
+    snapshot.on_hand = on_hand
     snapshot.on_order = body.on_order
     snapshot.weekly_forecast = body.weekly_forecast
     if moved:
         session.add(
             StockLevel(
                 sku=body.sku,
-                on_hand=body.on_hand,
+                on_hand=on_hand,
                 on_order=body.on_order,
                 recorded_at=body.recorded_at or datetime.now(UTC),
             )
         )
     await session.flush()
-    return {"sku": body.sku, "on_hand": body.on_hand, "weekly_forecast": str(body.weekly_forecast)}
+
+    # An item with shelves has a total that is the sum of them, so a figure
+    # pushed here is a second opinion rather than the record. Said out loud
+    # rather than silently accepted: it holds until the next count or storefront
+    # read, and then the shelves win. Not refused, because the seed states a
+    # whole history through this endpoint and a shelf is not what it is stating.
+    note = None
+    if body.on_hand is not None:
+        shelved = await session.scalar(
+            select(func.sum(StockAtLocation.on_hand)).where(StockAtLocation.sku == body.sku)
+        )
+        if shelved is not None and int(shelved) != on_hand:
+            note = (
+                f"{body.sku} is split across shelves holding {int(shelved)} in total. "
+                f"The {on_hand} sent here will be replaced by that the next time a shop "
+                "is counted or the storefront is read — count the shelf instead."
+            )
+    return {
+        "sku": body.sku,
+        "on_hand": on_hand,
+        "weekly_forecast": str(body.weekly_forecast),
+        "note": note,
+    }
 
 
 def _supplier_out(supplier: Supplier) -> SupplierOut:
