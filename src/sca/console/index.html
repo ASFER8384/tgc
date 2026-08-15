@@ -799,6 +799,15 @@
         <datalist id="brandNames"></datalist>
         <span class="fieldnote" id="brandNote">Must match the vendor on Shopify,
           or a customer's spend is filed under the wrong brand.</span></label>
+      <!-- What a shop counts a rail of this in. Nothing can be counted by size
+           until something names the sizes, and an item the storefront does not
+           carry has nothing to ask — so it says here. Left blank the item is
+           counted as one number, which is right for a bolt of silk and wrong for
+           an abaya. -->
+      <label class="field" id="itemSizesField">Sizes or shades
+        <input id="itemSizes" placeholder="52, 54, 56, 58, 60" />
+        <span class="fieldnote" id="sizesNote">Comma separated. Blank means this
+          is counted as one number rather than size by size.</span></label>
       <label class="field">Unit cost
         <input id="itemCost" placeholder="42.00" /></label>
       <label class="field">Minimum order / pack size
@@ -813,6 +822,16 @@
       <label class="field" id="itemStockField">On hand / on order
         <input id="itemStock" value="260 / 0" placeholder="260 / 0" />
         <span class="fieldnote" id="itemStockNote"></span></label>
+      <!-- Where the opening count is. Without this a new item's stock landed on
+           no shelf at all — one number for the group, which then had to be
+           counted again per shop before anybody could sell from it. The
+           storefront is not offered: Shopify owns that shelf and would overwrite
+           anything put there on the next read. -->
+      <label class="field" id="itemWhereField">Where it is
+        <select id="itemWhere"></select>
+        <span class="fieldnote">The shop holding it. "Not split yet" keeps it as
+          one number for the group, which is right for something in a warehouse
+          nobody sells from directly.</span></label>
       <label class="field" id="itemOrderField" hidden>On order
         <input id="itemOnOrder" type="number" min="0" placeholder="0" />
         <span class="fieldnote">What is coming from the mill, for the group.
@@ -1657,10 +1676,16 @@
   // carries too — a size counted here and a size sold at the till have to be
   // the same size, or the size curve is built from two vocabularies.
   function sizesOf(row) {
-    return (row.variants || []).map((v) => ({
+    const fromShopify = (row.variants || []).map((v) => ({
       key: v.title || (v.options || []).map((o) => o.value).join(" / "),
       label: (v.options || []).map((o) => o.value).join(" / ") || v.title || "—",
     })).filter((s) => s.key);
+    // The storefront wins where it has an opinion. The item's own list is for
+    // things Shopify does not sell, and using both would let a size typed here
+    // sit beside one a customer can actually buy as though they were the same
+    // kind of fact.
+    if (fromShopify.length) return fromShopify;
+    return (row.sizes || []).map((s) => ({ key: String(s), label: String(s) }));
   }
 
   // Which shelves are being counted size by size rather than as one number. A
@@ -2681,6 +2706,20 @@
       .map((b) => `<option value="${escape(b)}">`).join("");
     // Where the storefront already answers this, say so rather than leaving
     // somebody to guess at spelling that has to match exactly.
+    // Where Shopify already names the sizes, this box has nothing to add and is
+    // shown as the read-only fact it is. Offering an editable list beside the
+    // storefront's would be inviting somebody to type a second answer.
+    const invRow = inv.find((r) => r.sku === (i || {}).sku) || {};
+    const fromShopify = (invRow.variants || [])
+      .map((v) => (v.options || []).map((o) => o.value).join(" / ") || v.title)
+      .filter(Boolean);
+    $("itemSizes").value = fromShopify.length
+      ? fromShopify.join(", ") : ((i && i.variants) || []).join(", ");
+    $("itemSizes").disabled = fromShopify.length > 0;
+    $("sizesNote").textContent = fromShopify.length
+      ? "Set on Shopify, where the storefront sells it. Change them there."
+      : "Comma separated. Blank means this is counted as one number rather than "
+        + "size by size.";
     const vendor = i && ((state.inventory || {}).vendor_by_sku || {})[i.sku];
     $("brandNote").textContent = vendor
       ? `Shopify sells this under vendor "${vendor}".`
@@ -2695,6 +2734,13 @@
     const split = Boolean(i && (inv.find((r) => r.sku === i.sku) || {}).split);
     $("itemStockField").hidden = split;
     $("itemOrderField").hidden = !split;
+    // Only when there is an opening count to place. An item already split has
+    // its shelves counted on the stock table, where each one can be right.
+    $("itemWhereField").hidden = split;
+    const shops = (state.shelves || []).filter((p) => p.kind !== "online");
+    $("itemWhere").innerHTML =
+      `<option value="">Not split yet — one number for the group</option>`
+      + shops.map((p) => `<option value="${escape(p.code)}">${escape(p.name)}</option>`).join("");
     $("itemOnOrder").value = i ? i.on_order : "";
     $("itemStockNote").textContent = i
       ? "" : "Where it starts. Once it is counted per shop, that is where it lives.";
@@ -2921,6 +2967,12 @@
         // zero is a different answer, and it turns the floor off for this line.
         min_stock: $("itemMinStock").value.trim() === ""
           ? null : Number($("itemMinStock").value),
+        // Only where this form owns them. Disabled means Shopify names the
+        // sizes, and sending its list back would copy the storefront's answer
+        // into a field that is meant to be empty when the storefront has one —
+        // then keep the copy after somebody changed it there.
+        variants: $("itemSizes").disabled ? (editing ? editing.variants || [] : [])
+          : $("itemSizes").value.split(",").map((s) => s.trim()).filter(Boolean),
       }) });
       // Stock is a second call because an item and what is left of it are
       // different facts with different lifetimes: the item is set up once, the
@@ -2931,15 +2983,27 @@
       // back as an instruction is how a form that only meant to save a forecast
       // ends up writing a stock position somebody counted an hour ago.
       const splitItem = !$("itemStockField").hidden ? false : Boolean(editing);
+      // A named shop means the opening count belongs on a shelf, so it goes
+      // through the count endpoint and the group total is re-added from there.
+      // Sending it to /stock as well would set the same figure twice by two
+      // routes, and the second one does not know about shelves.
+      const where = splitItem ? "" : $("itemWhere").value;
       await api("/stock", { method: "POST", body: JSON.stringify({
         sku,
-        ...(splitItem ? {} : { on_hand: onHand }),
+        ...(splitItem || where ? {} : { on_hand: onHand }),
         on_order: splitItem ? Number($("itemOnOrder").value || 0) : onOrder,
         weekly_forecast: $("itemForecast").value.trim() || "0",
       }) });
-      show($("itemOut"), `${sku} ${editing ? "saved" : "added"}.` +
-        (splitItem ? " Stock is counted per shop on the stock table."
-                   : ` ${onHand} on hand.`) +
+      if (where) {
+        await api("/inventory/count", { method: "POST", body: JSON.stringify({
+          sku, location: where, on_hand: onHand,
+        }) });
+      }
+      const placed = where
+        ? ` ${onHand} at ${(state.shelves.find((p) => p.code === where) || {}).name}.`
+        : splitItem ? " Stock is counted per shop on the stock table."
+                    : ` ${onHand} on hand, not split across shops yet.`;
+      show($("itemOut"), `${sku} ${editing ? "saved" : "added"}.` + placed +
         (editing ? "" : " Recalculate to see whether it needs buying."));
       if (!editing) {
         ["itemSku", "itemName", "itemCost"].forEach((id) => { $(id).value = ""; });

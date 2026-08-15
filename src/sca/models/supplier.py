@@ -85,6 +85,20 @@ class Item(Base, TimestampMixin):
     target_cover_weeks: Mapped[float | None] = mapped_column(Numeric(6, 2))
     demand_window_weeks: Mapped[float | None] = mapped_column(Numeric(6, 2))
 
+    # The sizes or shades this is sold in, for an item the storefront does not
+    # carry. Where Shopify has the product its variants are the authority and
+    # this stays empty — two lists of sizes that could disagree is worse than
+    # one, and the storefront's is the one a customer actually buys from.
+    #
+    # It exists because a shop cannot count a rail by size until something names
+    # the sizes, and an item created here has nothing to ask. Empty is the
+    # normal state and means "counted as one number", not "one size".
+    #
+    # Plain strings rather than a table of their own: a size is a label on a
+    # ticket, it has no price, no stock and no life of its own — everything that
+    # varies per size is already keyed by the label where it belongs.
+    variants: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+
 
 class SupplierItem(Base, TimestampMixin):
     """What one supplier will make, and on what terms.

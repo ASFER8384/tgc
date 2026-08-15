@@ -79,6 +79,9 @@ class ItemIn(BaseModel):
     # floor, and the two must not collapse into each other on a form that
     # leaves the box empty.
     min_stock: int | None = None
+    # The sizes or shades, for an item the storefront does not carry. Blank for
+    # everything Shopify sells — its variants are the authority there.
+    variants: list[str] = Field(default_factory=list)
 
 
 class StockIn(BaseModel):
@@ -358,6 +361,8 @@ async def list_items(
             # identical to one somebody set by hand to the same number.
             "min_stock": item.min_stock,
             "min_stock_effective": floor,
+            # The sizes this item is counted in where the storefront names none.
+            "variants": list(item.variants or []),
             "policy": policy,
             "below_minimum": bool(floor > 0 and available < floor),
             "on_hand": snapshot.on_hand if snapshot else 0,

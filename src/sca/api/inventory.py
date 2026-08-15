@@ -126,6 +126,12 @@ async def inventory(session: SessionDep, actor: ActorDep, settings: SettingsDep)
             # so rather than draw three empty shelves.
             "split": bool(rows),
             "variants": mine,
+            # The item's own sizes, for one the storefront does not carry. Kept
+            # separate from the Shopify variants above rather than merged: where
+            # both exist the storefront's are the authority, and a merged list
+            # would quietly make a locally typed size look like one a customer
+            # can buy.
+            "sizes": list(item.variants or []),
         })
 
     # Every brand name in play, from both sides. Offered on the item form so a
