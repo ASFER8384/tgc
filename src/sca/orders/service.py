@@ -14,6 +14,7 @@ from sca.models import (
     Issue,
     PurchaseOrder,
     PurchaseOrderLine,
+    StockLevel,
     StockSnapshot,
     Supplier,
 )
@@ -470,6 +471,21 @@ class OrderService:
             )
             if snapshot is not None:
                 snapshot.on_hand += quantity
+                # Appended, not only assigned. A snapshot says what is on the
+                # shelf now; the ledger says what was on it in a given week, and
+                # that is what lets demand be measured over the days an item
+                # could actually be sold. A delivery is the largest stock
+                # movement there is, and while it moved the snapshot alone every
+                # week looked equally sellable — which is how a sold-out fortnight
+                # reaches the forecast as a fortnight of no demand.
+                self.session.add(
+                    StockLevel(
+                        sku=sku,
+                        on_hand=snapshot.on_hand,
+                        on_order=snapshot.on_order,
+                        recorded_at=now,
+                    )
+                )
 
         if order.status in ("acknowledged", "in_transit"):
             self._transition(order, "received")

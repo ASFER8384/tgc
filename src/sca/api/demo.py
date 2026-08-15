@@ -19,7 +19,7 @@ from sqlalchemy import select
 
 from sca.api.deps import ActorDep, SessionDep
 from sca.config import get_settings
-from sca.models import Item, StockSnapshot, Supplier
+from sca.models import Item, StockLevel, StockSnapshot, Supplier
 from sca.planning.demand import weekly_demand
 
 router = APIRouter(prefix="/demo", tags=["demo"])
@@ -72,6 +72,17 @@ async def load_sample_data(session: SessionDep, actor: ActorDep) -> dict:
     cover, sku, item, snapshot, supplier, demand = max(candidates, key=lambda c: c[0])
     snapshot.on_hand = int(TARGET_COVER_WEEKS * demand.weekly)
     snapshot.on_order = 0
+    # Recorded in the ledger as well, like every other stock movement. A level
+    # that moves without leaving a reading is a week the forecast cannot tell
+    # apart from a sold-out one.
+    session.add(
+        StockLevel(
+            sku=sku,
+            on_hand=snapshot.on_hand,
+            on_order=snapshot.on_order,
+            recorded_at=datetime.now(UTC),
+        )
+    )
     await session.flush()
 
     return {
