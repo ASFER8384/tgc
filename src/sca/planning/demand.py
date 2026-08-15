@@ -252,3 +252,90 @@ async def weekly_demand(
             demand.weeks = sellable
             demand.availability = "measured"
     return out
+
+
+@dataclass
+class SizeDemand:
+    """What one size of one item sold per week.
+
+    Deliberately thinner than ``Demand``. The stockout correction above divides
+    by the weeks an item was *sellable*, read from the stock ledger — and the
+    ledger records a shelf, not a size. So there is no honest way to say how long
+    the 54 was on the rail, and this reports an uncorrected rate rather than one
+    corrected by a divisor that describes something else.
+
+    That makes every figure here a floor: a size that sold out early sold at
+    least this fast. Which is the safe direction for a size curve — it
+    under-states the sizes that ran out, and those are the ones already visible
+    as an empty peg.
+    """
+
+    sku: str
+    variant: str
+    units: int
+    weeks: float
+
+    @property
+    def weekly(self) -> float:
+        return self.units / self.weeks if self.weeks > 0 else 0.0
+
+
+async def weekly_demand_by_size(
+    session: AsyncSession,
+    *,
+    now: datetime,
+    window_weeks: float | None = None,
+) -> dict[str, dict[str, SizeDemand]]:
+    """Units per week, per size, per SKU — the size curve as sold.
+
+    Separate from ``weekly_demand`` rather than folded into it. That one answers
+    what the buying desk acts on and must not change shape; this one answers a
+    different question, cannot be corrected the same way, and is read by people
+    rather than by the planner.
+
+    Lines with no size are counted into the item's total and into no size. A
+    backfilled size counts the same as a recorded one — it was assigned from the
+    curve of sales that named theirs, so excluding it would not make the curve
+    purer, only thinner.
+    """
+    settings = get_settings()
+    window = window_weeks if window_weeks is not None else settings.demand_window_weeks
+    cutoff = now - timedelta(weeks=window)
+
+    events = list(
+        await session.scalars(
+            select(Event)
+            .where(Event.name == "order_paid", Event.occurred_at >= cutoff)
+            .order_by(Event.occurred_at)
+        )
+    )
+    if not events:
+        return {}
+
+    # The same divisor rule as the item-level figure: measured over the trading
+    # history actually available, not over the width of the window somebody
+    # asked for. A shop four weeks old divided by eight reads as half its demand.
+    earliest = min(e.occurred_at for e in events)
+    if earliest.tzinfo is None:
+        earliest = earliest.replace(tzinfo=now.tzinfo)
+    span = min(max((now - earliest).total_seconds() / (7 * 24 * 3600), 1.0), window)
+
+    out: dict[str, dict[str, SizeDemand]] = {}
+    for event in events:
+        for line in _lines(event.payload or {}):
+            sku = (line.get("sku") or "").strip()
+            size = (line.get("variant_title") or "").strip()
+            # "mixed" is a basket that held two sizes on one line and had one
+            # slot to say so. It names no size and must not become one.
+            if not sku or not size or size == "mixed":
+                continue
+            try:
+                quantity = int(line.get("quantity") or 1)
+            except (TypeError, ValueError):
+                quantity = 1
+            sizes = out.setdefault(sku, {})
+            entry = sizes.get(size)
+            if entry is None:
+                entry = sizes[size] = SizeDemand(sku=sku, variant=size, units=0, weeks=span)
+            entry.units += max(quantity, 0)
+    return out

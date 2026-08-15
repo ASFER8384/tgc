@@ -1762,6 +1762,55 @@
     </div>`;
   }
 
+  // Which size runs out first. The breakdown below says what is held; this says
+  // what that means, which is the only part a buyer acts on — a mill is told 200
+  // abayas as a curve, and getting the split wrong is how a season ends with a
+  // rail of unsold 60s nobody wanted.
+  function sizeCurve(row) {
+    const curve = (row.size_demand || []).filter((s) => s.held || s.weekly);
+    if (!curve.length) return "";
+    // Soonest to run out first. A size with no demand has no cover to compare,
+    // so it sorts last rather than as infinitely safe.
+    const ordered = [...curve].sort((a, b) =>
+      (a.weeks_cover === null ? 1e9 : a.weeks_cover) -
+      (b.weeks_cover === null ? 1e9 : b.weeks_cover));
+    const floor = Number((state.inventory || {}).thin_below_weeks) || 4;
+    const lines = ordered.map((s) => {
+      const thin = s.weeks_cover !== null && s.weeks_cover <= floor;
+      return `<tr>
+        <td><strong>${escape(s.size)}</strong></td>
+        <td class="num">${s.held}</td>
+        <td class="num">${s.weekly
+          ? `${s.weekly}<span style="color:var(--muted)">/wk</span>`
+          : `<span style="color:var(--muted)">—</span>`}</td>
+        <td class="num">${s.weeks_cover === null
+          // Never sold is not covered forever. The two look identical as a
+          // number and mean opposite things to somebody placing an order.
+          ? `<span style="color:var(--muted)">no sales yet</span>`
+          : `<span${thin ? ` style="color:var(--high);font-weight:600"` : ""}>${
+              s.weeks_cover} wk${thin ? " — thin" : ""}</span>`}</td></tr>`;
+    }).join("");
+    const worst = ordered.find((s) => s.weeks_cover !== null && s.weeks_cover <= floor);
+    return `<div style="padding:0.6rem 0 0.2rem">
+      <div style="display:flex;gap:0.5rem;align-items:baseline;flex-wrap:wrap">
+        <strong>By size</strong>
+        <span style="color:var(--muted);font-size:0.8rem">held across the group
+          against what each size sells</span>
+      </div>
+      ${worst ? `<div style="color:var(--high);font-size:0.84rem;padding:0.3rem 0">
+        ${escape(worst.size)} runs out first — ${worst.held} left, ${worst.weekly}/wk,
+        about ${worst.weeks_cover} week(s).</div>` : ""}
+      <table style="width:100%"><thead><tr>
+        <th>Size</th><th class="num">Held</th><th class="num">Sold</th>
+        <th class="num">Cover</th>
+      </tr></thead><tbody>${lines}</tbody></table>
+      <div style="color:var(--muted);font-size:0.76rem;padding-top:0.3rem">
+        Rates are a floor, not an average: the stock ledger records shelves and
+        not sizes, so a size that sold out early sold at least this fast.
+      </div>
+    </div>`;
+  }
+
   // What the storefront holds, broken out the way it is actually stocked. Twelve
   // abayas is not twelve abayas — it is one Small and eleven Large, and only the
   // first of those explains why the size somebody asked for was missing.
@@ -1769,7 +1818,7 @@
     if (!row.variants.length) {
       return `<div class="none">Nothing on Shopify against this SKU.${
         row.online ? "" : " Its stock here is all in the shops."}</div>`
-        + countBlock(row);
+        + sizeCurve(row) + countBlock(row);
     }
     const lines = row.variants.map((v) => {
       const named = (v.options || []).map((o) => `${escape(o.name)} ${escape(o.value)}`)
@@ -1794,7 +1843,7 @@
       </div>
       <table style="width:100%"><thead><tr>
         <th>Variant</th><th class="num">Price</th><th class="num">On Shopify</th><th>Status</th>
-      </tr></thead><tbody>${lines}</tbody></table>${countBlock(row)}`;
+      </tr></thead><tbody>${lines}</tbody></table>${sizeCurve(row)}${countBlock(row)}`;
   }
 
   function drawStorefront(shop) {

@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from pydantic import Field as FieldSpec
 from sqlalchemy import select
 
-from sca.api.deps import ActorDep, SessionDep, SettingsDep
+from sca.api.deps import ActorDep, RuntimeSettingsDep, SessionDep, SettingsDep
 from sca.models import (
     AuditLog,
     Item,
@@ -47,12 +47,60 @@ def _variant(row: ShopifyVariant) -> dict:
     }
 
 
+def _size_curve(item, shelves: list[dict], storefront: list, sold: dict) -> list[dict]:
+    """Held against sold, size by size — the conclusion rather than the breakdown.
+
+    A buyer does not want to know that Jeddah holds 17 S and 1 XL. They want to
+    know which size runs out first, because that is the number they order a
+    curve against: a mill is told 200 abayas as 52×24, 54×52, 56×48, and getting
+    that split wrong is how a season ends with a rail of unsold 60s.
+
+    Held is the whole group's — the shops' counts plus the storefront's, because
+    the mill is asked once for the business. Cover is deliberately absent rather
+    than infinite where a size has never sold: "no demand yet" and "years of
+    cover" look identical as a number and mean opposite things to a buyer.
+    """
+    held: dict[str, int] = {}
+    for shelf in shelves:
+        for size, units in (shelf.get("variants") or {}).items():
+            held[size] = held.get(size, 0) + units
+    for variant in storefront:
+        title = (variant.variant_title or "").strip()
+        if title and variant.tracked:
+            held[title] = held.get(title, 0) + max(0, variant.on_hand)
+
+    names = set(held) | set(sold) | {str(s) for s in (item.variants or [])}
+    out = []
+    for size in sorted(names):
+        rate = sold[size].weekly if size in sold else 0.0
+        units = held.get(size, 0)
+        out.append({
+            "size": size,
+            "held": units,
+            "weekly": round(rate, 1),
+            "weeks_cover": round(units / rate, 1) if rate > 0 else None,
+            # A rate with no stockout correction behind it is a floor, not an
+            # average — the ledger records shelves and not sizes, so there is no
+            # honest way to say how long this size was actually on the rail.
+            "at_least": True,
+        })
+    return out
+
+
 @router.get("")
-async def inventory(session: SessionDep, actor: ActorDep, settings: SettingsDep) -> dict:
+async def inventory(
+    session: SessionDep, actor: ActorDep, settings: SettingsDep,
+    policy: RuntimeSettingsDep,
+) -> dict:
     """Every item, every shelf it sits on, and what the storefront says it holds."""
+    from sca.planning.demand import weekly_demand_by_size
     from sca.shopify import ONLINE, configured
 
     items = list(await session.scalars(select(Item).order_by(Item.sku)))
+    # What each size actually sells. The whole point of counting a rail by size
+    # is to answer "which of these am I about to run out of", and a breakdown
+    # with no rate beside it cannot.
+    sold = await weekly_demand_by_size(session, now=datetime.now(UTC))
     snapshots = {s.sku: s for s in await session.scalars(select(StockSnapshot))}
     places = list(await session.scalars(select(StockLocation).order_by(StockLocation.code)))
     by_code = {p.code: p for p in places}
@@ -132,6 +180,8 @@ async def inventory(session: SessionDep, actor: ActorDep, settings: SettingsDep)
             # would quietly make a locally typed size look like one a customer
             # can buy.
             "sizes": list(item.variants or []),
+            "size_demand": _size_curve(item, rows, variants.get(item.sku, []),
+                                       sold.get(item.sku, {})),
         })
 
     # Every brand name in play, from both sides. Offered on the item form so a
@@ -146,6 +196,10 @@ async def inventory(session: SessionDep, actor: ActorDep, settings: SettingsDep)
     return {
         "items": out,
         "brands": sorted(names),
+        # The line under which a size is called thin. The buying desk's own
+        # reorder threshold rather than a number invented for this page — a size
+        # flagged here and an item flagged there should mean the same thing.
+        "thin_below_weeks": float(policy.reorder_cover_weeks),
         "vendor_by_sku": vendor_by_sku,
         "locations": [
             {"code": p.code, "name": p.name, "kind": p.kind, "active": p.active}
