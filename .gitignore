@@ -7,3 +7,7 @@ __pycache__/
 .env
 *.sqlite3
 *.db
+
+# Fabricated customer exports. Invented names, phone numbers and email
+# addresses at real domains — not something to publish to a repository.
+shopify/

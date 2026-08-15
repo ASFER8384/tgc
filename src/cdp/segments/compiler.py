@@ -178,6 +178,11 @@ def compile_segment(
         select(Person.id)
         .join(ProfileTraits, ProfileTraits.person_id == Person.id)
         .where(Person.merged_into_id.is_(None))
+        # A segment is an audience — something gets sent to it. The shop counter
+        # has the purchase history of a whole till and would qualify for every
+        # high-value segment there is, so it is excluded here rather than left to
+        # be noticed when a broadcast has nowhere to go.
+        .where(Person.synthetic.is_(False))
         .where(_clause(definition))
     )
 

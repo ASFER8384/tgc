@@ -160,9 +160,13 @@ def _live_person() -> Select:
     """Persons that still stand for themselves.
 
     A merged-away person keeps its row so old ids keep resolving, but counting it
-    would understate exactly the work this measurement exists to show.
+    would understate exactly the work this measurement exists to show. A synthetic
+    record — the shop counter that anonymous sales land on — is left out for the
+    opposite reason: counting it would overstate the customer base by one shop.
     """
-    return select(func.count(Person.id)).where(Person.merged_into_id.is_(None))
+    return select(func.count(Person.id)).where(
+        Person.merged_into_id.is_(None), Person.synthetic.is_(False)
+    )
 
 
 class ProofService:

@@ -72,8 +72,14 @@ async def list_persons(
     session: SessionDep, actor: ActorDep, limit: int = 100, q: str | None = None
 ) -> list[PersonSummary]:
     # Merge losers keep their row and point at the winner; the list shows humans,
-    # so those are excluded rather than shown twice.
-    query = select(Person).where(Person.merged_into_id.is_(None))
+    # so those are excluded rather than shown twice. Synthetic records go for the
+    # same reason and are not the same thing: a shop counter is not a person who
+    # was merged away, it is a place to put the sales nobody left a name on, and
+    # it would otherwise sit at the top of this list as the best customer in the
+    # business.
+    query = select(Person).where(
+        Person.merged_into_id.is_(None), Person.synthetic.is_(False)
+    )
 
     if q:
         # Searched by whatever the person on the phone actually has to hand: a

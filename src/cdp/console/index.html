@@ -660,7 +660,7 @@
          Working is the expected case, and the rail already says which
          environment this is. -->
     <div class="conn">
-      <button id="openCapture" hidden>Record a touchpoint</button>
+      <button id="openCapture" hidden>Record a sale</button>
       <span class="dot" id="dot" hidden></span>
       <span class="conn-label" id="connLabel" hidden></span>
       <input class="key-field" id="apiKey" type="password" placeholder="API key" autocomplete="off" hidden />
@@ -749,16 +749,19 @@
 
   <dialog class="panel" id="captureDialog">
         <div class="panel-head">
-          <h2>Record a touchpoint</h2>
+          <h2>Record a store sale</h2>
           <button class="ghost close" id="closeCapture" aria-label="Close">&times;</button>
         </div>
         <div class="panel-body">
+          <!-- Only what somebody actually types here. An online order arrives by
+               webhook and a message arrives from the messaging platform: offering
+               to record them by hand invites a second, worse copy of an event the
+               platform already has, and there is no way afterwards to tell the
+               typed one from the real one. What is left is the two that reach the
+               platform no other way. -->
           <div class="sources" id="sources">
-            <button class="src" data-src="shopify" aria-pressed="true">Online<small>Shopify</small></button>
-            <button class="src" data-src="shopify_pos" aria-pressed="false">In store<small>POS</small></button>
-            <button class="src" data-src="whatsapp" aria-pressed="false">WhatsApp<small>message</small></button>
+            <button class="src" data-src="shopify_pos" aria-pressed="true">Store<small>sale at the counter</small></button>
             <button class="src" data-src="activation" aria-pressed="false">Mall<small>activation</small></button>
-            <button class="src" data-src="email" aria-pressed="false">Email<small>opened</small></button>
           </div>
 
           <div class="field" id="wrapName">
@@ -795,6 +798,27 @@
           <div class="field" id="wrapProduct">
             <label for="fProduct">Product</label>
             <input id="fProduct" placeholder="Embroidered abaya" value="Embroidered abaya" />
+          </div>
+
+          <!-- What she actually bought, named the way the shelf names it. A typed
+               product name records the sale against her profile perfectly and
+               reaches demand as nothing at all: the planner and the forecast both
+               read line items by SKU, and "Embroidered abaya" is not one. This is
+               also where the stock comes off, which is what lets a stockout be
+               told apart from a quiet week. -->
+          <div class="row2" id="wrapItem" hidden>
+            <div class="field">
+              <label for="fSku">Item</label>
+              <select id="fSku"><option value="">— loading —</option></select>
+            </div>
+            <div class="field">
+              <label for="fQty">How many</label>
+              <input id="fQty" type="number" min="1" step="1" value="1" />
+            </div>
+          </div>
+          <div class="checkline" id="wrapMoveStock" hidden>
+            <input type="checkbox" id="fMoveStock" checked />
+            <label for="fMoveStock" style="font-family:var(--sans); font-size:0.86rem; letter-spacing:0; text-transform:none; color:var(--ink)">Take it off the shelf — untick if the stock count already has</label>
           </div>
 
           <div class="checkline" id="wrapSale" hidden>
@@ -1063,10 +1087,14 @@
   const API = "";
   const $ = (id) => document.getElementById(id);
   const state = {
-    key: "", source: "shopify", selected: null, showAllCustomers: false,
+    key: "", source: "shopify_pos", selected: null, showAllCustomers: false,
     view: new URLSearchParams(location.search).get("view") || "dashboard",
     segments: [], segment: null, channel: "whatsapp", draft: null,
     brand: "aleena", template: "custom", templateTouched: false,
+    // The item list, as the procurement half holds it. Fetched once when the
+    // connection is made: a sale has to name a SKU the shelf knows, and the only
+    // place that knows which those are is the catalogue.
+    items: [],
   };
 
   const BRAND_DEFAULTS = {
@@ -1288,31 +1316,22 @@
   // commerce and cash at a mall stand are as real as a Shopify checkout. Sources
   // that are always a sale show the money fields; the rest offer a "was a sale"
   // tick that reveals them.
-  const ALWAYS_SALE = new Set(["shopify", "shopify_pos"]);
+  const ALWAYS_SALE = new Set(["shopify_pos"]);
   const FIELDS = {
-    shopify:     ["name", "phone", "email", "brand", "amount", "product", "consent"],
-    shopify_pos: ["name", "phone", "email", "brand", "amount", "product", "consent"],
-    whatsapp:    ["phone", "product", "sale", "consent"],
+    shopify_pos: ["name", "phone", "email", "brand", "amount", "item", "consent"],
     activation:  ["name", "phone", "brand", "product", "consent", "sale"],
-    email:       ["email", "brand", "sale", "consent"],
   };
 
   // Consent is per purpose, not one master switch. Subscribing to the newsletter
   // is not agreeing to WhatsApp, so each channel writes its own permission and
   // records where the opt in was given: consent with no evidence is indefensible.
   const CONSENT_RULE = {
-    shopify:     ["marketing_whatsapp", "shopify_checkout", "checkout opt in checkbox",
-                  'She ticked "message me on WhatsApp" at checkout'],
     shopify_pos: ["marketing_whatsapp", "pos_terminal", "asked at the till",
                   "She agreed to WhatsApp updates at the till"],
-    whatsapp:    ["marketing_whatsapp", "whatsapp_reply", "replied to the opt in prompt",
-                  "She agreed to receive WhatsApp marketing"],
     activation:  ["marketing_whatsapp", "activation_form", "activation capture form",
                   'She ticked "message me on WhatsApp"'],
-    email:       ["marketing_email", "email_signup", "newsletter sign up",
-                  "She subscribed to the newsletter"],
   };
-  const WRAP = { name: "wrapName", phone: "wrapPhone", email: "wrapEmail", brand: "wrapBrand", amount: "wrapAmount", product: "wrapProduct", consent: "wrapConsent", sale: "wrapSale" };
+  const WRAP = { name: "wrapName", phone: "wrapPhone", email: "wrapEmail", brand: "wrapBrand", amount: "wrapAmount", product: "wrapProduct", consent: "wrapConsent", sale: "wrapSale", item: "wrapItem" };
 
   function isSale() {
     return ALWAYS_SALE.has(state.source) || $("fSale").checked;
@@ -1326,8 +1345,8 @@
     $("fSale").checked = false;
     $("fConsent").nextElementSibling.textContent = CONSENT_RULE[src][3];
     refreshMoneyFields();
-    $("fProduct").previousElementSibling.textContent = src === "whatsapp" ? "Asking about" : "Product";
-    $("submit").textContent = { shopify: "Record order", shopify_pos: "Record in-store sale", whatsapp: "Record message", activation: "Capture lead", email: "Record email open" }[src];
+    $("submit").textContent =
+      { shopify_pos: "Record the sale", activation: "Capture lead" }[src];
   }
 
   function refreshMoneyFields() {
@@ -1335,9 +1354,14 @@
     const on = new Set(FIELDS[state.source]);
     $("wrapAmount").hidden = !(on.has("amount") || sale);
     $("wrapBrand").hidden = !(on.has("brand") || sale);
+    // The item and the stock tick belong to a sale, whichever source rang it up.
+    // A WhatsApp conversation that ended in a purchase is a sale and moves stock;
+    // one that did not is a message about a product, and names it in words.
+    $("wrapItem").hidden = !sale;
+    $("wrapMoveStock").hidden = !sale;
+    $("wrapProduct").hidden = sale ? true : !on.has("product");
     if (!ALWAYS_SALE.has(state.source)) {
-      const verb = { whatsapp: "message", activation: "lead", email: "email open" }[state.source];
-      $("submit").textContent = sale ? "Record sale" : "Record " + verb;
+      $("submit").textContent = sale ? "Record the sale" : "Capture lead";
     }
   }
 
@@ -1352,7 +1376,35 @@
     const d = BRAND_DEFAULTS[$("fBrand").value];
     $("fProduct").value = d.product;
     $("fAmount").value = d.amount;
+    // Narrow the picker to that brand's lines where the catalogue says which
+    // brand a SKU belongs to. Everything unassigned stays listed rather than
+    // disappearing — an item with no brand on it is a gap in the catalogue, and
+    // hiding it here would make it look like a gap in the shop.
+    drawItemPicker();
   });
+
+  // The item list, as procurement holds it. The option's value is the SKU and its
+  // label is the name, so whoever records the sale picks a product and the SKU
+  // travels with it — nobody types one, and nobody can invent one that the shelf
+  // has never heard of.
+  async function loadItems() {
+    try { state.items = await api("/items"); }
+    catch { state.items = []; }
+    drawItemPicker();
+  }
+
+  function drawItemPicker() {
+    const select = $("fSku");
+    if (!select) return;
+    const brand = $("fBrand").value;
+    const wanted = select.value;
+    const rows = state.items.filter((i) => !i.brand || !brand || i.brand === brand);
+    const list = rows.length ? rows : state.items;
+    select.innerHTML = list.length
+      ? list.map((i) => `<option value="${i.sku}">${i.sku} — ${i.name || ""}</option>`).join("")
+      : `<option value="">no items in the catalogue yet</option>`;
+    if (wanted && list.some((i) => i.sku === wanted)) select.value = wanted;
+  }
 
   /* ---------- submit ---------- */
   function stamp() {
@@ -1373,6 +1425,13 @@
 
     if (need.includes("phone") && !phone && !email) return show("A phone number is needed to know who this is.", false);
     if (src === "email" && !email) return show("An email address is needed for an email event.", false);
+    // A sale with no SKU on it records against her profile perfectly and reaches
+    // the shelf as nothing at all — the planner and the forecast both read line
+    // items by SKU. Refused here rather than accepted and quietly ignored.
+    if (isSale() && !$("fSku").value) {
+      return show("Pick an item. A sale with no item on it cannot reach demand, "
+        + "so nothing would be reordered for it.", false);
+    }
 
     $("submit").disabled = true;
     try {
@@ -1396,28 +1455,31 @@
         });
       }
 
-      if (src !== "activation" || sale) {
-        const now = stamp();
-        const eventName = sale
-          ? "order_paid"
-          : src === "whatsapp" ? "message_in" : src === "email" ? "email_opened" : "order_paid";
-        const channel = { shopify: "online", shopify_pos: "retail" }[src] || src;
-        const body = {
-          source: src,
-          name: eventName,
-          dedupe_key: `console:${src}:${eventName}:${phone || email}:${now}`,
-          occurred_at: now,
-          identifiers: { phone: phone || null, email: email || null },
-          channel,
-          display_name: name || null,
-          payload: { product: product || null, entered_via: "console" },
-        };
-        if (sale) {
-          body.value_amount = amount;
-          body.currency = "SAR";
-          body.brands = { [brand]: amount };
-        }
-        result = await api("/ingest/event", { method: "POST", body: JSON.stringify(body) });
+      // A sale goes to the endpoint that owns sales, wherever it was rung up.
+      // It writes the same canonical order_paid event as everything else, and it
+      // also takes the stock off the shelf — which is what lets a week nobody
+      // could buy be told apart from a week nobody wanted.
+      if (sale) {
+        const quantity = Math.max(1, Number($("fQty").value) || 1);
+        const total = Number(amount);
+        result = await api("/sales", {
+          method: "POST",
+          body: JSON.stringify({
+            source: src,
+            channel: { shopify: "online", shopify_pos: "retail" }[src] || src,
+            phone: phone || null,
+            email: email || null,
+            name: name || null,
+            move_stock: $("fMoveStock").checked,
+            // The form asks for the basket total; the line wants a unit price.
+            lines: [{
+              sku: $("fSku").value,
+              quantity,
+              unit_price: Number.isFinite(total) && total > 0
+                ? Number((total / quantity).toFixed(2)) : null,
+            }],
+          }),
+        });
       }
 
       // The mall endpoint writes its own consent. Every other source records the
@@ -2450,7 +2512,10 @@
         $("apiKey").value = key;
         askForKey(false);
         setConn(true, "connected · " + env);
-        await Promise.all([loadCustomers(), loadSegments(), loadProof()]);
+        // The catalogue comes with the rest: the capture form needs it before
+        // anybody opens it, and it changes when a SKU is added rather than on
+        // every entry.
+        await Promise.all([loadCustomers(), loadSegments(), loadProof(), loadItems()]);
         // Re-run now that there is a connection: the view chose what to load
         // before the key was known.
         applyView(state.view);
@@ -2558,7 +2623,7 @@
     } finally { btn.disabled = false; }
   });
 
-  applySource("shopify");
+  applySource("shopify_pos");
   initSegBuilder();
   applyView(state.view);
   // Back and forward move between rail destinations, since each one has its own

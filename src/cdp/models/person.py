@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from cdp.models.base import Base, TimestampMixin, UTCDateTime, new_id
@@ -43,6 +43,13 @@ class Person(Base, TimestampMixin):
     display_name: Mapped[str | None] = mapped_column(String(255))
     preferred_language: Mapped[str | None] = mapped_column(String(8))
     preferred_channel: Mapped[str | None] = mapped_column(String(32))
+    # Not a human. A shop counter needs somewhere to put the sales nobody left a
+    # phone number for, or the items in them vanish from demand entirely — but a
+    # till that has rung up four hundred baskets is not the best customer in the
+    # business, and left unmarked it would top every segment, every audience and
+    # every list. Marked here so counting can include it and anything addressed
+    # to a person can leave it out.
+    synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class Identifier(Base, TimestampMixin):
