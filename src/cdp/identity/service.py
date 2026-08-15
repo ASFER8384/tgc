@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import delete, select, tuple_, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cdp.identity.normalize import normalize
@@ -103,7 +104,32 @@ class IdentityService:
 
     async def resolve(self, identifiers: list[IdentifierIn], *, seen_at: datetime) -> Resolution:
         """Return the person these identifiers belong to, creating or merging as
-        the evidence allows."""
+        the evidence allows.
+
+        Resolution reads the identifier table and then writes to it, and between
+        those two moments another request can insert the very row this one looked
+        for. Both find nothing, both create a person, and the unique constraint on
+        (kind, value) rejects the loser — which is the constraint doing its job,
+        because the alternative is two profiles for one person.
+
+        Two tills ringing anonymous cash sales at the same moment hit this every
+        time, since they share one standing walk-in record. So the work runs in a
+        savepoint: if the insert loses the race, the savepoint rolls back and the
+        lookup runs again, and the second time it finds what the winner wrote.
+
+        Once only. A second failure is not a race — it is a constraint that is
+        genuinely violated, and retrying forever would turn a bug into a hang.
+        """
+        try:
+            async with self.session.begin_nested():
+                return await self._resolve_once(identifiers, seen_at=seen_at)
+        except IntegrityError:
+            async with self.session.begin_nested():
+                return await self._resolve_once(identifiers, seen_at=seen_at)
+
+    async def _resolve_once(
+        self, identifiers: list[IdentifierIn], *, seen_at: datetime
+    ) -> Resolution:
         if not identifiers:
             person = Person()
             self.session.add(person)
