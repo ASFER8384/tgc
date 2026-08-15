@@ -12,6 +12,7 @@ from sca.config import get_settings
 # be added to sca/models/__init__.py or autogenerate will silently miss its table.
 import brand.models  # noqa: F401  registers the brand compliance tables
 import cdp.models  # noqa: F401  registers the customer tables on the same metadata
+import forecast.models  # noqa: F401  registers the forecast run and prediction tables
 from sca.models import Base
 
 config = context.config

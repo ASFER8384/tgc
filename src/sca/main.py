@@ -10,8 +10,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 import brand
 import brand.api as brand_api
 import cdp
+import forecast
+import forecast.api as forecast_api
 from cdp.api import automations, ingest, persons, proof, segments
-from sca.api import catalog, coordination, demo, inbound, orders
+from sca.api import catalog, coordination, demo, inbound, orders, sales
 from sca.api import settings as settings_api
 from sca.config import get_settings
 
@@ -196,6 +198,23 @@ _NAV_GROUPS = (
         "-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z",
     ),
     )),
+    # The fourth module, and the only one that reads both halves: it learns from
+    # what customers bought and writes what has to be bought to serve them. Its
+    # own group rather than a page inside Procurement, because it runs on a
+    # different clock — the buying screens change when a buyer acts, these change
+    # when a model runs — and because filing it under either half would claim it
+    # belongs to that half.
+    # One entry, not three. What will sell, who will buy and how the run scored
+    # are one answer read at three depths — three addresses made them look like
+    # three separate findings, and invited the question of why they disagreed.
+    ("Demand Forecast", (
+    (
+        "forecast:forecast",
+        "/forecast-console",
+        "Forecast",
+        "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6",
+    ),
+    )),
     # A third module, and the first whose findings are made by people rather than
     # derived from records. It sits apart from procurement because a site is not
     # a supplier and a rule is not an order — what they share is the platform
@@ -249,6 +268,7 @@ _NAV_GROUPS = (
 _DEFAULT_VIEW = {
     "/dashboard": "dashboard", "/cdp": "dashboard",
     "/procure": "desk", "/brand-console": "sites",
+    "/forecast-console": "forecast",
 }
 
 # The browser tab follows the address, not the file behind it. /dashboard is
@@ -259,6 +279,7 @@ _PAGE_TITLE = {
     "/cdp": "TGC Customers",
     "/procure": "TGC Procurement",
     "/brand-console": "TGC Brand Compliance",
+    "/forecast-console": "TGC Demand Forecast",
 }
 
 
@@ -374,6 +395,7 @@ def create_app() -> FastAPI:
     supplier_console = Path(__file__).parent / "console" / "index.html"
     customer_console = Path(cdp.__file__).parent / "console" / "index.html"
     brand_console = Path(brand.__file__).parent / "console" / "index.html"
+    forecast_console = Path(forecast.__file__).parent / "console" / "index.html"
 
     def render(page: Path, active: str, route: str) -> HTMLResponse:
         """One page, plus the rail that says which half you are looking at.
@@ -432,10 +454,18 @@ def create_app() -> FastAPI:
     async def brand_page() -> HTMLResponse:
         return render(brand_console, "brand", "/brand-console")
 
+    # Same reason as the brand page: the API router owns /forecast, and a page
+    # served there would shadow the endpoints the page itself calls.
+    @app.get("/forecast-console", include_in_schema=False)
+    async def forecast_page() -> HTMLResponse:
+        return render(forecast_console, "forecast", "/forecast-console")
+
     app.include_router(brand_api.router)
+    app.include_router(forecast_api.router)
     app.include_router(catalog.router)
     app.include_router(settings_api.router)
     app.include_router(orders.router)
+    app.include_router(sales.router)
     app.include_router(inbound.router)
     app.include_router(coordination.router)
     app.include_router(demo.router)

@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>TGC Demand Forecast</title>
+<style>
+  :root {
+    --ground: #f6f5f2;
+    --panel: #ffffff;
+    --sunk: #eeece7;
+    --ink: #1d1a16;
+    --ink-soft: #4a453d;
+    --muted: #746d62;
+    --rule: #dedad2;
+    --accent: #8a5a1f;
+    --accent-ink: #ffffff;
+    --accent-soft: #f3e9dc;
+    --high: #a3341f;
+    --medium: #8a6410;
+    --ok: #37674a;
+    /* Two series, and they keep their colour on every panel: the forecast, and
+       what is already on the shelf. A hue that means one thing here and another
+       thing on the next chart is worse than no hue at all. */
+    --series: #00918a;
+    --stockline: #8a6a00;
+    --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14120f; --panel: #1c1916; --sunk: #23201c;
+      --ink: #efeae2; --ink-soft: #cdc6ba; --muted: #9b9284; --rule: #332e28;
+      --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
+      --high: #e0846c; --medium: #d8ab4e; --ok: #86b294;
+      --series: #00a79d; --stockline: #a98a1e;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #14120f; --panel: #1c1916; --sunk: #23201c;
+    --ink: #efeae2; --ink-soft: #cdc6ba; --muted: #9b9284; --rule: #332e28;
+    --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
+    --high: #e0846c; --medium: #d8ab4e; --ok: #86b294;
+    --series: #00a79d; --stockline: #a98a1e;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+         font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .app { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1.25rem 5rem;
+         display: flex; flex-direction: column; gap: 1.25rem; }
+
+  .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+         gap: 1rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
+  .top h1 { font-family: var(--display); font-size: 1.6rem; font-weight: 600; margin: 0;
+            letter-spacing: -0.01em; }
+  .top .eyebrow { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.15em;
+                  text-transform: uppercase; color: var(--muted); }
+  .conn { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono);
+          font-size: 0.72rem; color: var(--muted); }
+
+  button { font: inherit; background: var(--accent); color: var(--accent-ink);
+           border: 1px solid var(--accent); border-radius: 3px; padding: 0.4rem 0.85rem;
+           cursor: pointer; font-weight: 600; }
+  button.ghost { background: transparent; color: var(--accent); }
+  button.small { padding: 0.2rem 0.5rem; font-size: 0.76rem; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* One page, so the jumps are the table of contents. They scroll rather than
+     navigate: everything here is one answer read at three depths, and three
+     addresses made that look like three separate findings. */
+  .jumps { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .jumps a { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.06em;
+             text-transform: uppercase; text-decoration: none; color: var(--muted);
+             border: 1px solid var(--rule); border-radius: 999px;
+             padding: 0.25rem 0.7rem; background: var(--panel); }
+  .jumps a:hover, .jumps a:focus-visible { color: var(--accent); border-color: var(--accent); }
+
+  .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
+           scroll-margin-top: 1rem; }
+  .panel-head { padding: 0.8rem 1rem; border-bottom: 1px solid var(--rule); display: flex;
+                align-items: baseline; justify-content: space-between; gap: 0.75rem;
+                flex-wrap: wrap; }
+  .panel-head h2 { font-size: 0.95rem; font-weight: 650; margin: 0; }
+  .panel-head .hint { font-size: 0.78rem; color: var(--muted); }
+  .panel-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+           gap: 0.6rem; }
+  .tile { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
+          padding: 0.75rem 0.9rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .tile .label { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em;
+                 text-transform: uppercase; color: var(--muted); }
+  .tile .big { font-family: var(--display); font-size: 1.65rem; line-height: 1.05;
+               font-variant-numeric: tabular-nums; }
+  .tile .big small { font-size: 0.76rem; font-family: var(--sans); color: var(--muted); }
+  .tile .says { font-size: 0.74rem; line-height: 1.35; color: var(--muted); }
+  .tile.warn { border-left: 3px solid var(--medium); }
+  .tile.bad { border-left: 3px solid var(--high); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
+  .table-wrap { overflow-x: auto; }
+  th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule);
+           white-space: nowrap; }
+  th { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.11em;
+       text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  tbody tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr.short td { background: color-mix(in srgb, var(--high) 7%, transparent); }
+  td .sub { display: block; font-size: 0.74rem; color: var(--muted); }
+
+  .spark { display: block; }
+  .note { padding: 0.7rem 1rem; border-bottom: 1px solid var(--rule);
+          background: var(--sunk); font-size: 0.8rem; line-height: 1.5; color: var(--ink-soft); }
+  .note:last-child { border-bottom: none; }
+  .note b { font-weight: 600; color: var(--ink); }
+  .note.stop { border-left: 3px solid var(--high); }
+  .note.good { border-left: 3px solid var(--ok); }
+
+  label.field { display: flex; flex-direction: column; gap: 0.3rem; font-family: var(--mono);
+                font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase;
+                color: var(--muted); }
+  input, select { font: inherit; color: inherit; background: var(--panel);
+    border: 1px solid var(--rule); border-radius: 3px; padding: 0.4rem 0.6rem; }
+  label.field > input, label.field > select { font-family: var(--sans); font-size: 0.9rem;
+    letter-spacing: 0; text-transform: none; color: var(--ink); }
+  .controls { display: flex; gap: 0.8rem; flex-wrap: wrap; align-items: flex-end; }
+
+  .prob { display: inline-flex; align-items: center; gap: 0.45rem; }
+  .prob .track { width: 5rem; height: 0.55rem; background: var(--sunk); border-radius: 3px;
+                 overflow: hidden; }
+  .prob .fill { display: block; height: 100%; background: var(--series); border-radius: 3px; }
+
+  details.deep > summary { padding: 0.8rem 1rem; cursor: pointer; font-size: 0.87rem;
+    color: var(--ink-soft); list-style: none; display: flex; justify-content: space-between;
+    gap: 0.75rem; }
+  details.deep > summary::-webkit-details-marker { display: none; }
+  details.deep > summary::after { content: "show"; font-family: var(--mono);
+    font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+  details.deep[open] > summary::after { content: "hide"; }
+  details.deep[open] > summary { border-bottom: 1px solid var(--rule); }
+
+  .empty { padding: 1.3rem 1rem; text-align: center; color: var(--muted); font-size: 0.86rem; }
+  footer { border-top: 1px solid var(--rule); padding-top: 0.9rem; color: var(--muted);
+           font-size: 0.78rem; max-width: 84ch; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div>
+      <h1>Demand Forecast</h1>
+      <span class="eyebrow">what will sell · who will buy · how it was checked</span>
+    </div>
+    <div class="conn">
+      <span id="connLabel" hidden></span>
+      <button class="small" id="runNow">Run the forecast</button>
+      <button class="ghost small" id="refresh">Refresh</button>
+    </div>
+  </div>
+
+  <!-- Whether anything below is allowed to be believed. First on the page,
+       because a refused model and a published one produce numbers that look
+       identical and mean opposite things. -->
+  <div class="panel" id="statusPanel" hidden>
+    <div class="note" id="statusNote"></div>
+  </div>
+
+  <nav class="jumps" aria-label="On this page">
+    <a href="#items">What will sell</a>
+    <a href="#buyers">Who will buy</a>
+    <a href="#record">The track record</a>
+  </nav>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="panel" id="items">
+    <div class="panel-head">
+      <h2>Every item, next week and next month</h2>
+      <span class="hint" id="itemsHint"></span>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>Item</th><th>Next 8 weeks</th><th class="num">Next week</th>
+        <th class="num">Next month</th><th class="num">Buyers</th>
+        <th class="num">Stock</th><th class="num">Cover</th>
+        <th class="num">Order</th><th></th>
+      </tr></thead>
+      <tbody id="itemRows"><tr><td colspan="9" class="empty">loading</td></tr></tbody>
+    </table></div>
+    <div class="note"><b>Order</b> is the shortfall against this item's cover target. It
+      becomes a draft on the buying desk for someone to edit and approve — nothing here
+      places an order.</div>
+  </div>
+
+  <!-- The same predictions read one row at a time instead of summed. On the same
+       page as the total, because they are the same number and putting them on two
+       screens invited the question of why they disagreed. -->
+  <div class="panel" id="buyers">
+    <div class="panel-head">
+      <h2>Who is likely to buy</h2>
+      <span class="hint">ranked by expected units over the next 8 weeks</span>
+    </div>
+    <div class="panel-body">
+      <div class="controls">
+        <label class="field">Item
+          <select id="buyerSku"></select></label>
+      </div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Customer</th><th>Contact</th><th>Chance of buying</th>
+        <th class="num">Expected units</th></tr></thead>
+      <tbody id="buyerRows"><tr><td colspan="4" class="empty">pick an item</td></tr></tbody>
+    </table></div>
+    <div class="note">Names stay on this side. Procurement receives item quantities and
+      never a customer.</div>
+  </div>
+
+  <!-- Every run, won or lost. The accuracy of the forecast lives here rather than
+       on a page of its own, because it is a property of the number above. Folded
+       away by default: needed when a figure looks wrong, noise on every other day. -->
+  <div class="panel" id="record">
+    <details class="deep">
+      <summary><span><b>The track record</b> — every run, what it scored, what shipped.
+        Refused runs are kept; they are the evidence for what to fix.</span></summary>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>When</th><th class="num">Weeks</th><th class="num">Rows</th>
+          <th class="num">Model error</th><th class="num">Average's error</th>
+          <th class="num">Direction</th><th>Made of</th><th>Outcome</th></tr></thead>
+        <tbody id="runRows"><tr><td colspan="8" class="empty">loading</td></tr></tbody>
+      </table></div>
+      <div class="note"><b>Model error</b> and <b>average's error</b>: units missed over
+        units demanded, on weeks the model never saw. Lower is better.
+        <b>Direction</b>: whether it runs high or low overall.
+        <b>Made of</b>: what was actually published.</div>
+
+      <div class="panel-head" style="border-top:1px solid var(--rule)">
+        <h2>Per item, last run</h2>
+        <span class="hint">the model wins some lines and loses others</span>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Item</th><th class="num">Sold in test weeks</th>
+          <th class="num">Model</th><th class="num">Average</th><th>Better</th></tr></thead>
+        <tbody id="perItemRows"><tr><td colspan="5" class="empty">loading</td></tr></tbody>
+      </table></div>
+
+      <div class="panel-head" style="border-top:1px solid var(--rule)">
+        <h2>What there is to learn from</h2>
+        <span class="hint">the ceiling on how good any forecast here can be</span>
+      </div>
+      <div class="tiles" id="readyTiles" style="padding:1rem"></div>
+    </details>
+  </div>
+
+  <footer>
+    Built from this platform's own recorded orders. Where there is not enough history to
+    say something, it is left blank.
+  </footer>
+</div>
+
+<script>
+  const API = "";
+  const $ = (id) => document.getElementById(id);
+  const KEY_STORAGE = "sca.apiKey";
+  const state = { key: "", summary: null, runs: [], sku: null, loadedRuns: false };
+
+  async function api(path, options = {}) {
+    const res = await fetch(API + path, {
+      ...options,
+      headers: { "X-API-Key": state.key, "Content-Type": "application/json",
+                 ...(options.headers || {}) },
+    });
+    if (!res.ok) {
+      let detail = res.status + " " + res.statusText;
+      try { const b = await res.json(); if (b.detail) detail = b.detail; } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  const escapeHtml = (t) => String(t)
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+  // A dash rather than a zero wherever there is nothing to say. "No error" and
+  // "nothing to be wrong about" are different findings and only one is good news.
+  const pct = (v) => (v === null || v === undefined) ? "—" : (v * 100).toFixed(1) + "%";
+  const num = (v, d = 1) => (v === null || v === undefined) ? "—" : Number(v).toFixed(d);
+
+  function busy(button, fn) {
+    return async (...args) => {
+      button.disabled = true;
+      try { return await fn(...args); } finally { button.disabled = false; }
+    };
+  }
+
+  // The forecast path for one item, drawn small enough to sit in a table row. No
+  // axis: the numbers are in the columns beside it, and the shape is what the
+  // picture is for.
+  function sparkline(path) {
+    if (!path || path.length < 2) return "";
+    const values = path.map((p) => p.units);
+    const top = Math.max(...values, 0.0001);
+    const w = 132, h = 26, step = w / (values.length - 1);
+    const points = values.map((v, i) =>
+      `${(i * step).toFixed(1)},${(h - (v / top) * (h - 4) - 2).toFixed(1)}`).join(" ");
+    const last = values[values.length - 1];
+    return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"
+       role="img" aria-label="forecast units per week, ${values.map((v) =>
+         v.toFixed(1)).join(", ")}">
+      <polyline points="${points}" fill="none" stroke="var(--series)" stroke-width="2"
+        stroke-linejoin="round" stroke-linecap="round" />
+      <circle cx="${w}" cy="${(h - (last / top) * (h - 4) - 2).toFixed(1)}" r="2.5"
+        fill="var(--series)" />
+    </svg>`;
+  }
+
+  function drawStatus(summary) {
+    const panel = $("statusPanel"), note = $("statusNote");
+    panel.hidden = false;
+    if (!summary || summary.state === "never_run") {
+      note.className = "note";
+      note.innerHTML = `<b>No forecast has been run yet.</b> Press
+        <em>Run the forecast</em> — it trains on your order history, scores itself against
+        the eight-week average on weeks it was not shown, and publishes only if it wins.`;
+      return;
+    }
+    const run = summary.run || {};
+    if (summary.state === "rejected") {
+      note.className = "note stop";
+      note.innerHTML = `<b>The last run was refused, and nothing was published.</b>
+        ${escapeHtml(run.refusal || "It did not beat the eight-week average.")}
+        The buying desk is still running on the average, which is the point of the rule —
+        a bad month for the model is a quiet month for everybody else.`;
+      return;
+    }
+    note.className = "note good";
+    const m = run.model || {}, b = run.baseline || {};
+    note.innerHTML = `<b>Published.</b> On ${(run.test_weeks || []).length} week(s) it was
+      never trained on, it was wrong by ${pct(m.wape)} of demand against the eight-week
+      average's ${pct(b.wape)}, running ${m.bias_pct === null || m.bias_pct === undefined
+        ? "—" : (m.bias_pct >= 0 ? "high" : "low") + " by " + pct(Math.abs(m.bias_pct))}.
+      Trained on ${run.train_rows} customer-weeks across ${run.weeks_history} weeks.
+      ${run.calibration ? "<br>Published as " + escapeHtml(run.calibration.reads_as) + "."
+        : ""}
+      ${(run.notes || []).map((n) => "<br>" + escapeHtml(n)).join("")}`;
+  }
+
+  async function loadSummary() {
+    let data;
+    try { data = await api("/forecast/summary"); }
+    catch (err) {
+      $("itemRows").innerHTML =
+        `<tr><td colspan="9" class="empty">Could not load: ${escapeHtml(err.message)}</td></tr>`;
+      return;
+    }
+    state.summary = data;
+    drawStatus(data);
+    drawItems(data);
+    fillSkuPicker(data);
+    loadBuyers();
+  }
+
+  function drawItems(data) {
+    const items = data.items || [];
+    const week = items.reduce((n, i) => n + i.next_week, 0);
+    const month = items.reduce((n, i) => n + i.next_month, 0);
+    const short = items.filter((i) => i.suggested_order > 0);
+
+    $("tiles").innerHTML = `
+      <div class="tile">
+        <span class="label">Units next week</span>
+        <span class="big">${num(week, 0)}</span>
+        <span class="says">Across ${items.length} item(s), summed over every customer.</span>
+      </div>
+      <div class="tile">
+        <span class="label">Units next month</span>
+        <span class="big">${num(month, 0)}</span>
+        <span class="says">The next four weeks. This is the figure to buy against.</span>
+      </div>
+      <div class="tile${short.length ? " bad" : ""}">
+        <span class="label">Items short of cover</span>
+        <span class="big">${short.length}</span>
+        <span class="says">${short.length
+          ? "Below the cover target at the forecast rate — a draft is waiting on the desk."
+          : "Everything has enough cover at the forecast rate."}</span>
+      </div>
+      <div class="tile">
+        <span class="label">Best seller</span>
+        <span class="big" style="font-size:1.1rem;padding-top:0.35rem">${
+          items.length ? escapeHtml(items[0].sku) : "—"}</span>
+        <span class="says">${items.length
+          ? `${num(items[0].next_month, 0)} units next month, to about ${
+              num(items[0].buyers_next_month, 0)} customer(s).`
+          : "Nothing forecast yet."}</span>
+      </div>`;
+
+    $("itemsHint").textContent = items.length
+      ? `${items.length} item(s) · ordered by what sells most next month` : "";
+
+    $("itemRows").innerHTML = items.length ? items.map((i) => `
+      <tr class="${i.suggested_order > 0 ? "short" : ""}">
+        <td><strong>${escapeHtml(i.sku)}</strong>
+          <span class="sub">${escapeHtml(i.name || "")}</span></td>
+        <td>${sparkline(i.weekly_path)}</td>
+        <td class="num">${num(i.next_week)}</td>
+        <td class="num"><strong>${num(i.next_month)}</strong></td>
+        <td class="num">${num(i.buyers_next_month, 0)}</td>
+        <td class="num">${i.unknown_to_procurement
+          ? `<span style="color:var(--muted)">not stocked</span>`
+          : i.on_hand + (i.on_order ? ` <span style="color:var(--muted)">+${i.on_order}</span>` : "")}</td>
+        <td class="num">${i.weeks_cover === null ? "—" : num(i.weeks_cover)
+          + `<span class="sub">of ${num(i.target_cover_weeks, 0)}</span>`}</td>
+        <td class="num">${i.suggested_order > 0
+          ? `<strong>${i.suggested_order}</strong>${i.moq && i.suggested_order < i.moq
+              ? `<span class="sub">under their ${i.moq} minimum</span>` : ""}`
+          : "—"}</td>
+        <td><button class="ghost small" data-buyers="${escapeHtml(i.sku)}">Who</button></td>
+      </tr>`).join("") : `<tr><td colspan="9" class="empty">Nothing forecast yet</td></tr>`;
+
+    // Same page now, so this scrolls rather than navigates — and picks the item
+    // on the way, because arriving at a list of somebody else's buyers was the
+    // most confusing thing the two-page version did.
+    $("itemRows").querySelectorAll("[data-buyers]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.sku = b.dataset.buyers;
+        $("buyerSku").value = state.sku;
+        loadBuyers();
+        $("buyers").scrollIntoView({ behavior: "smooth", block: "start" });
+      }));
+  }
+
+  function fillSkuPicker(data) {
+    const items = data.items || [];
+    if (!items.length) return;
+    const wanted = state.sku && items.some((i) => i.sku === state.sku)
+      ? state.sku : items[0].sku;
+    state.sku = wanted;
+    $("buyerSku").innerHTML = items.map((i) =>
+      `<option value="${escapeHtml(i.sku)}"${i.sku === wanted ? " selected" : ""}>${
+        escapeHtml(i.sku)}${i.name ? " — " + escapeHtml(i.name) : ""}</option>`).join("");
+  }
+
+  async function loadBuyers() {
+    if (!state.sku) {
+      $("buyerRows").innerHTML = `<tr><td colspan="4" class="empty">no items yet</td></tr>`;
+      return;
+    }
+    let data;
+    try { data = await api(`/forecast/buyers/${encodeURIComponent(state.sku)}`); }
+    catch (err) {
+      $("buyerRows").innerHTML =
+        `<tr><td colspan="4" class="empty">${escapeHtml(err.message)}</td></tr>`;
+      return;
+    }
+    const rows = data.buyers || [];
+    $("buyerRows").innerHTML = rows.length ? rows.map((b) => `
+      <tr>
+        <td>${escapeHtml(b.name || "unnamed customer")}
+          <span class="sub">${escapeHtml(b.person_id.slice(0, 8))}</span></td>
+        <td>${escapeHtml(b.phone || b.email || "—")}</td>
+        <td><span class="prob"><span class="track"><span class="fill"
+          style="width:${Math.round(b.probability * 100)}%"></span></span>
+          ${pct(b.probability)}</span></td>
+        <td class="num">${num(b.expected_units, 2)}</td>
+      </tr>`).join("")
+      : `<tr><td colspan="4" class="empty">Nobody is predicted to buy this in the horizon</td></tr>`;
+  }
+
+  async function loadRuns() {
+    let rows, ready;
+    try { [rows, ready] = await Promise.all([api("/forecast/runs"), api("/forecast/readiness")]); }
+    catch (err) {
+      $("runRows").innerHTML =
+        `<tr><td colspan="8" class="empty">${escapeHtml(err.message)}</td></tr>`;
+      return;
+    }
+    state.runs = rows;
+    state.loadedRuns = true;
+    $("runRows").innerHTML = rows.length ? rows.map((r) => {
+      const m = r.model || {}, b = r.baseline || {};
+      const outcome = r.published ? `<span style="color:var(--ok)">published</span>`
+        : r.passed ? `<span style="color:var(--medium)">passed, not published</span>`
+        : `<span style="color:var(--high)">refused</span>`;
+      return `<tr>
+        <td>${escapeHtml(new Date(r.ran_at).toLocaleString())}
+          ${r.refusal ? `<span class="sub">${escapeHtml(r.refusal)}</span>` : ""}</td>
+        <td class="num">${r.weeks_history}</td>
+        <td class="num">${r.train_rows}</td>
+        <td class="num">${pct(m.wape)}</td>
+        <td class="num">${pct(b.wape)}</td>
+        <td class="num">${m.bias_pct === null || m.bias_pct === undefined ? "—"
+          : (m.bias_pct > 0 ? "+" : "") + pct(m.bias_pct)}</td>
+        <td style="white-space:normal;max-width:22rem">${r.calibration
+          ? escapeHtml(r.calibration.reads_as) : "—"}</td>
+        <td>${outcome}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="8" class="empty">Nothing has been run yet</td></tr>`;
+
+    const last = rows[0];
+    const perItem = last ? (last.per_item || {}) : {};
+    const skus = Object.keys(perItem);
+    $("perItemRows").innerHTML = skus.length ? skus.map((sku) => {
+      const p = perItem[sku];
+      const better = (p.model.wape !== null && p.baseline.wape !== null)
+        ? (p.model.wape < p.baseline.wape ? "model" : "average") : null;
+      return `<tr>
+        <td><strong>${escapeHtml(sku)}</strong></td>
+        <td class="num">${num(p.sold, 0)}</td>
+        <td class="num">${pct(p.model.wape)}</td>
+        <td class="num">${pct(p.baseline.wape)}</td>
+        <td>${better === "model" ? `<span style="color:var(--ok)">the model</span>`
+          : better === "average" ? `<span style="color:var(--medium)">the average</span>`
+          : `<span style="color:var(--muted)">nothing sold</span>`}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="5" class="empty">No scored run yet</td></tr>`;
+
+    $("readyTiles").innerHTML = `
+      <div class="tile${ready.weeks < 52 ? " warn" : ""}">
+        <span class="label">Weeks of history</span>
+        <span class="big">${ready.weeks}</span>
+        <span class="says">${ready.weeks < 52
+          ? "Under a year, so no season has repeated yet and nothing can learn one."
+          : "Enough for last year's same week to mean something."}</span>
+      </div>
+      <div class="tile">
+        <span class="label">Customers · items</span>
+        <span class="big">${ready.customers}<small> · ${ready.skus}</small></span>
+        <span class="says">${ready.units} units recorded in total.</span>
+      </div>
+      <div class="tile${ready.attributed_share !== null && ready.attributed_share < 0.5 ? " warn" : ""}">
+        <span class="label">Sales with a customer</span>
+        <span class="big">${pct(ready.attributed_share)}</span>
+        <span class="says">${ready.attributed_share === null ? "Nothing sold yet."
+          : ready.attributed_share < 0.5
+            ? "Most sales have nobody attached, so 'who will buy' describes only the ones that do."
+            : "Most sales belong to somebody."}</span>
+      </div>
+      <div class="tile${ready.availability_known_share !== null
+        && ready.availability_known_share < 0.5 ? " bad" : ""}">
+        <span class="label">Weeks with a stock reading</span>
+        <span class="big">${pct(ready.availability_known_share)}</span>
+        <span class="says">${ready.availability_known_share === null
+          ? "No stock readings at all."
+          : ready.availability_known_share < 0.5
+            ? "Without one, a quiet week and an empty shelf look the same to the model."
+            : "Most weeks can be told apart from a stockout."}</span>
+      </div>`;
+  }
+
+  // One page, so one load. The track record is fetched when it is first opened
+  // rather than on arrival — two more queries for a panel most visits never
+  // unfold is a slower page for everybody.
+  function loadAll() {
+    if (!state.key) return;
+    loadSummary();
+    if (state.loadedRuns) loadRuns();
+  }
+
+  document.querySelector("#record details").addEventListener("toggle", (e) => {
+    if (e.target.open && !state.loadedRuns && state.key) loadRuns();
+  });
+
+  $("refresh").addEventListener("click", loadAll);
+  $("buyerSku").addEventListener("change", () => {
+    state.sku = $("buyerSku").value;
+    loadBuyers();
+  });
+
+  $("runNow").addEventListener("click", busy($("runNow"), async () => {
+    $("statusPanel").hidden = false;
+    $("statusNote").className = "note";
+    $("statusNote").textContent =
+      "Training and scoring. On a short history this takes a few seconds.";
+    try {
+      await api("/forecast/run", { method: "POST", body: JSON.stringify({}) });
+    } catch (err) {
+      $("statusNote").className = "note stop";
+      $("statusNote").textContent = "Failed: " + err.message;
+      return;
+    }
+    await loadSummary();
+    if (state.loadedRuns) await loadRuns();
+  }));
+
+  // The rail still calls this on navigation; there is one destination now.
+  window.applyView = function applyView() {
+    document.querySelectorAll('.tgc-rail nav a[data-nav^="forecast:"]').forEach((a) =>
+      a.classList.toggle("on", a.dataset.nav === "forecast:forecast"));
+  };
+  applyView();
+
+  async function connect() {
+    let key = window.__SCA_DEV_KEY__ || localStorage.getItem(KEY_STORAGE) || "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!key) {
+        key = (prompt("API key (SCA_API_KEY):") || "").trim();
+        if (!key) break;
+      }
+      const res = await fetch(API + "/forecast/readiness", { headers: { "X-API-Key": key } });
+      if (res.ok) {
+        state.key = key;
+        localStorage.setItem(KEY_STORAGE, key);
+        $("connLabel").hidden = true;
+        loadAll();
+        return;
+      }
+      localStorage.removeItem(KEY_STORAGE);
+      key = "";
+    }
+    $("connLabel").hidden = false;
+    $("connLabel").textContent = "no working API key";
+  }
+
+  connect();
+</script>
+</body>
+</html>

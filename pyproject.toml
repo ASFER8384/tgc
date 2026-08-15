@@ -29,6 +29,14 @@ dependencies = [
   # Multipart form parsing, for the only route on the platform that receives a
   # file from a browser rather than from a mailbox: a photograph of a site.
   "python-multipart>=0.0.9",
+  # The forecast model. LightGBM rather than XGBoost for one concrete reason on
+  # this data: it splits on categories natively, so the item is one column rather
+  # than one column per SKU, and a catalogue can grow without the feature table
+  # growing with it. pandas and numpy are what the panel is assembled in.
+  "lightgbm>=4.5",
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "scikit-learn>=1.4",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +55,7 @@ where = ["src"]
 sca = ["console/*.html"]
 cdp = ["console/*.html"]
 brand = ["console/*.html"]
+forecast = ["console/*.html"]
 
 # setuptools is the build backend; this repeats the src layout for Poetry, which
 # does not read the key above. Some hosts autodetect Poetry whenever they see a

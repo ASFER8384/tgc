@@ -328,6 +328,20 @@
   /* Where the numbers come from: what to buy, who from, and when it lands.
      Three groups rather than one list, because they answer three different
      questions and a buyer usually wants only one of them. */
+  /* One row per item: what it sells, which rule decided it, how much to trust
+     that. Laid out as a grid rather than a table because the last column is a
+     sentence and tables make sentences into a column of one word. */
+  .decided { border-top: 1px solid var(--rule); }
+  .decided-row { display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.3fr);
+    gap: 0.6rem; padding: 0.55rem 1rem; border-bottom: 1px solid var(--rule);
+    font-size: 0.82rem; align-items: baseline; }
+  .decided-row:last-child { border-bottom: none; }
+  .decided-row .of { display: block; font-size: 0.72rem; color: var(--muted); }
+  .decided-row .rate { font-variant-numeric: tabular-nums; }
+  .decided-row .warn { grid-column: 1 / -1; color: var(--high); font-size: 0.74rem; }
+  @media (max-width: 780px) { .decided-row { grid-template-columns: minmax(0, 1fr); } }
+
   .how { padding: 0.7rem 1rem; background: var(--sunk); font-size: 0.8rem;
          line-height: 1.5; color: var(--ink-soft); }
   .how b { font-weight: 600; color: var(--ink); }
@@ -500,6 +514,11 @@
               <th class="num">Value</th><th>Supplier</th><th></th></tr></thead>
             <tbody id="suggestions"><tr><td colspan="8" class="empty">loading</td></tr></tbody>
           </table></div>
+          <!-- What produced each line. A suggestion is a number until somebody
+               can see whether it came from the forecast or from a threshold they
+               typed themselves — those are argued with in different ways, and
+               only one of them is theirs to change. -->
+          <div class="decided" id="decided" hidden></div>
           <div class="panel-body"><div class="bar">
             <button id="createOrders">Draft every line</button>
             <button class="ghost" id="loadSample">Run one item low</button>
@@ -889,7 +908,10 @@
   // anyone who opens it.
   const KEY_STORAGE = "sca.apiKey";
   const state = { key: "", suppliers: [], zones: [], items: [], links: {},
-                  view: "desk", selected: null, journey: null, stats: {} };
+                  view: "desk", selected: null, journey: null, stats: {},
+                  // What the forecast knows about each line, for the per-item
+                  // policy table. Empty until that view is opened.
+                  guidance: {}, guidanceRun: null };
 
   async function api(path, options = {}) {
     const res = await fetch(API + path, {
@@ -2600,6 +2622,7 @@
         // arriving straight at /procure?view=settings would otherwise sit on
         // "loading" until the reader clicked something else and back.
         if (state.view === "settings") await loadSettings();
+        loadGuidance();
         return;
       }
       localStorage.removeItem(KEY_STORAGE);
@@ -2621,6 +2644,18 @@
   // than with everything else: it changes when somebody changes it, which is
   // rarely, and refreshing the desk has no reason to refetch it.
   const settingsState = { groups: [], group: null, env: "" };
+
+  // "When to buy" and "Per item" hold the same four thresholds at two scopes:
+  // one set for the catalogue, one set per line. Two places to change the same
+  // rule is two places for it to disagree with itself, so the global group is
+  // not offered as a destination — the per-item table states what each line is
+  // inheriting in its column headings, which is where somebody reading a row
+  // needs it.
+  //
+  // Hidden rather than deleted. The values still exist, still validate and still
+  // govern every line left blank; what is gone is a second screen for editing
+  // them behind the buyer back.
+  const HIDDEN_GROUPS = new Set(["When to buy"]);
   // A section of the page that is not a setting on the environment: the floors
   // per item, which live on the items themselves and are edited as a list.
   const PER_ITEM = "Per item";
@@ -2649,12 +2684,15 @@
   }
 
   function drawSettings(view) {
+    view = { ...view, groups: view.groups.filter((g) => !HIDDEN_GROUPS.has(g.name)) };
     settingsState.groups = view.groups;
     settingsState.env = view.env;
     const known = settingsState.group === PER_ITEM
       || view.groups.some((g) => g.name === settingsState.group);
     if (!settingsState.group || !known) {
-      settingsState.group = view.groups.length ? view.groups[0].name : null;
+      // Per item first, because it is now the only place these four are set and
+      // landing on a different group would hide the page somebody came for.
+      settingsState.group = PER_ITEM;
     }
     // How many of these somebody has actually taken a decision about. The rest
     // are still whatever the environment says, which is the honest default and
@@ -2771,10 +2809,76 @@
     ["demand_window_weeks", "Measure over", "wks"],
   ];
 
+  // What the forecast knows about each line, fetched once when this view opens.
+  // Read-only: the thresholds are the buyer's judgement, and a page that filled
+  // them in would be making the judgement while appearing to ask for it. Failing
+  // to load costs the evidence columns, never the form.
+  async function loadGuidance() {
+    try {
+      const out = await api("/forecast/guidance");
+      state.guidance = out.items || {};
+      state.guidanceRun = out;
+    } catch { state.guidance = {}; state.guidanceRun = null; }
+    if (state.view === "desk") drawWhatDecided();
+  }
+
+  // Which rule produced each line on the desk, and what it was reading. A
+  // suggestion is a number until somebody can see whether it came from the
+  // forecast or from a figure they typed themselves — and those are argued with
+  // in different ways.
+  function drawWhatDecided() {
+    const host = $("decided");
+    if (!host) return;
+    const guide = state.guidance || {};
+    const rows = (state.items || []).filter((i) => guide[i.sku]);
+    if (!rows.length) { host.hidden = true; return; }
+    host.hidden = false;
+    host.innerHTML = rows.sort((a, b) => a.sku.localeCompare(b.sku)).map((i) => {
+      const g = guide[i.sku];
+      const own = i.policy || {};
+      // A typed threshold beats the forecast for that line. Named here because
+      // it is the part somebody can change, and therefore the part they will
+      // want to check first when a suggestion looks wrong.
+      const typed = Object.entries(own)
+        .filter(([, p]) => p && p.own !== null && p.own !== undefined)
+        .map(([field]) => ({
+          reorder_cover_weeks: "reorder below",
+          target_cover_weeks: "buy up to",
+          min_stock: "never fewer than",
+          demand_window_weeks: "measure over",
+        }[field]));
+      const rate = g.weekly === null || g.weekly === undefined ? null : g.weekly;
+      return `<div class="decided-row">
+        <span class="who"><strong>${escapeHtml(i.sku)}</strong>
+          <span class="of">${escapeHtml(i.name || "")}</span></span>
+        <span class="rate">${rate === null
+          ? `<span style="color:var(--muted)">no forecast</span>`
+          : `${rate}<span style="color:var(--muted)">/wk</span>`}${
+          g.weeks_cover === null || g.weeks_cover === undefined ? ""
+            : `<span class="of">${g.weeks_cover} wks of cover</span>`}</span>
+        <span class="rule">${typed.length
+          ? `<span style="color:var(--accent)">your ${typed.join(", ")}</span>
+             <span class="of">typed here, so it holds over the forecast</span>`
+          : `<span style="color:var(--muted)">the forecast</span>
+             <span class="of">nothing typed for this line</span>`}</span>
+        <span class="conf">${{
+          model: `<span style="color:var(--ok)">model beats the average here</span>`,
+          average: `<span style="color:var(--muted)">average beats the model here</span>`,
+          unscored: `<span style="color:var(--muted)">not scored</span>`,
+          new: `<span style="color:var(--muted)">never scored</span>`,
+          unknown: "",
+        }[g.confidence || "unknown"]}<span class="of">${g.weeks_history || 0} wks of history${
+          g.steadiness && g.steadiness !== "unknown" ? " · " + g.steadiness : ""}</span></span>
+        ${g.reorder_warning
+          ? `<span class="warn">${escapeHtml(g.reorder_warning)}</span>` : ""}
+      </div>`;
+    }).join("");
+  }
+
   function drawItemPolicy() {
     const items = [...(state.items || [])].sort((a, b) => a.sku.localeCompare(b.sku));
     $("setTitle").textContent = PER_ITEM;
-    $("setHint").textContent = "blank inherits the global setting";
+    $("setHint").textContent = "blank means the forecast decides";
 
     // The global figure under each heading, so the two pages read as one rule
     // with exceptions rather than as two competing sets of numbers. Taken from
@@ -2791,17 +2895,24 @@
 
     $("setFields").innerHTML = items.length ? `
       <div class="why" style="max-width:64ch">
-        Exceptions to <b>When to buy</b>, which stays the default for everything
-        left blank here. Silk is bought deep because the mill quotes long and
-        the price moves; cartons are bought thin because the warehouse cannot
-        hold them — one number for both was always a compromise. The grey
-        figure inside each empty box is what that line is inheriting, and
+        When to buy, per line. Silk is bought deep because the mill quotes
+        long and the price moves; cartons are bought thin because the warehouse
+        cannot hold them — one number for both was always a compromise. The grey
+        figure inside each empty box is the default that line is inheriting, and
         anything typed over it wins for that line only.
+      </div>
+      <div class="why" style="max-width:64ch">
+        <b>Leave a box blank and the forecast decides that line.</b> Type a number
+        and yours holds instead, for that line only, whatever the forecast says.
+        The grey figure inside an empty box is the default it is falling back to.
+        What each rule then produced is shown against the suggestion on the
+        buying desk, which is where the decision is actually taken.
       </div>
       <div class="table-wrap"><table>
         <thead><tr><th>Item</th><th class="num">Stock</th>${head}</tr></thead>
         <tbody>${items.map((i) => {
           const policy = i.policy || {};
+          const g = guide[i.sku] || {};
           const cells = ITEM_POLICY.map(([field]) => {
             const p = policy[field] || {};
             return `<td class="num"><input data-policy="${escapeHtml(i.sku)}"
@@ -2920,6 +3031,7 @@
     // when somebody changes it, and refreshing a queue of orders is no reason to
     // ask for it again.
     if (view === "settings") loadSettings();
+    if (view === "desk") loadGuidance();
     // Kept in step with the address, which the rail changes without reloading —
     // so arriving here by the back button would otherwise leave the previous
     // section lit while a different one is on screen.
