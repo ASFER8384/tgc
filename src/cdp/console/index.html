@@ -237,7 +237,7 @@
   .srcbadge.big { font-size: 0.7rem; padding: 0.2rem 0.45rem; text-transform: none; letter-spacing: 0.02em; }
   .srcbadge.big b { font-variant-numeric: tabular-nums; }
   .src-shopify .srcbadge, .srcbadge.src-shopify { color: var(--aleena); }
-  .src-shopify_pos .srcbadge, .srcbadge.src-shopify_pos { color: var(--rawash); }
+  .src-pos .srcbadge, .srcbadge.src-pos { color: var(--rawash); }
   .src-whatsapp .srcbadge, .srcbadge.src-whatsapp { color: var(--ok); }
   .src-email .srcbadge, .srcbadge.src-email { color: var(--aynola); }
   .src-activation .srcbadge, .srcbadge.src-activation { color: var(--alert); }
@@ -247,7 +247,7 @@
   .tl.src-email::before { background: var(--aynola); }
   .tl.src-activation::before { background: var(--alert); }
   .tl.src-ads::before, .tl.src-support::before { background: var(--muted); }
-  .tl.src-shopify_pos::before { background: var(--rawash); }
+  .tl.src-pos::before { background: var(--rawash); }
 
   /* One brand per row, full width. Two columns inside a 460px drawer left every
      permission name wrapping onto a second line, which made five short rows read
@@ -760,7 +760,7 @@
                typed one from the real one. What is left is the two that reach the
                platform no other way. -->
           <div class="sources" id="sources">
-            <button class="src" data-src="shopify_pos" aria-pressed="true">Store<small>sale at the counter</small></button>
+            <button class="src" data-src="pos" aria-pressed="true">Store<small>sale at the counter</small></button>
             <button class="src" data-src="activation" aria-pressed="false">Mall<small>activation</small></button>
           </div>
 
@@ -1121,7 +1121,7 @@
   const API = "";
   const $ = (id) => document.getElementById(id);
   const state = {
-    key: "", source: "shopify_pos", selected: null, showAllCustomers: false,
+    key: "", source: "pos", selected: null, showAllCustomers: false,
     view: new URLSearchParams(location.search).get("view") || "dashboard",
     segments: [], segment: null, channel: "whatsapp", draft: null,
     brand: "aleena", template: "custom", templateTouched: false,
@@ -1280,7 +1280,7 @@
   };
 
   const CHANNEL_LABEL = {
-    shopify: "Online store", shopify_pos: "In store", whatsapp: "WhatsApp",
+    shopify: "Online store", pos: "In store", shopify_pos: "Shopify POS", whatsapp: "WhatsApp",
     activation: "Mall stand", email: "Email", ads: "Ads", support: "Support",
   };
 
@@ -1350,9 +1350,9 @@
   // commerce and cash at a mall stand are as real as a Shopify checkout. Sources
   // that are always a sale show the money fields; the rest offer a "was a sale"
   // tick that reveals them.
-  const ALWAYS_SALE = new Set(["shopify_pos"]);
+  const ALWAYS_SALE = new Set(["pos"]);
   const FIELDS = {
-    shopify_pos: ["name", "phone", "email", "brand", "amount", "item", "consent"],
+    pos: ["name", "phone", "email", "brand", "amount", "item", "consent"],
     activation:  ["name", "phone", "brand", "product", "consent", "sale"],
   };
 
@@ -1360,7 +1360,7 @@
   // is not agreeing to WhatsApp, so each channel writes its own permission and
   // records where the opt in was given: consent with no evidence is indefensible.
   const CONSENT_RULE = {
-    shopify_pos: ["marketing_whatsapp", "pos_terminal", "asked at the till",
+    pos: ["marketing_whatsapp", "pos_terminal", "asked at the till",
                   "She agreed to WhatsApp updates at the till"],
     activation:  ["marketing_whatsapp", "activation_form", "activation capture form",
                   'She ticked "message me on WhatsApp"'],
@@ -1380,7 +1380,7 @@
     $("fConsent").nextElementSibling.textContent = CONSENT_RULE[src][3];
     refreshMoneyFields();
     $("submit").textContent =
-      { shopify_pos: "Record the sale", activation: "Capture lead" }[src];
+      { pos: "Record the sale", activation: "Capture lead" }[src];
   }
 
   function refreshMoneyFields() {
@@ -1394,7 +1394,7 @@
     $("wrapItem").hidden = !sale;
     // Counter sales only. The mall stand is deliberately left as it was, and a
     // shop box on its form would be asking a question its stock does not answer.
-    $("wrapShop").hidden = !(sale && state.source === "shopify_pos");
+    $("wrapShop").hidden = !(sale && state.source === "pos");
     if (!$("wrapShop").hidden) drawShopPicker();
     $("wrapMoveStock").hidden = !sale;
     $("wrapProduct").hidden = sale ? true : !on.has("product");
@@ -1549,7 +1549,7 @@
     // rather than recorded against a shelf that would go straight to a shortfall
     // note — the count is wrong or the item is genuinely gone, and both want
     // somebody to look before the record is written.
-    if (isSale() && src === "shopify_pos" && $("fMoveStock").checked
+    if (isSale() && src === "pos" && $("fMoveStock").checked
         && !$("fShop").value) {
       return show("No shop has this item on the shelf. Count it in on the "
         + "Inventory page, or untick \"take it off the shelf\" if the count "
@@ -1589,7 +1589,7 @@
           method: "POST",
           body: JSON.stringify({
             source: src,
-            channel: { shopify: "online", shopify_pos: "retail" }[src] || src,
+            channel: { shopify: "online", pos: "retail" }[src] || src,
             phone: phone || null,
             email: email || null,
             name: name || null,
@@ -1597,7 +1597,7 @@
             // Which shelf this came off. Sent for a counter sale only — the mall
             // stand is left exactly as it was, and sending a shop for it would
             // change where its stock comes off without anybody asking for that.
-            ...(src === "shopify_pos" && $("fShop").value
+            ...(src === "pos" && $("fShop").value
               ? { location: $("fShop").value } : {}),
             // The form asks for the basket total; the line wants a unit price.
             lines: [{
@@ -1726,7 +1726,7 @@
     lead_captured: "Captured at activation", email_opened: "Email opened", email_clicked: "Email clicked",
     checkout_started: "Checkout started", product_viewed: "Product viewed",
   };
-  const SOURCE_LABEL = { shopify: "Online store", shopify_pos: "Retail POS", whatsapp: "WhatsApp", activation: "Mall activation", email: "Email", ads: "Ads", support: "Support" };
+  const SOURCE_LABEL = { shopify: "Online store", pos: "In store", shopify_pos: "Shopify POS", whatsapp: "WhatsApp", activation: "Mall activation", email: "Email", ads: "Ads", support: "Support" };
 
   // Each source sends a different shape, so the interesting field differs too.
   // This is the "what did they actually give us" line under each event.
@@ -2800,7 +2800,7 @@
     } finally { btn.disabled = false; }
   });
 
-  applySource("shopify_pos");
+  applySource("pos");
   initSegBuilder();
   applyView(state.view);
   // Back and forward move between rail destinations, since each one has its own

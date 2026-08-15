@@ -588,7 +588,12 @@ class Seeder:
             "name": person.name if order["named"] else None,
             "till": "counter" if store else "mall-stand",
             "currency": "SAR",
-            "source": "shopify_pos" if store else "activation",
+            # The shop's own till, not Shopify's. "shopify_pos" is a Shopify
+            # order rung up on a Shopify terminal, which these are not — the
+            # counters here are independent of the storefront entirely, and
+            # filing them under Shopify's name made the group look like it ran
+            # its shops on Shopify POS.
+            "source": "pos" if store else "activation",
             "channel": "retail" if store else "event",
             "move_stock": False,
             "receipt": f"seed-{order['order_id']}",

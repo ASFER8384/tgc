@@ -36,6 +36,7 @@ async def shop(client, session):
 
 async def test_a_sale_takes_the_stock_off_the_shelf(client, session, shop):
     out = (await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1",
         "lines": [{"sku": "ALN-ABAYA-01", "quantity": 3, "unit_price": "450.00"}],
     })).json()
@@ -56,6 +57,7 @@ async def test_the_movement_is_appended_to_the_ledger(client, session, shop):
     stock without leaving a reading would be counted in the numerator and be
     invisible in the denominator."""
     await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1", "lines": [{"sku": "ALN-ABAYA-01", "quantity": 2}],
     })
 
@@ -73,6 +75,7 @@ async def test_the_sale_is_readable_as_demand(client, session, shop):
     from sca.planning.demand import weekly_demand
 
     await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1",
         "lines": [{"sku": "ALN-ABAYA-01", "quantity": 6, "unit_price": "450.00"}],
     })
@@ -84,7 +87,8 @@ async def test_the_sale_is_readable_as_demand(client, session, shop):
 async def test_pressing_save_twice_records_one_sale(client, session, shop):
     """The failure this is guarding is not a duplicate row, it is a shelf emptied
     twice by one basket — which then reads as a stockout nobody had."""
-    body = {"receipt": "same-receipt", "lines": [{"sku": "ALN-ABAYA-01", "quantity": 3}]}
+    body = {"receipt": "same-receipt", "location": "riyadh",
+            "lines": [{"sku": "ALN-ABAYA-01", "quantity": 3}]}
     first = (await client.post("/sales", json=body)).json()
     second = (await client.post("/sales", json=body)).json()
 
@@ -106,6 +110,7 @@ async def test_walk_in_sales_share_one_counter_record(client, session, shop):
     turn a week of trading into several hundred customers who bought once."""
     for n in range(3):
         await client.post("/sales", json={
+            "location": "riyadh",
             "receipt": f"r-{n}", "lines": [{"sku": "ALN-SCARF-02", "quantity": 1}],
         })
 
@@ -119,6 +124,7 @@ async def test_the_counter_is_kept_out_of_the_customer_list(client, session, sho
     """It is not a customer. Left unmarked it would be the most frequent buyer in
     the business and would top every segment and every audience."""
     await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1", "lines": [{"sku": "ALN-SCARF-02", "quantity": 1}],
     })
     listed = (await client.get("/persons")).json()
@@ -127,6 +133,7 @@ async def test_the_counter_is_kept_out_of_the_customer_list(client, session, sho
 
 async def test_a_phone_attaches_the_sale_to_a_customer(client, session, shop):
     out = (await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1", "phone": "0501234567", "name": "Noura",
         "lines": [{"sku": "ALN-ABAYA-01", "quantity": 1, "unit_price": "450.00"}],
     })).json()
@@ -145,13 +152,16 @@ async def test_an_identified_sale_never_carries_the_counter_identifier(client, s
     would inherit her number, and every walk-in afterwards would resolve to her.
     """
     await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1", "lines": [{"sku": "ALN-SCARF-02", "quantity": 1}],
     })
     await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-2", "phone": "0501234567",
         "lines": [{"sku": "ALN-SCARF-02", "quantity": 1}],
     })
     await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-3", "lines": [{"sku": "ALN-SCARF-02", "quantity": 1}],
     })
 
@@ -167,6 +177,7 @@ async def test_selling_more_than_the_record_holds_at_zero_and_says_so(client, se
     divisor in the demand calculation and inflates the figure — the shelf would
     end up buying more of itself off the back of a bad count."""
     out = (await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1", "lines": [{"sku": "ALN-SCARF-02", "quantity": 9}],
     })).json()
 
@@ -181,6 +192,7 @@ async def test_a_line_with_no_price_is_demand_but_not_revenue(client, session, s
     """Never defaulted to the item's unit cost: that is what it cost us, and
     writing it here would file our own cost as the customer's payment."""
     out = (await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1",
         "lines": [
             {"sku": "ALN-ABAYA-01", "quantity": 2, "unit_price": "450.00"},
@@ -198,6 +210,7 @@ async def test_the_same_sku_twice_in_one_basket_is_added_up(client, session, sho
     used to make the stock arithmetic read twice from a position it had already
     changed."""
     out = (await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1",
         "lines": [
             {"sku": "ALN-ABAYA-01", "quantity": 2},
@@ -212,6 +225,7 @@ async def test_an_unknown_sku_is_refused(client, shop):
     """It would appear in demand as a product that does not exist, and would be
     bought from a supplier who has never heard of it."""
     res = await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1", "lines": [{"sku": "NOPE-01", "quantity": 1}],
     })
     assert res.status_code == 422
@@ -229,6 +243,7 @@ async def test_recent_sales_lists_only_what_was_rung_up_here(client, session, sh
     ))
     await session.commit()
     await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-1", "lines": [{"sku": "ALN-ABAYA-01", "quantity": 2}],
     })
 
@@ -247,8 +262,12 @@ async def test_a_sale_recorded_from_the_customer_console_reaches_demand(client, 
 
     out = (await client.post("/sales", json={
         "receipt": "r-console",
-        "source": "shopify_pos",
+        # The shop's own till, not Shopify's. shopify_pos is an order rung up on
+        # a Shopify terminal and reaching us through the connector; these
+        # counters are independent of the storefront entirely.
+        "source": "pos",
         "channel": "retail",
+        "location": "riyadh",
         "phone": "0501234567",
         "lines": [{"sku": "ALN-ABAYA-01", "quantity": 2, "unit_price": "450.00"}],
     })).json()
@@ -257,7 +276,7 @@ async def test_a_sale_recorded_from_the_customer_console_reaches_demand(client, 
     measured = await weekly_demand(session, now=datetime.now(UTC) + timedelta(hours=1))
     assert measured["ALN-ABAYA-01"].units == 2
 
-    events = list(await session.scalars(select(Event).where(Event.source == "shopify_pos")))
+    events = list(await session.scalars(select(Event).where(Event.source == "pos")))
     assert len(events) == 1
     assert events[0].channel == "retail"
 
@@ -266,6 +285,7 @@ async def test_a_sale_can_be_recorded_without_moving_the_shelf(client, session, 
     """For a sale typed up after somebody has already counted the shelf down.
     Taking it off twice invents a stockout nobody had."""
     out = (await client.post("/sales", json={
+        "location": "riyadh",
         "receipt": "r-late", "move_stock": False,
         "lines": [{"sku": "ALN-ABAYA-01", "quantity": 3}],
     })).json()
@@ -294,7 +314,7 @@ async def test_two_tills_ringing_walk_ins_at_once_share_one_record(client, sessi
         response = await client.post(
             "/sales",
             json={"lines": [{"sku": "ALN-ABAYA-01", "quantity": 1, "unit_price": "420.00"}],
-                  "till": "counter"},
+                  "till": "counter", "location": "riyadh"},
         )
         assert response.status_code == 201, response.text
         assert response.json()["identified"] is False
@@ -515,3 +535,40 @@ async def test_a_shop_selling_what_it_does_not_have_does_not_write_down_the_othe
         )
     }
     assert shelves == {"online": 10, "jeddah": 0}
+
+
+async def test_a_counter_sale_must_say_which_shop(client, shop):
+    """The default that quietly emptied the wrong shelf.
+
+    Every sale used to fall back to the storefront when the caller said nothing,
+    which was wrong twice over for a shop: the shop that sold the units kept its
+    number, and the storefront decrement was thrown away at the next Shopify pull
+    because that shelf is overwritten with Shopify's own count. The stock left
+    the building and no record moved.
+    """
+    res = await client.post("/sales", json={
+        "receipt": "r-noshop",
+        "lines": [{"sku": "ALN-ABAYA-01", "quantity": 1}],
+    })
+    assert res.status_code == 422
+    assert "which shop" in res.json()["detail"]
+
+
+async def test_an_online_order_needs_no_shop(client, session, shop):
+    """The one caller with nothing to say. A website order came off the website's
+    stock by definition, so asking it to name a shelf would be asking a question
+    that has only one answer."""
+    out = (await client.post("/sales", json={
+        "receipt": "r-web",
+        "source": "shopify",
+        "channel": "online",
+        "lines": [{"sku": "ALN-ABAYA-01", "quantity": 2}],
+    })).json()
+
+    assert out["accepted"]
+    levels = list(await session.scalars(
+        select(StockLevel)
+        .where(StockLevel.sku == "ALN-ABAYA-01")
+        .where(StockLevel.location_code == "online")
+    ))
+    assert [r.on_hand for r in levels] == [8]
