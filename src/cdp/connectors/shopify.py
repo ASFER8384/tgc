@@ -98,6 +98,29 @@ def _identifiers(payload: dict, *, is_customer_payload: bool) -> dict[str, str |
     }
 
 
+def _brand_per_line(payload: dict) -> list[dict] | None:
+    """The vendor's brand written onto each line, beside the order-level split.
+
+    Both, because they answer different questions and only one of them survives
+    a mixed basket. The split says how much of this order belongs to Rawash; the
+    line says *this lipstick* is Rawash — which is what anything reading a single
+    line needs, and what the counter's own sales have carried all along.
+
+    Without it the two channels disagreed about how much they knew: an in-house
+    line named its brand and a Shopify line did not, so the same question had a
+    different answer depending on where the sale happened.
+    """
+    lines = payload.get("line_items")
+    if not isinstance(lines, list):
+        return None
+    mapping = _brand_map()
+    fallback = (get_settings().default_brand or "unassigned").strip().lower()
+    return [
+        {**line, "brand": mapping.get((line.get("vendor") or "").strip().lower(), fallback)}
+        for line in lines
+    ]
+
+
 def _brand_split(payload: dict) -> dict[str, Decimal]:
     mapping = _brand_map()
     # What an unrecognised vendor becomes. On a multi brand store "unassigned"
@@ -153,8 +176,15 @@ def to_canonical(topic: str, payload: dict) -> CanonicalEvent | None:
         "display_name": _display_name(payload),
         "language": (payload.get("customer_locale") or "").split("-")[0] or None,
         # order_id is promoted out of the source payload so a refund can name the
-        # order it reverses without every consumer knowing Shopify's field names.
-        "payload": {**payload, "order_id": str(native_id)},
+        # order it reverses without every consumer knowing Shopify's field names,
+        # and each line is annotated with its brand so a Shopify line and a
+        # counter line carry the same facts.
+        "payload": {
+            **payload,
+            "order_id": str(native_id),
+            **({"line_items": _brand_per_line(payload)}
+               if _brand_per_line(payload) is not None else {}),
+        },
     }
 
     if topic in {"orders/paid", "orders/create"}:

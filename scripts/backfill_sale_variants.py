@@ -44,9 +44,19 @@ from cdp.models import Event  # noqa: E402
 from sca.db import get_sessionmaker  # noqa: E402
 from sca.models import ShopifyVariant  # noqa: E402
 
-# Sources whose lines come from Shopify and already name a variant. Left alone:
-# the storefront recorded what was actually bought and a guess must never
-# overwrite an observation.
+# Sources whose lines come from Shopify. A line of theirs that names a size is
+# left alone — the storefront recorded what was actually bought, and a guess must
+# never overwrite an observation.
+#
+# A line of theirs that names none is a different case, and the distinction took
+# a lookup to establish rather than an assumption: their variant ids no longer
+# resolve against the mirrored catalogue, because those products were deleted and
+# rebuilt in the store. So there is no size to preserve and none to recover, and
+# filling one in is not overwriting Shopify's answer — Shopify gave none.
+#
+# Lines with no SKU stay untouched whatever their source. They belong to no item
+# here, and a size against an item this platform does not stock is a label on
+# nothing.
 VENDOR_SOURCED = {"shopify", "shopify_pos"}
 
 
@@ -99,13 +109,21 @@ async def main(apply: bool) -> None:
             print(f"  falling back to the storefront's stock mix for: {', '.join(missing)}")
         print()
 
-        stamped, lines_done = 0, 0
+        # The catalogue's brand per SKU. Shopify lines carry a vendor and no
+        # per-line brand, so the same order was labelled at the order level and
+        # blank on every line inside it. Filled from the SKU rather than the
+        # vendor: the catalogue is what the rest of the platform reads, and two
+        # routes to one label is how they drift.
+        brand_by_sku = {}
+        from sca.models import Item as _Item
+        for row in await session.scalars(select(_Item)):
+            brand_by_sku[row.sku] = row.brand
+
+        stamped, lines_done, brands_done = 0, 0, 0
         no_evidence: set[str] = set()
         assigned: dict[str, Counter[str]] = {}
 
         for event in rows:
-            if event.source in VENDOR_SOURCED:
-                continue
             payload = dict(event.payload or {})
             items = payload.get("line_items")
             if not isinstance(items, list):
@@ -115,7 +133,13 @@ async def main(apply: bool) -> None:
             for index, line in enumerate(items):
                 line = dict(line)
                 sku = (line.get("sku") or "").strip()
-                if sku and not (line.get("variant_title") or "").strip():
+                # The brand, wherever it is missing and the SKU is known. Not a
+                # guess: the catalogue is the record of which brand a SKU is.
+                if sku and sku in brand_by_sku and not line.get("brand"):
+                    line["brand"] = brand_by_sku[sku]
+                    brands_done += 1
+                    touched = True
+                if sku and sku in brand_by_sku and not (line.get("variant_title") or "").strip():
                     weights = sold.get(sku) or shelf.get(sku)
                     if weights:
                         size = pick(dict(weights), f"{event.id}:{sku}:{index}")
@@ -135,7 +159,8 @@ async def main(apply: bool) -> None:
                 stamped += 1
 
         print(f"{len(rows)} paid order(s)")
-        print(f"  {stamped} order(s) to stamp, {lines_done} line(s) given a size")
+        print(f"  {stamped} order(s) to stamp, {lines_done} line(s) given a size, "
+              f"{brands_done} line(s) given a brand")
         if no_evidence:
             print(f"  no size evidence for: {', '.join(sorted(no_evidence))} — left alone")
         print("\nwhat would be assigned:")
