@@ -6,7 +6,20 @@ from pydantic import BaseModel, Field
 # Sources and event names are a closed vocabulary. Connectors translate into it;
 # nothing downstream ever branches on a source-specific string, which is what
 # keeps adding the seventh connector as cheap as the second.
-SOURCES = ("shopify", "shopify_pos", "whatsapp", "email", "activation", "ads", "support")
+SOURCES = (
+    "shopify",
+    "shopify_pos",
+    # The shop's own till, as against Shopify's. Distinct from shopify_pos
+    # because they are different systems with different gaps: one carries a
+    # customer whenever the storefront had one, the other carries whoever the
+    # assistant managed to ask.
+    "pos",
+    "whatsapp",
+    "email",
+    "activation",
+    "ads",
+    "support",
+)
 
 PURCHASE_EVENTS = ("order_paid",)
 EVENT_NAMES = (
