@@ -1518,6 +1518,13 @@
   }
   $("fConsent").addEventListener("change", refreshConsentScope);
   $("fBrand").addEventListener("change", refreshConsentScope);
+  // The shops report per item, so picking a different one changes what each of
+  // them holds and which of them can sell it at all. Without this the counts
+  // stayed on whichever item was selected when the list was last rebuilt —
+  // showing the abaya's two in Riyadh beside a silk that has thirty, which is
+  // worse than showing nothing: it is a number, and it is about a different
+  // product.
+  $("fSku").addEventListener("change", drawShopPicker);
 
   /* ---------- submit ---------- */
   function stamp() {
@@ -1655,7 +1662,11 @@
       // Closed on success only. A failure leaves the dialog up with everything
       // still typed in it, so the fix is one edit rather than a re-entry.
       $("captureDialog").close();
-      await Promise.all([loadCustomers(), loadSegments(), loadProof()]);
+      // The shelves too. A sale that just took the last one off Riyadh has to
+      // leave that shop unselectable for the next basket — otherwise the form
+      // keeps offering stock it has itself just sold, and the first person to
+      // notice is whoever goes looking for it on the rail.
+      await Promise.all([loadCustomers(), loadSegments(), loadProof(), loadItems()]);
       if (state.selected) openProfile(state.selected);
     } catch (err) {
       show("Could not record it: " + err.message, false);
