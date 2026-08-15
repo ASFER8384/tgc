@@ -572,3 +572,63 @@ async def test_an_online_order_needs_no_shop(client, session, shop):
         .where(StockLevel.location_code == "online")
     ))
     assert [r.on_hand for r in levels] == [8]
+
+
+async def test_a_sale_moves_the_size_it_names(client, session, shop):
+    """A shelf counted by size has to be sold by size.
+
+    Taking the units off the shelf and leaving its sizes alone would put the
+    breakdown out of step with the total on the very first basket, which is the
+    disagreement the whole arrangement exists to prevent.
+    """
+    from sca.models import StockAtLocation, StockAtVariant
+
+    session.add_all([
+        StockAtLocation(sku="ALN-ABAYA-01", location_code="riyadh", on_hand=5),
+        StockAtVariant(sku="ALN-ABAYA-01", location_code="riyadh", variant="52", on_hand=2),
+        StockAtVariant(sku="ALN-ABAYA-01", location_code="riyadh", variant="54", on_hand=3),
+    ])
+    await session.commit()
+
+    out = (await client.post("/sales", json={
+        "receipt": "r-size", "location": "riyadh",
+        "lines": [{"sku": "ALN-ABAYA-01", "quantity": 2, "variant": "54"}],
+    })).json()
+    assert out["accepted"]
+
+    sizes = {
+        row.variant: row.on_hand
+        for row in await session.scalars(
+            select(StockAtVariant).where(StockAtVariant.location_code == "riyadh")
+        )
+    }
+    assert sizes == {"52": 2, "54": 1}
+    shelf = await session.get(StockAtLocation, ("ALN-ABAYA-01", "riyadh"))
+    await session.refresh(shelf)
+    # Three left on the rail, and the sizes still add up to it.
+    assert shelf.on_hand == 3 == sum(sizes.values())
+
+
+async def test_a_sale_with_no_size_says_the_breakdown_stopped_adding_up(
+    client, session, shop
+):
+    """Nothing here knows which size left, and picking one would invent the fact
+    somebody is about to go and check. So the shelf moves, the sizes do not, and
+    the discrepancy is reported rather than quietly corrected."""
+    from sca.models import StockAtLocation, StockAtVariant
+
+    session.add_all([
+        StockAtLocation(sku="ALN-ABAYA-01", location_code="riyadh", on_hand=5),
+        StockAtVariant(sku="ALN-ABAYA-01", location_code="riyadh", variant="52", on_hand=5),
+    ])
+    await session.commit()
+
+    out = (await client.post("/sales", json={
+        "receipt": "r-nosize", "location": "riyadh",
+        "lines": [{"sku": "ALN-ABAYA-01", "quantity": 1}],
+    })).json()
+
+    assert any("no longer adds up" in note for note in out["notes"])
+    shelf = await session.get(StockAtLocation, ("ALN-ABAYA-01", "riyadh"))
+    await session.refresh(shelf)
+    assert shelf.on_hand == 4

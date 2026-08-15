@@ -315,6 +315,10 @@ async def record_sale(body: SaleIn, session: SessionDep, actor: ActorDep) -> Sal
         movements = await sell(
             session, {k: v.quantity for k, v in merged.items()},
             occurred=occurred, location=location,
+            # Which size left the rail, where the till knew. A shelf counted by
+            # size has to move by size, or its breakdown stops adding up to it on
+            # the first sale.
+            variants={k: v.variant for k, v in merged.items()},
         )
         stock_out = [m.as_dict() for m in movements]
         notes = [m.shortfall for m in movements if m.shortfall]

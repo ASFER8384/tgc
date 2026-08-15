@@ -54,8 +54,13 @@ async def sell(
     *,
     occurred: datetime,
     location: str = DEFAULT_LOCATION,
+    variants: dict[str, str | None] | None = None,
 ) -> list[Movement]:
     """Take sold units off one shelf, and keep the group's total in step.
+
+    ``variants`` names the size sold, per SKU, where the sale knew one. It only
+    bites on a shelf that has been counted by size; everywhere else the shelf is
+    still one number and this is ignored.
 
     ``quantities`` is SKU to units, already merged: two lines of the same item in
     one basket must be added up before they arrive, or the arithmetic below reads
@@ -102,21 +107,72 @@ async def sell(
             session.add(shelf)
             await session.flush()
 
-        # The shelf first, and the total moves by what actually left it. If the
-        # shelf held less than the sale says, the group is short by what was
-        # really taken rather than by what was asked for — otherwise a bad count
-        # in one shop would quietly write down the stock in the other.
-        taken = min(quantity, shelf.on_hand) if shelf.on_hand > 0 else 0
-        shelf.on_hand = max(0, shelf.on_hand - quantity)
+        # Which size left, where the sale named one and the shelf is broken down.
+        # "mixed" is the sale form saying two sizes of one item were rung up
+        # together and it could only carry one slot — it names no size, so it is
+        # treated as none rather than as a size called "mixed".
+        wanted = (variants or {}).get(sku) or ""
+        wanted = wanted.strip()
+        if wanted == "mixed":
+            wanted = ""
+        rows = (
+            await session.scalars(
+                select(StockAtVariant).where(
+                    StockAtVariant.sku == sku, StockAtVariant.location_code == location
+                )
+            )
+        ).all()
+
+        shortfall = None
+        if wanted and rows:
+            # The size is the thing that actually moved, and the shelf is re-added
+            # from the sizes afterwards. Taking it off the shelf directly and
+            # leaving the sizes alone would put the breakdown out of step with the
+            # total on the very first sale, which is the disagreement this whole
+            # arrangement exists to prevent.
+            row = next((r for r in rows if r.variant == wanted), None)
+            if row is None:
+                # A size the rail has never been counted in. Recorded at zero and
+                # reported short, because the sale is evidence the shop holds it
+                # and the count is evidence it does not — and only a person can
+                # say which is wrong.
+                row = StockAtVariant(sku=sku, location_code=location, variant=wanted)
+                session.add(row)
+                await session.flush()
+                rows = [*rows, row]
+            taken = min(quantity, row.on_hand) if row.on_hand > 0 else 0
+            row.on_hand = max(0, row.on_hand - quantity)
+            shelf.on_hand = sum(max(0, r.on_hand) for r in rows)
+            if quantity > taken:
+                shortfall = (
+                    f"{sku} ({wanted}): sold {quantity} at {location} but only {taken} "
+                    "were counted in that size. Held at 0 — the count needs checking."
+                )
+        else:
+            # The shelf first, and the total moves by what actually left it. If
+            # the shelf held less than the sale says, the group is short by what
+            # was really taken rather than by what was asked for — otherwise a bad
+            # count in one shop would quietly write down the stock in the other.
+            taken = min(quantity, shelf.on_hand) if shelf.on_hand > 0 else 0
+            shelf.on_hand = max(0, shelf.on_hand - quantity)
+            if rows:
+                # The shelf moved and its sizes did not, so they no longer add up
+                # to it. Said out loud rather than quietly corrected: nothing here
+                # knows which size left, and picking one would be inventing the
+                # fact somebody is about to go and check.
+                shortfall = (
+                    f"{sku}: sold {quantity} at {location} without saying which size. "
+                    "The size breakdown for that shelf no longer adds up to its total."
+                )
 
         before = snapshot.on_hand
         after = before - (taken or quantity)
-        shortfall = None
         if quantity > taken:
-            shortfall = (
-                f"{sku}: sold {quantity} at {location} but only {taken} were on that "
-                "shelf. Held at 0 — the count needs checking."
-            )
+            if shortfall is None:
+                shortfall = (
+                    f"{sku}: sold {quantity} at {location} but only {taken} were on that "
+                    "shelf. Held at 0 — the count needs checking."
+                )
             after = before - taken
         if after < 0:
             # Held at zero rather than allowed to go negative. A negative on-hand

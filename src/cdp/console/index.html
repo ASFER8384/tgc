@@ -816,6 +816,15 @@
               <input id="fQty" type="number" min="1" step="1" value="1" />
             </div>
           </div>
+          <!-- Which size or shade. The history has this on every line and new
+               sales did not, so the size curve would have stopped the day the
+               backfill ran. It is also what moves the rail: a shelf counted by
+               size has to be sold by size, or its breakdown stops adding up to
+               its total on the first basket. -->
+          <div class="field" id="wrapVariant" hidden>
+            <label for="fVariant">Which size</label>
+            <select id="fVariant"></select>
+          </div>
           <!-- Which shop rang it up. A sale in Jeddah cannot take stock out of
                Riyadh, and until this was asked the sale came off whichever shelf
                the API defaulted to — so a counter sale quietly wrote down the
@@ -1408,6 +1417,7 @@
     // shop box on its form would be asking a question its stock does not answer.
     $("wrapShop").hidden = !(sale && state.source === "pos");
     if (!$("wrapShop").hidden) drawShopPicker();
+    drawSizePicker();
     $("wrapMoveStock").hidden = !sale;
     $("wrapProduct").hidden = sale ? true : !on.has("product");
     refreshConsentScope();
@@ -1448,13 +1458,53 @@
       const inv = await api("/inventory");
       state.shelves = (inv.locations || []).filter((l) => l.active && l.kind !== "online");
       state.stockAt = {};
+      state.sizesFor = {};
+      state.sizesAt = {};
       (inv.items || []).forEach((i) => {
         state.stockAt[i.sku] = {};
-        (i.locations || []).forEach((l) => { state.stockAt[i.sku][l.code] = l.on_hand; });
+        state.sizesAt[i.sku] = {};
+        (i.locations || []).forEach((l) => {
+          state.stockAt[i.sku][l.code] = l.on_hand;
+          state.sizesAt[i.sku][l.code] = l.variants || {};
+        });
+        // The storefront's own sizes where it sells the item, the item's own
+        // list where it does not. Same order of authority as the stock table,
+        // so a size offered at the till is a size a rail can be counted in.
+        const shopify = (i.variants || [])
+          .map((v) => v.title || (v.options || []).map((o) => o.value).join(" / "))
+          .filter(Boolean);
+        state.sizesFor[i.sku] = shopify.length ? [...new Set(shopify)] : (i.sizes || []);
       });
-    } catch { state.shelves = []; state.stockAt = {}; }
+    } catch {
+      state.shelves = []; state.stockAt = {}; state.sizesFor = {}; state.sizesAt = {};
+    }
     drawItemPicker();
     drawShopPicker();
+    drawSizePicker();
+  }
+
+  // The sizes this item is sold in, each saying what the chosen shop holds of it.
+  // Hidden entirely for an item with no sizes — a bolt of silk has none, and an
+  // empty dropdown is a question nobody can answer.
+  function drawSizePicker() {
+    const select = $("fVariant");
+    if (!select) return;
+    const sku = $("fSku") ? $("fSku").value : "";
+    const sizes = (state.sizesFor || {})[sku] || [];
+    const shop = $("fShop") ? $("fShop").value : "";
+    const held = ((state.sizesAt || {})[sku] || {})[shop] || {};
+    $("wrapVariant").hidden = !sizes.length || $("wrapItem").hidden;
+    if (!sizes.length) { select.innerHTML = ""; return; }
+    const wanted = select.value;
+    select.innerHTML = sizes.map((s) => {
+      const n = held[s];
+      // Never counted in that size is not none of it. Offered either way — the
+      // customer is holding the garment, and a till that refuses the sale
+      // because the paperwork is behind is a till nobody uses.
+      const note = n === undefined ? "" : ` — ${n} left`;
+      return `<option value="${s}">${s}${note}</option>`;
+    }).join("");
+    if (wanted && sizes.includes(wanted)) select.value = wanted;
   }
 
   // The shops, each saying what it holds of the item currently picked. A shelf
@@ -1536,7 +1586,9 @@
   // showing the abaya's two in Riyadh beside a silk that has thirty, which is
   // worse than showing nothing: it is a number, and it is about a different
   // product.
-  $("fSku").addEventListener("change", drawShopPicker);
+  $("fSku").addEventListener("change", () => { drawShopPicker(); drawSizePicker(); });
+  // The per-size figures are a fact about the chosen shop, so they follow it.
+  $("fShop").addEventListener("change", drawSizePicker);
 
   /* ---------- submit ---------- */
   function stamp() {
@@ -1621,6 +1673,10 @@
             // The form asks for the basket total; the line wants a unit price.
             lines: [{
               sku: $("fSku").value,
+              // What she actually bought. Null rather than "" where the item has
+              // no sizes, so a bolt of silk is not recorded as having been sold
+              // in a size called nothing.
+              variant: $("wrapVariant").hidden ? null : ($("fVariant").value || null),
               quantity,
               unit_price: Number.isFinite(total) && total > 0
                 ? Number((total / quantity).toFixed(2)) : null,
