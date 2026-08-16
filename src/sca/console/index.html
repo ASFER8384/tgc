@@ -116,7 +116,13 @@
                       color: var(--ink-soft); cursor: pointer; }
   .chanpills button[aria-pressed="true"] { background: var(--accent);
                                            border-color: var(--accent); color: var(--accent-ink); }
+  /* A tick, not colour alone. Two filled pills side by side read as "one of
+     these is selected" to anybody who has met a tab bar, and the difference
+     between the two states was carrying the whole meaning. */
+  .chanpills button::before { content: "○"; margin-right: 0.3rem; opacity: 0.6; }
+  .chanpills button[aria-pressed="true"]::before { content: "✓"; opacity: 1; }
   .chanpills button:disabled { opacity: 0.45; cursor: default; }
+  .chanpills .hint { font-size: 0.74rem; color: var(--muted); align-self: center; }
   /* Pinned under the thread rather than inside it. The scroll belongs to the
      conversation; the box you write in should not go looking for itself. */
   .composer { border-top: 1px solid var(--rule); padding: 0.7rem 1.2rem 0.9rem;
@@ -3496,18 +3502,24 @@
     const on = new Set(used);
     $("threadChannels").innerHTML = used.map((c) =>
       `<button type="button" data-chan="${c}" aria-pressed="true">${
-        LABEL[c] || c} (${counts[c]})</button>`).join("");
+        LABEL[c] || c} (${counts[c]})</button>`).join("")
+      // Said in words as well as in the ticks, because the state these open in
+      // is the one nobody clicks and therefore the one nobody learns from.
+      + `<span class="hint">both shown — untick one to hide it</span>`;
 
     $("threadChannels").querySelectorAll("[data-chan]").forEach((b) =>
       b.addEventListener("click", () => {
         const c = b.dataset.chan;
         if (on.has(c)) {
+          // The last one on stays on: unticking it would empty the drawer, and
+          // an empty drawer is never what somebody clicking a filter meant.
           if (on.size === 1) return;
           on.delete(c);
         } else {
           on.add(c);
         }
-        b.setAttribute("aria-pressed", String(on.has(c)));
+        $("threadChannels").querySelectorAll("[data-chan]").forEach((o) =>
+          o.setAttribute("aria-pressed", String(on.has(o.dataset.chan))));
         drawTurns(thread.entries.filter((e) => on.has(e.channel || "email")));
       }));
   }
