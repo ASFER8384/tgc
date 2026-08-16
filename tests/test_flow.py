@@ -400,6 +400,79 @@ async def test_a_received_order_cannot_be_revised(client, supplier_payload):
     assert blocked.status_code == 409
 
 
+async def test_a_whatsapp_supplier_is_reached_on_whatsapp(
+    client, supplier_payload, monkeypatch
+):
+    """The supplier's own channel, not the one the system happens to have wired.
+
+    The template carries the order's shape and not the order — Meta caps the body
+    and a line table does not fit — but the letter is still filed in full, so the
+    record does not part company with what was sent at the moment it matters.
+    """
+    from sca.whatsapp.base import ConsoleSender
+
+    phone = ConsoleSender()
+    monkeypatch.setattr("sca.orders.service.get_sender", lambda settings: phone)
+
+    supplier = await _setup(client, supplier_payload)
+    await client.post("/suppliers", json=supplier_payload | {
+        "working_days": "1,2,3,4,5,6,7", "work_start_hour": 0, "work_end_hour": 24,
+        "channel": "whatsapp", "phone": "+91 82209 58384", "country": "IN",
+    })
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 260, "on_order": 0, "weekly_forecast": "90",
+    })
+    created = (await client.post("/planning/create-orders")).json()
+    number = created["orders"][0]["number"]
+    await client.post(f"/purchase-orders/{number}/approve", json={"approver": "lead"})
+    sent = await client.post(f"/purchase-orders/{number}/send")
+    assert sent.status_code == 200
+
+    assert len(phone.sent) == 1
+    message = phone.sent[0]
+    assert message.to == "918220958384", "typed with spaces, sent as E.164"
+    assert message.template == "purchase_order"
+    assert message.variables[0] == number
+    assert message.variables[1] == "1", "one line"
+    assert message.variables[3] == supplier["currency"]
+
+    # And the letter itself is in the record even though the wire carried a
+    # template, because that is what goes out when they reply.
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    ours = [e for e in thread["entries"] if e["side"] == "ours"]
+    assert len(ours) == 1
+    assert "ALN-SILK-NVY" in ours[0]["body"], "the full order, not the template"
+    assert ours[0]["delivered"] is True
+
+
+async def test_a_whatsapp_supplier_with_no_number_is_refused_not_guessed(
+    client, supplier_payload, monkeypatch
+):
+    """A send that cannot be addressed must stop the order, exactly as a bounced
+    email does. An order marked sent that never left is the one failure this
+    system exists to prevent."""
+    from sca.whatsapp.base import ConsoleSender
+
+    monkeypatch.setattr("sca.orders.service.get_sender", lambda settings: ConsoleSender())
+    await _setup(client, supplier_payload)
+    await client.post("/suppliers", json=supplier_payload | {
+        "working_days": "1,2,3,4,5,6,7", "work_start_hour": 0, "work_end_hour": 24,
+        "channel": "whatsapp", "phone": None,
+    })
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 260, "on_order": 0, "weekly_forecast": "90",
+    })
+    created = (await client.post("/planning/create-orders")).json()
+    number = created["orders"][0]["number"]
+    await client.post(f"/purchase-orders/{number}/approve", json={"approver": "lead"})
+
+    refused = await client.post(f"/purchase-orders/{number}/send")
+    assert refused.status_code == 409
+    assert "no phone number" in refused.json()["detail"]
+    detail = (await client.get(f"/purchase-orders/{number}")).json()
+    assert detail["status"] == "approved", "still waiting to be sent"
+
+
 async def test_the_thread_holds_both_halves_of_the_exchange(
     client, supplier_payload, monkeypatch
 ):

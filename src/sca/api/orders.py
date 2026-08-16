@@ -663,6 +663,35 @@ async def receive_order(
     return detail | {"issues_raised": [i.detail for i in issues]}
 
 
+@router.get("/purchase-orders/{number}/whatsapp")
+async def preview_whatsapp(
+    number: str, session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep
+) -> dict:
+    """What would go to the supplier's handset, before it goes."""
+    order = await _by_number(session, number)
+    try:
+        return await OrderService(
+            session, actor=actor, settings=settings
+        ).whatsapp_draft(order)
+    except OrderError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+@router.post("/purchase-orders/{number}/whatsapp")
+async def send_whatsapp(
+    number: str, session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep
+) -> dict:
+    order = await _by_number(session, number)
+    try:
+        delivery = await OrderService(
+            session, actor=actor, settings=settings
+        ).send_whatsapp(order)
+    except OrderError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    detail = await _order_detail(session, order)
+    return detail | {"delivery": delivery}
+
+
 @router.get("/purchase-orders/{number}/receipt-note")
 async def preview_receipt_note(
     number: str, session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep

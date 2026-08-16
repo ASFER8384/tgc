@@ -21,6 +21,8 @@ from sca.models import (
 )
 from sca.orders.compose import compose_order_email, compose_receipt_email
 from sca.scheduling.windows import WorkingHours, is_open, next_open, working_hours_between
+from sca.whatsapp import TemplateMessage, WhatsAppError, get_sender
+from sca.whatsapp import resolve_recipient as wa_recipient
 
 
 class OrderError(ValueError):
@@ -408,6 +410,15 @@ class OrderService:
         heading = subject or composed["subject"]
         kind = "revision" if order.revision else "order"
 
+        # The supplier's own channel, not the one this system happens to have
+        # wired. A mill that answers WhatsApp within the hour and email the
+        # following week should be reached the fast way, and which way that is
+        # is a fact about them rather than about us.
+        if supplier.channel == "whatsapp":
+            return await self._deliver_whatsapp(
+                order, supplier, lines, now, kind=kind, letter=text, heading=heading,
+            )
+
         # Composed and filed even with no mail configured. The order still moves
         # to sent, and the way it reaches the supplier then is a buyer copying
         # this text out — so the record of what they were shown is exactly as
@@ -446,6 +457,150 @@ class OrderService:
             provider=mailer.name, failure=result.get("reason"),
         )
         return result
+
+    async def whatsapp_draft(self, order: PurchaseOrder) -> dict:
+        """What the WhatsApp message would say, before it is sent.
+
+        A GET's worth of work, kept beside the send so the two cannot describe
+        different messages: the variables are built once, here, and the sender
+        fills the same tuple into the template.
+        """
+        supplier = await self.session.get(Supplier, order.supplier_id)
+        if supplier is None:
+            raise OrderError(f"{order.number} has no supplier on file")
+        lines = list(
+            await self.session.scalars(
+                select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+            )
+        )
+        return {
+            "to": supplier.phone,
+            "supplier": supplier.name,
+            "template": self.settings.wa_template_order,
+            "language": self.settings.wa_template_language,
+            "variables": list(self._whatsapp_variables(order, lines)),
+            "configured": self.settings.wa_provider != "none",
+            # The letter that will be filed, and that goes out in full the moment
+            # they reply. Shown so nobody presses send believing the template is
+            # everything the supplier will ever get.
+            "letter": compose_order_email(
+                order, supplier, lines,
+                ack_deadline_hours=self.settings.ack_reminder_hours,
+                now=datetime.now(UTC),
+            )["body"],
+        }
+
+    async def send_whatsapp(
+        self, order: PurchaseOrder, *, now: datetime | None = None
+    ) -> dict:
+        """Send this order on WhatsApp, whatever the supplier's default channel.
+
+        An order still sitting in approval moves to sent, because it has now been
+        sent — by this route rather than the other one. An order already gone is
+        nudged instead: the message goes again and the status stays where it is,
+        since "sent" twice is not a different state.
+        """
+        now = now or datetime.now(UTC)
+        supplier = await self.session.get(Supplier, order.supplier_id)
+        if supplier is None:
+            raise OrderError(f"{order.number} has no supplier on file")
+        if order.status not in ("approved", "sent", "acknowledged", "in_transit"):
+            raise OrderError(f"cannot message {order.number} while it is {order.status}")
+
+        lines = list(
+            await self.session.scalars(
+                select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+            )
+        )
+        composed = compose_order_email(
+            order, supplier, lines,
+            ack_deadline_hours=self.settings.ack_reminder_hours,
+            now=now,
+        )
+        delivery = await self._deliver_whatsapp(
+            order, supplier, lines, now,
+            kind="revision" if order.revision else "order",
+            letter=composed["body"], heading=composed["subject"],
+        )
+
+        if order.status == "approved":
+            self._transition(order, "sent")
+            order.sent_at = now
+            order.scheduled_send_at = None
+            self._audit("order.send", order.id, {"channel": "whatsapp", "delivery": delivery})
+        else:
+            self._audit("order.whatsapp", order.id, {"delivery": delivery})
+        await self.session.flush()
+        return delivery
+
+    def _whatsapp_variables(
+        self, order: PurchaseOrder, lines: list[PurchaseOrderLine]
+    ) -> tuple[str, ...]:
+        """The five slots the approved template has, in its order.
+
+        Positional because the template is: Meta matches {{1}} to the first
+        parameter and nothing else, so this tuple and the template's wording are
+        one thing that has to change together.
+        """
+        wanted = order.confirmed_delivery_date or order.expected_delivery_date
+        return (
+            f"{order.number}{f' Rev {order.revision}' if order.revision else ''}",
+            str(len(lines)),
+            f"{Decimal(str(order.total_value or 0)):,.2f}",
+            order.currency,
+            wanted.strftime("%d %B %Y") if wanted else "not stated",
+        )
+
+    async def _deliver_whatsapp(
+        self, order: PurchaseOrder, supplier: Supplier,
+        lines: list[PurchaseOrderLine], now: datetime,
+        *, kind: str, letter: str, heading: str,
+    ) -> dict:
+        """Open the conversation on WhatsApp, with the approved template.
+
+        The template carries the order's shape — number, line count, value, the
+        date asked for — and not the order itself. Meta caps a template body at
+        about a thousand characters with fixed slots, so a line table with a size
+        curve under each line does not fit, and a template that tried would not
+        be approved.
+
+        The letter is filed anyway, and in full. What the supplier was told and
+        what the record shows would otherwise part company at exactly the moment
+        the record matters — and the full text is what goes out the moment they
+        reply and the free-text window opens.
+        """
+        sender = get_sender(self.settings)
+        delivery: dict
+        if sender.name == "none":
+            delivery = {
+                "provider": "none", "delivered": False,
+                "reason": "whatsapp is not configured",
+            }
+        else:
+            variables = self._whatsapp_variables(order, lines)
+            try:
+                recipient = wa_recipient(supplier.phone, self.settings)
+                delivery = await sender.send_template(
+                    TemplateMessage(
+                        to=recipient,
+                        template=self.settings.wa_template_order,
+                        language=self.settings.wa_template_language,
+                        variables=variables,
+                    )
+                )
+            except WhatsAppError as exc:
+                # Same contract as mail: the order does not move if the message
+                # did not go, so a supplier is never recorded as told when they
+                # were not.
+                raise OrderError(f"{order.number} was not sent: {exc}") from exc
+
+        self._file_sent(
+            order, supplier, now, subject=heading, body=letter, kind=kind,
+            to_address=delivery.get("recipient") or supplier.phone,
+            delivered=bool(delivery.get("delivered")),
+            provider=f"whatsapp:{sender.name}", failure=delivery.get("reason"),
+        )
+        return delivery
 
     def _file_sent(
         self, order: PurchaseOrder, supplier: Supplier | None, now: datetime, *,

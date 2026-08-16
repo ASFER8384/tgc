@@ -83,6 +83,51 @@ class Settings(BaseSettings):
     mail_redirect_to: str | None = None
     mail_allowed_domains: tuple[str, ...] = ()
 
+    # Outbound WhatsApp, on the same terms as mail: off unless somebody turns it
+    # on, and with the same two safety rails, because it can reach a stranger's
+    # phone rather than a mailbox they chose to give us.
+    #
+    # "cloud" is Meta's Cloud API. There is no SMTP equivalent here — one
+    # provider, one shape — so the switch exists to keep the off state explicit
+    # rather than to choose between vendors.
+    wa_provider: str = "none"
+    wa_api_version: str = "v21.0"
+    # These three read the Meta_* names as well as the SCA_WA_* ones, because
+    # the credentials were already in the environment under Meta's own naming
+    # and a second copy of a token is a second thing to rotate — and the one
+    # that gets forgotten.
+    #
+    # A system user token, not a developer one: developer tokens expire in 24
+    # hours and would take supplier messaging down without warning.
+    wa_access_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SCA_WA_ACCESS_TOKEN", "Meta_Access_Token"),
+    )
+    # The sending number's id, which is not the number. Meta returns both and
+    # they are easy to confuse — a WABA id, a phone number id and a phone number
+    # are three different strings, and two of them look alike.
+    wa_phone_number_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SCA_WA_PHONE_NUMBER_ID", "Meta_Phone_Id"),
+    )
+    # The account that owns the number. Needed to read and submit templates.
+    wa_business_account_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SCA_WA_BUSINESS_ACCOUNT_ID", "Meta_Waba_Id"),
+    )
+    # The approved template that opens a conversation. A business-initiated
+    # WhatsApp message must use one, whatever it says: there is no exception for
+    # operational mail, so an order cannot be sent as free text to a supplier who
+    # has not written first.
+    wa_template_order: str = "purchase_order"
+    wa_template_language: str = "en"
+    # The same two rails as mail, for the same reason. A redirect sends every
+    # message to one handset whatever the supplier record says; an allowlist
+    # refuses any number outside it. One of these should always be set outside
+    # production, because the cost of a mistake here is a message to a stranger.
+    wa_redirect_to: str | None = None
+    wa_allowed_numbers: tuple[str, ...] = ()
+
     # Inbound. The other half of the loop: replies are read out of a real mailbox
     # rather than pasted into the console. IMAP because it works against whatever
     # mailbox the business already has, with no domain, no public URL and no

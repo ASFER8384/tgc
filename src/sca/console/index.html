@@ -92,7 +92,7 @@
   #supplierDialog, #itemDialog, #cancelDialog { max-width: min(560px, 96vw); }
   /* A letter to read, so it gets the message dialogs' width rather than a
      confirm box's — but narrower than the order, which carries a line table. */
-  #receiptDialog { max-width: min(760px, 96vw); }
+  #receiptDialog, #waDialog { max-width: min(760px, 96vw); }
 
   /* The thread is a side sheet rather than a centred box: it is read against
      the order list it was opened from, and a modal in the middle of the screen
@@ -1034,6 +1034,32 @@
       </div>
     </div>
   </form>
+</dialog>
+
+<!-- The WhatsApp message, read before it is sent. Shows both halves: the
+     template that actually goes to the handset, and the full letter that is
+     filed and goes out the moment they reply. Somebody pressing send with only
+     the template in front of them would think the supplier had been sent the
+     order, when they have been sent its shape. -->
+<dialog id="waDialog">
+  <div class="panel-head">
+    <h2 id="waTitle">Send on WhatsApp</h2>
+    <span class="hint" id="waTo"></span>
+  </div>
+  <div class="panel-body">
+    <div class="readout" id="waWhy" hidden></div>
+    <label class="field">What arrives on their phone
+      <textarea id="waTemplate" style="min-height:130px" readonly></textarea></label>
+    <details class="turn-quoted">
+      <summary>the full order, filed and sent when they reply</summary>
+      <pre class="turn-body" id="waLetter"></pre>
+    </details>
+    <div class="bar">
+      <button type="button" id="waSend">Send it</button>
+      <button type="button" class="ghost" id="waCancel">Not now</button>
+    </div>
+    <div class="readout" id="waOut" hidden></div>
+  </div>
 </dialog>
 
 <!-- The receipt note, read before it is sent. A browser confirm box asked "are
@@ -2534,6 +2560,14 @@
         buttons.push(
           `<button class="ghost small" data-receipt="${o.number}">Confirm receipt</button>`);
       }
+      // Offered wherever a message could still be useful: to send an approved
+      // order, or to nudge one already gone. Not on a draft — there is nothing
+      // agreed to tell them about — and not on a cancelled or received order,
+      // where the conversation is over.
+      if (["approved", "sent", "acknowledged", "in_transit"].includes(o.status)) {
+        buttons.push(
+          `<button class="ghost small" data-wa="${o.number}">WhatsApp</button>`);
+      }
       // The whole exchange, both directions. First among the quiet buttons
       // because "what has actually been said to this supplier" is the question
       // asked most often of a row, and it used to be answerable only by opening
@@ -2591,6 +2625,8 @@
     $("orders").querySelectorAll("[data-send]").forEach((b) =>
       b.addEventListener("click", () => busy(b, () => act(
         `/purchase-orders/${b.dataset.send}/send`))));
+    $("orders").querySelectorAll("[data-wa]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, () => openWhatsApp(b.dataset.wa))));
     $("orders").querySelectorAll("[data-thread]").forEach((b) =>
       b.addEventListener("click", () => busy(b, () => openThread(b.dataset.thread))));
     $("orders").querySelectorAll("[data-message]").forEach((b) =>
@@ -3031,6 +3067,65 @@
         `${number} was cancelled, but the page could not reload: ${err.message}`);
     }
   }));
+
+  // --------------------------------------------------------------- whatsapp
+  let messaging = null;
+
+  // The template's own wording, so the dialog shows what lands rather than a
+  // list of variables. It is a copy of the approved text and has to be changed
+  // with it — which is why the filled result is shown and not the raw slots: a
+  // buyer can see at a glance if the copy has drifted.
+  const WA_TEMPLATE_TEXT = (v) =>
+    `Purchase order ${v[0]}\n${v[1]} line(s) · ${v[2]} ${v[3]}\n` +
+    `Requested delivery ${v[4]}\n\n` +
+    `Please reply with your confirmation, the price you are invoicing, and a ` +
+    `firm ship date. Anything that changes one of those three is read as a ` +
+    `revision and comes back to a person here.`;
+
+  async function openWhatsApp(number) {
+    messaging = number;
+    $("waTitle").textContent = `Send ${number} on WhatsApp`;
+    $("waTo").textContent = "";
+    $("waWhy").hidden = true;
+    $("waOut").hidden = true;
+    $("waTemplate").value = "reading…";
+    $("waLetter").textContent = "";
+    $("waSend").disabled = true;
+    $("waDialog").showModal();
+    try {
+      const draft = await api(`/purchase-orders/${number}/whatsapp`);
+      $("waTo").textContent = draft.to
+        ? `to ${draft.supplier} · +${draft.to}`
+        : `${draft.supplier} has no phone number on file`;
+      $("waTemplate").value = WA_TEMPLATE_TEXT(draft.variables);
+      $("waLetter").textContent = draft.letter || "";
+      // Two different reasons this cannot send, and they need different
+      // answers: nobody to send to, or nothing wired to send with.
+      const stop = !draft.to
+        ? "Add a phone number to the supplier first."
+        : (!draft.configured
+          ? "WhatsApp is not switched on. Set SCA_WA_PROVIDER=cloud to send for real."
+          : "");
+      if (stop) { $("waWhy").textContent = stop; $("waWhy").hidden = false; }
+      $("waSend").disabled = Boolean(!draft.to);
+    } catch (err) {
+      $("waTemplate").value = "";
+      show($("waOut"), "Could not read it: " + err.message);
+    }
+  }
+
+  $("waSend").addEventListener("click", () => busy($("waSend"), async () => {
+    try {
+      const out = await api(`/purchase-orders/${messaging}/whatsapp`, { method: "POST" });
+      const d = out.delivery || {};
+      $("waDialog").close();
+      show($("createOut"), d.delivered
+        ? `${messaging} sent to +${d.recipient} on WhatsApp.`
+        : `Not sent: ${d.reason || "whatsapp is not configured"}`);
+      await refreshAll();
+    } catch (err) { show($("waOut"), "Failed: " + err.message); }
+  }));
+  $("waCancel").addEventListener("click", () => $("waDialog").close());
 
   // ------------------------------------------------------------ receipt note
   // Which order the open dialog is about. One dialog, one order.
