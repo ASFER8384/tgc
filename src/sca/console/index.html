@@ -102,8 +102,12 @@
      moves, which is the only part that is longer than the screen. */
   #threadDialog { margin: 0 0 0 auto; height: 100vh; max-height: 100vh;
                   max-width: min(620px, 96vw); border-radius: 0;
-                  border-width: 0 0 0 1px;
-                  display: flex; flex-direction: column; }
+                  border-width: 0 0 0 1px; }
+  /* [open], and it matters. A closed dialog is hidden by a browser rule of the
+     form `dialog:not([open]) { display: none }`, which a plain `#threadDialog
+     { display: flex }` outranks — so Close and Escape both stopped doing
+     anything visible, and the drawer sat there over the desk. */
+  #threadDialog[open] { display: flex; flex-direction: column; }
   #threadDialog .panel-head { flex-wrap: wrap; gap: 0.5rem; flex: 0 0 auto; }
   #threadChannels:not(:empty) { flex: 0 0 auto; padding: 0.6rem 1.2rem;
                                 border-bottom: 1px solid var(--rule);
