@@ -110,6 +110,9 @@
        text-transform: uppercase; color: var(--muted); font-weight: 500; }
   tbody tr:last-child td { border-bottom: none; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* The dates under a column heading: present, but never louder than the label. */
+  th .span { letter-spacing: 0.02em; text-transform: none; font-weight: 400;
+             color: var(--muted); font-size: 0.68rem; }
   tbody tr.short td { background: color-mix(in srgb, var(--high) 7%, transparent); }
   td .sub { display: block; font-size: 0.74rem; color: var(--muted); }
 
@@ -196,13 +199,13 @@
 
   <div class="panel" id="items">
     <div class="panel-head">
-      <h2>Every item, next week and next month</h2>
+      <h2>Every item, the weeks straight ahead</h2>
       <span class="hint" id="itemsHint"></span>
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
-        <th>Item</th><th>Next 8 weeks</th><th class="num">Next week</th>
-        <th class="num">Next 4 weeks</th><th class="num">Buyers</th>
+        <th>Item</th><th>Next 8 weeks</th><th class="num" id="colWeek">Week</th>
+        <th class="num" id="colMonth">4 weeks</th><th class="num">Buyers</th>
         <th class="num">Stock</th><th class="num">Cover</th>
         <th class="num">Order</th><th></th>
       </tr></thead>
@@ -387,22 +390,50 @@
     loadBuyers();
   }
 
+  // The dates the model's horizon actually covers. It starts at the week after
+  // the last *finished* one, which is the week in progress — so "next week" is
+  // this week, and "next month" is four weeks rolling from it, not a calendar
+  // month. Reading those two figures as September is the single easiest mistake
+  // to make on this page, so the columns carry their dates.
+  function horizon(items) {
+    const path = (items[0] || {}).weekly_path || [];
+    if (!path.length) return { week: "", month: "" };
+    const day = (iso, span) => {
+      const d = new Date(iso + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() + span);
+      return d.getUTCDate() + " " + MONTHS[d.getUTCMonth()];
+    };
+    const last = path[Math.min(3, path.length - 1)].week;
+    return {
+      week: day(path[0].week, 0) + "–" + day(path[0].week, 6),
+      month: day(path[0].week, 0) + " – " + day(last, 6),
+      weeks: Math.min(4, path.length),
+    };
+  }
+
   function drawItems(data) {
     const items = data.items || [];
     const week = items.reduce((n, i) => n + i.next_week, 0);
     const month = items.reduce((n, i) => n + i.next_month, 0);
     const short = items.filter((i) => i.suggested_order > 0);
+    const span = horizon(items);
+    if (span.week) {
+      $("colWeek").innerHTML = 'Week<br><span class="span">' + escapeHtml(span.week) + '</span>';
+      $("colMonth").innerHTML = span.weeks + ' weeks<br><span class="span">'
+        + escapeHtml(span.month) + '</span>';
+    }
 
     $("tiles").innerHTML = `
       <div class="tile">
-        <span class="label">Units next week</span>
+        <span class="label">Units, week of ${escapeHtml(span.week || "—")}</span>
         <span class="big">${num(week, 0)}</span>
         <span class="says">Across ${items.length} item(s), summed over every customer.</span>
       </div>
       <div class="tile">
-        <span class="label">Units next month</span>
+        <span class="label">Units, ${escapeHtml(span.month || "next 4 weeks")}</span>
         <span class="big">${num(month, 0)}</span>
-        <span class="says">The next four weeks. This is the figure to buy against.</span>
+        <span class="says">Four weeks rolling from today, not a calendar month —
+          buy against the order plan above.</span>
       </div>
       <div class="tile${short.length ? " bad" : ""}">
         <span class="label">Items short of cover</span>
@@ -416,13 +447,14 @@
         <span class="big" style="font-size:1.1rem;padding-top:0.35rem">${
           items.length ? escapeHtml(items[0].sku) : "—"}</span>
         <span class="says">${items.length
-          ? `${num(items[0].next_month, 0)} units next month, to about ${
+          ? `${num(items[0].next_month, 0)} units over those four weeks, to about ${
               num(items[0].buyers_next_month, 0)} customer(s).`
           : "Nothing forecast yet."}</span>
       </div>`;
 
     $("itemsHint").textContent = items.length
-      ? `${items.length} item(s) · ordered by what sells most next month` : "";
+      ? `${items.length} item(s) · ordered by what sells most over ${
+          span.month || "the horizon"}` : "";
 
     $("itemRows").innerHTML = items.length ? items.map((i) => `
       <tr class="${i.suggested_order > 0 ? "short" : ""}">
