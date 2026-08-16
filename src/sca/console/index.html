@@ -685,9 +685,10 @@
             <span class="hint" id="orderHint"></span>
           </div>
           <div class="table-wrap"><table class="orders">
-            <thead><tr><th>Order</th><th>Supplier</th><th>Status</th><th class="num">Value</th>
+            <thead><tr><th>Order</th><th>Supplier</th><th>Revised</th><th>Status</th>
+              <th class="num">Value</th>
               <th>Promised</th><th class="acts"></th></tr></thead>
-            <tbody id="orders"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
+            <tbody id="orders"><tr><td colspan="7" class="empty">loading</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -2548,10 +2549,16 @@
              and gave no way to find out what, so the next move was always to go
              looking somewhere else. It is in the conversation drawer now, in
              full, beside the letters the exception came out of. -->
-        <td><strong>${o.number}</strong>${o.revision
-            ? `<span style="color:var(--muted);font-size:0.76rem"> Rev ${o.revision}</span>` : ""}</td>
+        <td><strong>${o.number}</strong></td>
         <td>${o.supplier}<br><span style="color:var(--muted);font-size:0.78rem">${
             o.supplier_timezone || ""}</span></td>
+        <!-- Its own column. "Rev 2" was a suffix on the order number, where it
+             read as part of the name rather than as a count of how many times
+             this order has been redrawn — which is a fact about the supplier
+             relationship worth being able to scan down. -->
+        <td>${o.revision
+            ? `${o.revision} time${o.revision === 1 ? "" : "s"}`
+            : `<span style="color:var(--muted)">—</span>`}</td>
         <td><span class="tag st-${o.status}">${o.status.replace(/_/g, " ")}</span>${
             // An order waiting on a clock rather than on a person is the one
             // case where "nothing is happening" is the correct state, and a
@@ -2565,7 +2572,7 @@
         <td class="num">${money(o.total_value)} ${o.currency}</td>
         <td>${day(promised)}${o.confirmed_delivery_date ? "" : " (asked)"}</td>
         <td>${action}</td></tr>`;
-    }).join("") : `<tr><td colspan="6" class="empty">No orders yet</td></tr>`;
+    }).join("") : `<tr><td colspan="7" class="empty">No orders yet</td></tr>`;
 
     $("orders").querySelectorAll("[data-approve]").forEach((b) =>
       b.addEventListener("click", () => busy(b, () => act(
