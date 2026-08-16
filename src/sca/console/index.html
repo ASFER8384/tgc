@@ -3543,6 +3543,15 @@
   // A section of the page that is not a setting on the environment: the floors
   // per item, which live on the items themselves and are edited as a list.
   const PER_ITEM = "Per item";
+  // Off, now that a blank line inherits the forecast's own reorder and target
+  // rather than a flat catalogue default. Typing a week count here overrides a
+  // figure derived from that item's measured lead time, its demand spread and
+  // its supplier's minimum — nearly always with a worse one, and silently.
+  //
+  // Hidden rather than deleted, on the same terms as "When to buy": overrides
+  // already set still load, still validate and still win. What is gone is the
+  // screen that invites new ones.
+  const SHOW_PER_ITEM = false;
   // Which global setting each per item column overrides. Only these four have a
   // per item form; the approval threshold and the chase window are properties of
   // the business rather than of a line, and there is nothing to override.
@@ -3571,12 +3580,16 @@
     view = { ...view, groups: view.groups.filter((g) => !HIDDEN_GROUPS.has(g.name)) };
     settingsState.groups = view.groups;
     settingsState.env = view.env;
-    const known = settingsState.group === PER_ITEM
+    const known = (SHOW_PER_ITEM && settingsState.group === PER_ITEM)
       || view.groups.some((g) => g.name === settingsState.group);
     if (!settingsState.group || !known) {
-      // Per item first, because it is now the only place these four are set and
-      // landing on a different group would hide the page somebody came for.
-      settingsState.group = PER_ITEM;
+      // Per item first, when it is shown, because it is then the only place
+      // these four are set and landing elsewhere would hide the page somebody
+      // came for. With it hidden there is no such page, so open on the first
+      // group that is actually there.
+      settingsState.group = SHOW_PER_ITEM
+        ? PER_ITEM
+        : (view.groups[0] ? view.groups[0].name : "");
     }
     // How many of these somebody has actually taken a decision about. The rest
     // are still whatever the environment says, which is the honest default and
@@ -3597,12 +3610,14 @@
       // buying, and deciding it for a catalogue means seeing the catalogue: set
       // one line at a time behind a dialog, nobody can tell which items have a
       // floor and which are relying on a default.
-      + `<button type="button" data-group="${PER_ITEM}"
-           class="${settingsState.group === PER_ITEM ? "on" : ""}">${PER_ITEM}
-           <span>${(state.items || []).filter((i) => i.policy
-             && Object.values(i.policy).some((p) => p.own !== null)).length} of ${
-             (state.items || []).length} item(s) overridden</span>
-         </button>`;
+      + (SHOW_PER_ITEM
+        ? `<button type="button" data-group="${PER_ITEM}"
+             class="${settingsState.group === PER_ITEM ? "on" : ""}">${PER_ITEM}
+             <span>${(state.items || []).filter((i) => i.policy
+               && Object.values(i.policy).some((p) => p.own !== null)).length} of ${
+               (state.items || []).length} item(s) overridden</span>
+           </button>`
+        : "");
     $("setGroups").querySelectorAll("[data-group]").forEach((b) =>
       b.addEventListener("click", () => {
         settingsState.group = b.dataset.group;
@@ -3641,11 +3656,16 @@
       const overriding = (state.items || []).filter((i) =>
         i.policy && i.policy[ITEM_FIELD_FOR[f.key]]
         && i.policy[ITEM_FIELD_FOR[f.key]].own !== null).length;
+      // Still says how far the default reaches even with the per item screen
+      // hidden — an override already set still overrules this box, and a reader
+      // tuning it deserves to know. Only the link to go and add another goes.
       const reach = ITEM_FIELD_FOR[f.key]
         ? `<span>${overriding
             ? `${overriding} item(s) set their own instead`
-            : "every item follows this"} · <a href="/procure?view=settings"
-              data-goto-peritem="1">per item</a></span>`
+            : "every item follows this"}${SHOW_PER_ITEM
+              ? ` · <a href="/procure?view=settings"
+                  data-goto-peritem="1">per item</a>`
+              : ""}</span>`
         : "";
       const from = f.source === "set here"
         ? `<b>set here</b> by ${escapeHtml(f.updated_by || "someone")}
