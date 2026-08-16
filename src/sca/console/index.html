@@ -3277,8 +3277,21 @@
     $("threadWho").textContent = "";
     $("threadIssues").innerHTML = "";
     $("threadGap").hidden = true;
+    $("threadChannels").innerHTML = "";
+    $("threadComposer").hidden = true;
     $("threadTurns").innerHTML = `<div class="empty">Reading…</div>`;
-    $("threadDialog").showModal();
+    // showModal() on a dialog that is already open throws, and everything after
+    // it in this function then never runs. Which is what happened when a send
+    // reopened the drawer to show its own message: the thread stopped at
+    // "Reading…" and the message only appeared on a page refresh.
+    if (!$("threadDialog").open) $("threadDialog").showModal();
+    await readThread(number);
+  }
+
+  // Re-read without tearing the drawer down. Used after a send, where wiping the
+  // conversation to a placeholder and rebuilding it makes a reply look like a
+  // page reload rather than like a message being added to a conversation.
+  async function readThread(number) {
     let thread;
     try {
       thread = await api(`/purchase-orders/${number}/thread`);
@@ -3347,6 +3360,11 @@
 
     drawChannelPills(thread);
     drawTurns(thread.entries);
+    // The newest turn, which is the one somebody opened this to read and the one
+    // they have just written. A conversation that opens at its oldest message is
+    // one you scroll before you can use it.
+    const body = $("threadTurns").parentElement;
+    body.scrollTop = body.scrollHeight;
   }
 
   // The order the composer is writing to, and whether it may write at all. Held
@@ -3449,9 +3467,12 @@
     } finally {
       send.classList.remove("busy");
     }
-    // Reopened rather than appended to, so what the drawer shows is what the
+    // Re-read rather than appended to, so what the drawer shows is what the
     // record holds — including the delivery mark, which is the server's to say.
-    await openThread(number);
+    // Re-read, not reopened: the drawer stays exactly where it is and one more
+    // turn appears at the bottom.
+    await readThread(number);
+    $("composerText").focus();
   });
 
   // Which wires this order has actually been worked on, with counts. Only the
