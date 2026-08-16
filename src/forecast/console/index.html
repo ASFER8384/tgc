@@ -202,7 +202,7 @@
     <div class="table-wrap"><table>
       <thead><tr>
         <th>Item</th><th>Next 8 weeks</th><th class="num">Next week</th>
-        <th class="num">Next month</th><th class="num">Buyers</th>
+        <th class="num">Next 4 weeks</th><th class="num">Buyers</th>
         <th class="num">Stock</th><th class="num">Cover</th>
         <th class="num">Order</th><th></th>
       </tr></thead>
@@ -633,6 +633,25 @@
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Monthly units with next month forecast" style="max-width:100%;height:auto">' + out + '</svg>';
   }
 
+  // "2026-09" is unambiguous and unreadable. Every column that holds a figure
+  // for the planned month names it, so a number is never read as "next week" or
+  // "right now" by somebody scanning the table rather than the heading above it.
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const LONG_MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+                       "August", "September", "October", "November", "December"];
+
+  function monthShort(month) {
+    const [year, index] = String(month || "").split("-");
+    return MONTHS[Number(index) - 1] ? MONTHS[Number(index) - 1] + " " + year : month;
+  }
+
+  function monthLong(month) {
+    const [year, index] = String(month || "").split("-");
+    return LONG_MONTHS[Number(index) - 1]
+      ? LONG_MONTHS[Number(index) - 1] + " " + year : month;
+  }
+
   function planLocationRow(l) {
     const sizes = l.sizes.filter((x) => x.order || x.on_hand || x.expected >= 0.5);
     const chips = sizes.map((x) =>
@@ -667,15 +686,17 @@
       + '<div style="display:flex;gap:0.6rem;align-items:baseline;flex-wrap:wrap">'
       + '<strong>' + esc(it.sku) + '</strong><span style="color:var(--muted)">' + esc(it.name)
       + (it.brand ? " · " + esc(it.brand) : "") + '</span>'
-      + '<span style="margin-left:auto;font-size:0.86rem">expect <b>' + it.expected
-      + '</b> · holding ' + it.on_hand + ' · order <b style="color:'
+      + '<span style="margin-left:auto;font-size:0.86rem">' + esc(monthShort(plan.month))
+      + ' expect <b>' + it.expected
+      + '</b> · holding now ' + it.on_hand + ' · order <b style="color:'
       + (it.order ? "var(--high)" : "var(--muted)") + '">' + it.order + '</b></span></div>'
       + '<div style="font-size:0.8rem;color:var(--muted);padding:0.2rem 0 0.5rem">'
       + it.level + ' a day in ordinary trading × ' + it.season + ' days-worth in '
-      + esc(plan.month) + ' = ' + it.expected + ' expected'
+      + esc(monthLong(plan.month)) + ' = ' + it.expected + ' expected for the whole month'
       + (it.notes.length ? " — " + it.notes.map(esc).join(" ") : "") + '</div>'
       + '<div class="table-wrap"><table><thead><tr><th>Where</th><th class="num">Share</th>'
-      + '<th class="num">Expect</th><th class="num">Held</th><th class="num">Order</th>'
+      + '<th class="num">Expect ' + esc(monthShort(plan.month)) + '</th>'
+      + '<th class="num">Held now</th><th class="num">Order</th>'
       + '<th>By size (held&rarr;order)</th></tr></thead><tbody>' + rows + '</tbody>'
       + '<tfoot><tr><td><b>Total for the mill</b></td><td></td><td class="num">' + it.expected
       + '</td><td class="num">' + it.on_hand + '</td><td class="num"><b>' + it.order + '</b></td>'
@@ -688,7 +709,7 @@
       + historyChart(it.monthly_history, it.expected, plan.month) + '</figure>'
       + '<figure style="margin:0"><figcaption style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">'
       + 'How hard each part of the year trades, per day, against 1.0. Red bars fall in '
-      + esc(plan.month) + '; faded bars rest on under a fortnight of history.</figcaption>'
+      + esc(monthLong(plan.month)) + '; faded bars rest on under a fortnight of history.</figcaption>'
       + barChart(seasonRows, { baseline: 1, title: "Seasonal multipliers", label: 150 }) + '</figure>'
       + (sizeRows.length ? '<figure style="margin:0"><figcaption style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">The order, by size</figcaption>'
           + barChart(sizeRows, { title: "Order by size", label: 84 }) + '</figure>' : "")
@@ -701,7 +722,8 @@
   function drawPlan(plan) {
     state.plan = plan;
     const b = plan.backtest;
-    $("planHint").textContent = plan.month + " · checked against the last "
+    $("planHint").textContent = "For all of " + monthLong(plan.month)
+      + " · checked against the last "
       + b.months + " months: " + (b.wape * 100).toFixed(0) + "% average error, "
       + (b.naive_wape * 100).toFixed(0) + "% for a plain 3-month average";
 
