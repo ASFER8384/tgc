@@ -115,7 +115,14 @@
                font-size: 0.76rem; line-height: 1.5; white-space: pre-wrap;
                word-break: break-word; max-height: 15rem; overflow-y: auto; }
   .turn.failed { border-color: var(--high); }
+  /* A letter whose words are gone. Dashed rather than coloured: it is a hole in
+     the record, not a fault with the order. */
+  .turn.lost { border-style: dashed; }
+  .turn.lost .turn-note { color: var(--muted); }
   .turn-note { margin-top: 0.4rem; font-size: 0.76rem; color: var(--high); }
+  .turn-quoted { margin-top: 0.4rem; }
+  .turn-quoted > summary { font-size: 0.76rem; color: var(--muted); cursor: pointer; }
+  .turn-quoted[open] > summary { margin-bottom: 0.2rem; }
   /* Wider than the other forms: every row carries a quantity, a price and the
      line total beside each other, and squeezing those into 560px puts three
      numbers on top of one another. */
@@ -632,9 +639,14 @@
             <span class="hint" id="orderHint"></span>
           </div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Order</th><th>Supplier</th><th>Status</th><th class="num">Value</th>
+            <!-- No status column: the badge lives in the conversation drawer,
+                 beside the letters that produced the status. Two copies of the
+                 same fact is two places for it to be read from, and the row
+                 already says what can be done to the order — the buttons on a
+                 cancelled order and an acknowledged one are not the same. -->
+            <thead><tr><th>Order</th><th>Supplier</th><th class="num">Value</th>
               <th>Promised</th><th></th></tr></thead>
-            <tbody id="orders"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
+            <tbody id="orders"><tr><td colspan="5" class="empty">loading</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -2444,16 +2456,19 @@
             o.has_open_issue ? ' <span class="tag sev-high">issue</span>' : ""}</td>
         <td>${o.supplier}<br><span style="color:var(--muted);font-size:0.78rem">${
             o.supplier_timezone || ""}</span></td>
-        <td><span class="tag st-${o.status}">${o.status.replace(/_/g, " ")}</span>${
+        <td class="num">${money(o.total_value)} ${o.currency}</td>
+        <td>${day(promised)}${o.confirmed_delivery_date ? "" : " (asked)"}${
+            // Kept even with the status column gone: an order waiting on a clock
+            // rather than on a person is the one case where "nothing is
+            // happening" is the correct state, and a buyer who cannot see that
+            // goes looking for a fault that is not there.
             o.scheduled_send_at && o.status === "approved"
-              ? `<br><span style="color:var(--muted);font-size:0.76rem">queued ${
+              ? `<br><span style="color:var(--muted);font-size:0.76rem">queued to send ${
                   new Date(o.scheduled_send_at).toLocaleString("en-GB",
                     { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
                 }</span>` : ""}</td>
-        <td class="num">${money(o.total_value)} ${o.currency}</td>
-        <td>${day(promised)}${o.confirmed_delivery_date ? "" : " (asked)"}</td>
         <td>${action}</td></tr>`;
-    }).join("") : `<tr><td colspan="6" class="empty">No orders yet</td></tr>`;
+    }).join("") : `<tr><td colspan="5" class="empty">No orders yet</td></tr>`;
 
     $("orders").querySelectorAll("[data-approve]").forEach((b) =>
       b.addEventListener("click", () => busy(b, () => act(
@@ -2932,6 +2947,25 @@
     day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
   });
 
+  // Mail clients quote the whole letter under the reply, so "confirmed it" sits
+  // above forty lines of our own words and a reader has to hunt for the two that
+  // are new. Split at the first quoted line and fold the rest away — kept, not
+  // dropped, because which version they were quoting is sometimes the answer.
+  function unquote(body) {
+    const lines = String(body).split(/\r?\n/);
+    const cut = lines.findIndex((line, i) =>
+      /^\s*>/.test(line)
+      || (/^\s*On .*\bwrote:\s*$/.test(line))
+      // Gmail splits the attribution across two lines when the address is long,
+      // so a trailing "On <date> at <time>, <name>" counts as the start of it.
+      || (/^\s*On .*\d{4} at \d{1,2}:\d{2},/.test(line) && i > 0));
+    if (cut < 0) return { said: lines.join("\n").trim(), quoted: "" };
+    return {
+      said: lines.slice(0, cut).join("\n").trim(),
+      quoted: lines.slice(cut).join("\n").trim(),
+    };
+  }
+
   async function openThread(number) {
     $("threadTitle").textContent = `${number} conversation`;
     $("threadWho").textContent = "";
@@ -2959,14 +2993,13 @@
       escapeHtml([thread.supplier, thread.supplier_email].filter(Boolean).join(" · ")),
     ].filter(Boolean).join(" ");
 
-    // Said before the letters, not after. A reader who scrolls a short thread
-    // and finds nothing from before today should not have to work out whether
-    // that means nothing was sent.
+    // The gap is marked on the turns themselves now, in the place it happened.
+    // This says once, at the top, why some of them have no text.
     if (thread.not_kept) {
       $("threadGap").textContent =
-        `${thread.not_kept} earlier letter(s) went out before this system kept ` +
-        `its own half of the conversation. The audit log has the times and the ` +
-        `address; the text was not stored, and writing it out from today's ` +
+        `${thread.not_kept} of our letters went out before this system kept its ` +
+        `own half of the conversation. They are in the thread with their time ` +
+        `and address; the text was not stored, and writing it out from today's ` +
         `figures would show the supplier something they were never sent.`;
       $("threadGap").hidden = false;
     }
@@ -2979,13 +3012,18 @@
 
     $("threadTurns").innerHTML = thread.entries.map((e) => {
       const ours = e.side === "ours";
-      const failed = ours && !e.delivered;
+      // A letter from before the text was kept. Its time and its address are
+      // real; only the words are gone, and that is a different thing from a
+      // letter that failed.
+      const lost = ours && e.body === null;
+      const failed = ours && !lost && !e.delivered;
       // The word, not just the indent. Position alone is a convention a reader
       // has to learn and a screen reader cannot see at all.
       const who = ours
         ? `We wrote${e.revision ? ` · Rev ${e.revision}` : ""}`
         : `${escapeHtml(e.who || "They")} replied`;
-      const marks = [TURN_KIND[e.kind] || e.kind];
+      const marks = [];
+      if (!lost) marks.push(TURN_KIND[e.kind] || e.kind);
       if (ours) {
         marks.push(e.delivered
           ? `delivered to ${escapeHtml(e.to || "?")}`
@@ -2995,14 +3033,33 @@
         // order and not only about the extractor.
         marks.push("read, but the order was not moved by it");
       }
-      return `<div class="turn ${ours ? "ours" : "theirs"}${failed ? " failed" : ""}">
+
+      let text;
+      if (lost) {
+        text = `<div class="turn-note">The text of this letter was not kept.</div>`;
+      } else {
+        // Their words first; ours, quoted back at us underneath, folded away.
+        const { said, quoted } = ours
+          ? { said: e.body || "", quoted: "" }
+          : unquote(e.body || "");
+        text =
+          `<pre class="turn-body">${escapeHtml(said || "(no text)")}</pre>` +
+          (quoted
+            ? `<details class="turn-quoted"><summary>the letter they were
+                 replying to</summary>
+               <pre class="turn-body">${escapeHtml(quoted)}</pre></details>`
+            : "");
+      }
+
+      return `<div class="turn ${ours ? "ours" : "theirs"}${
+          failed ? " failed" : ""}${lost ? " lost" : ""}">
         <div class="turn-head">
           <b>${who}</b>
           <span>${turnWhen(e.at)}</span>
-          <span>${escapeHtml(marks.join(" · "))}</span>
+          ${marks.length ? `<span>${escapeHtml(marks.join(" · "))}</span>` : ""}
         </div>
         ${e.subject ? `<div class="turn-head"><span>${escapeHtml(e.subject)}</span></div>` : ""}
-        <pre class="turn-body">${escapeHtml(e.body || "(no text)")}</pre>
+        ${text}
         ${failed && e.failure
           ? `<div class="turn-note">${escapeHtml(e.failure)}</div>` : ""}
       </div>`;

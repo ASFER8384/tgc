@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from sca.api.deps import ActorDep, RuntimeSettingsDep, SessionDep
 from sca.carriers.base import get_carrier
@@ -406,24 +406,48 @@ async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dic
             "acted_on": msg.processed_at is not None,
         })
 
-    entries.sort(key=lambda e: e["at"])
-
-    # What the record cannot show. Counted as a difference rather than by
-    # comparing timestamps: the audit row is written after the letter it
-    # describes, so "older than the first letter kept" would miscount the very
-    # send that started the keeping. Every send leaves an audit row; only the
-    # ones since this table existed left a letter.
-    sends = await session.scalar(
-        select(func.count())
-        .select_from(AuditLog)
-        .where(
-            AuditLog.entity == "purchase_order",
-            AuditLog.entity_id == order.id,
-            AuditLog.action == "order.send",
+    # Letters sent before the text was kept still belong in the timeline. The
+    # audit log knows one went out, when, and to which address — everything
+    # except what it said. Shown in its place rather than as a count at the top,
+    # because a thread of replies with our side missing reads as a supplier
+    # talking to nobody, and the gap is easiest to understand where it happened.
+    #
+    # Paired by count, not by timestamp: the audit row is written after the
+    # letter it describes, so "older than the first kept letter" would miscount
+    # the very send that started the keeping.
+    audited = list(
+        await session.scalars(
+            select(AuditLog)
+            .where(
+                AuditLog.entity == "purchase_order",
+                AuditLog.entity_id == order.id,
+                AuditLog.action == "order.send",
+            )
+            .order_by(AuditLog.created_at)
         )
     )
     kept = sum(1 for e in entries if e["side"] == "ours" and e["kind"] != "receipt")
-    unkept = max(0, (sends or 0) - kept)
+    unkept = max(0, len(audited) - kept)
+    for row in audited[:unkept]:
+        delivery = (row.meta or {}).get("delivery") or {}
+        entries.append({
+            "id": f"audit-{row.id}",
+            "side": "ours",
+            "at": row.created_at,
+            "who": "Procurement",
+            "to": delivery.get("recipient"),
+            "subject": None,
+            # Null, not an empty string. The console says "the text was not
+            # kept" for this; an empty body would render as a letter we sent
+            # that said nothing.
+            "body": None,
+            "kind": "order",
+            "revision": None,
+            "delivered": bool(delivery.get("delivered")),
+            "failure": None,
+        })
+
+    entries.sort(key=lambda e: e["at"])
 
     return {
         "number": order.number,
