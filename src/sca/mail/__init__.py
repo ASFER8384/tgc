@@ -1,6 +1,7 @@
 from sca.mail.base import (
     Mailer,
     MailError,
+    OutboundFile,
     OutboundMessage,
     get_mailer,
     resolve_recipient,
@@ -9,6 +10,7 @@ from sca.mail.base import (
 __all__ = [
     "MailError",
     "Mailer",
+    "OutboundFile",
     "OutboundMessage",
     "get_mailer",
     "resolve_recipient",

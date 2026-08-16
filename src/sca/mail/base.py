@@ -26,11 +26,27 @@ class MailError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class OutboundFile:
+    """A file going out with a letter.
+
+    Carried as bytes rather than as a path because nothing here writes to disk:
+    the copy that is kept is the database row, and a filename pointing at a
+    container that gets replaced on every deploy would name nothing by the time
+    anybody looked.
+    """
+
+    filename: str
+    content_type: str
+    content: bytes
+
+
+@dataclass(frozen=True)
 class OutboundMessage:
     to: str
     subject: str
     body: str
     to_name: str | None = None
+    attachments: tuple[OutboundFile, ...] = ()
 
 
 class Mailer(Protocol):
@@ -101,6 +117,19 @@ class SmtpMailer:
         # necessarily the one we send from.
         mail["Reply-To"] = self.settings.mail_reply_to or self.settings.mail_from
         mail.set_content(message.body)
+        for attachment in message.attachments:
+            # Split rather than passed whole: add_attachment wants the two halves
+            # separately, and a content type it cannot split silently becomes a
+            # part no mail client offers to open.
+            maintype, _, subtype = (
+                attachment.content_type or "application/octet-stream"
+            ).partition("/")
+            mail.add_attachment(
+                attachment.content,
+                maintype=maintype or "application",
+                subtype=subtype or "octet-stream",
+                filename=attachment.filename,
+            )
 
         # smtplib is blocking and there is no async SMTP in the standard library.
         # A worker thread keeps one slow supplier's mail server from stalling

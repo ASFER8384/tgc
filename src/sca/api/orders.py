@@ -585,6 +585,10 @@ async def order_thread(
         "supplier": supplier.name if supplier else None,
         "supplier_email": supplier.email if supplier else None,
         "supplier_phone": supplier.phone if supplier else None,
+        # Which wire this supplier is actually worked on, so the composer opens
+        # on it. A mill that answers WhatsApp within the hour should not have the
+        # drawer starting them on email every time.
+        "channel": supplier.channel if supplier else None,
         "status": order.status,
         "revision": order.revision,
         "issues": issues,
@@ -593,6 +597,10 @@ async def order_thread(
             "closes_at": window_closes,
             "can_send": bool(supplier and supplier.phone),
         },
+        # Email has no window — the one respect in which it is the easier wire.
+        # Sent anyway so the composer decides which wires it offers from the
+        # thread rather than from what it can infer off an address string.
+        "email": {"open": True, "can_send": bool(supplier and supplier.email)},
         "entries": entries,
         # Named plainly. "0 letters" and "we did not keep them" are different
         # things to read on a screen that claims to be a record.
@@ -774,6 +782,44 @@ async def send_whatsapp_text(
     service = OrderService(session, actor=actor, settings=settings)
     try:
         delivery = await service.send_whatsapp_text(order, body.text)
+    except OrderInputError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except OrderError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return {"number": order.number, "delivery": delivery}
+
+
+@router.post("/purchase-orders/{number}/email/message")
+async def send_email_message(
+    number: str,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
+    text: Annotated[str, Form()] = "",
+    subject: Annotated[str, Form()] = "",
+    files: Annotated[list[UploadFile], File()] = [],  # noqa: B006 - FastAPI reads this
+) -> dict:
+    """Write to the supplier by email from inside the conversation.
+
+    Multipart like its WhatsApp counterpart, and taking a list rather than one
+    file because email has always carried several — an invoice query goes out
+    with the invoice and the packing list together or it is two emails nobody
+    can read side by side.
+    """
+    order = await _by_number(session, number)
+    service = OrderService(session, actor=actor, settings=settings)
+    carried = [
+        (f.filename or "attachment", f.content_type or "application/octet-stream",
+         await f.read())
+        for f in files
+        # A form submitted with the picker untouched sends one empty part, which
+        # is a file with no name rather than no file at all.
+        if f.filename
+    ]
+    try:
+        delivery = await service.send_email_message(
+            order, text=text, subject=subject or None, files=carried,
+        )
     except OrderInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except OrderError as exc:

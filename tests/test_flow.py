@@ -672,6 +672,68 @@ async def test_an_empty_file_is_refused_before_it_is_uploaded(
     assert empty.status_code == 422
 
 
+async def test_an_email_message_carries_its_files_and_keeps_them(
+    client, supplier_payload, monkeypatch
+):
+    """The same conversation, the other wire. Email has no window to wait on, so
+    the only thing that changes is what carries it — and what is kept has to be
+    identical, or the drawer shows one wire's files against the other's silence.
+    """
+    from sca.mail.base import ConsoleMailer
+
+    mailer = ConsoleMailer()
+    monkeypatch.setattr("sca.orders.service.get_mailer", lambda settings: mailer)
+
+    supplier = await _setup(client, supplier_payload)
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 260, "on_order": 0, "weekly_forecast": "90",
+    })
+    created = (await client.post("/planning/create-orders")).json()
+    number = created["orders"][0]["number"]
+
+    out = await client.post(
+        f"/purchase-orders/{number}/email/message",
+        data={"text": "the invoice and the packing list, as promised"},
+        files=[
+            ("files", ("invoice.pdf", b"%PDF invoice", "application/pdf")),
+            ("files", ("packing.jpg", b"\xff\xd8jpeg", "image/jpeg")),
+        ],
+    )
+    assert out.status_code == 200
+
+    letter = mailer.sent[-1]
+    assert letter.to_name == supplier["name"]
+    assert number in letter.subject, "it lands in the thread they already have"
+    assert [a.filename for a in letter.attachments] == ["invoice.pdf", "packing.jpg"]
+
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    assert thread["email"]["can_send"] is True
+    ours = [e for e in thread["entries"] if e["side"] == "ours"][-1]
+    assert ours["channel"] == "email"
+    assert [f["filename"] for f in ours["files"]] == ["invoice.pdf", "packing.jpg"]
+
+    got = await client.get(f"/inbound/attachments/{ours['files'][0]['id']}")
+    assert got.content == b"%PDF invoice"
+
+
+async def test_an_email_message_with_nothing_in_it_is_refused(
+    client, supplier_payload, monkeypatch
+):
+    from sca.mail.base import ConsoleMailer
+
+    monkeypatch.setattr("sca.orders.service.get_mailer", lambda settings: ConsoleMailer())
+    await _setup(client, supplier_payload)
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 260, "on_order": 0, "weekly_forecast": "90",
+    })
+    created = (await client.post("/planning/create-orders")).json()
+    number = created["orders"][0]["number"]
+
+    empty = await client.post(f"/purchase-orders/{number}/email/message",
+                              data={"text": "   "})
+    assert empty.status_code == 422
+
+
 async def test_the_thread_holds_both_halves_of_the_exchange(
     client, supplier_payload, monkeypatch
 ):

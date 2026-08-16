@@ -8,7 +8,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sca.config import Settings, get_settings
-from sca.mail import MailError, OutboundMessage, get_mailer, resolve_recipient
+from sca.mail import MailError, OutboundFile, OutboundMessage, get_mailer, resolve_recipient
 from sca.models import (
     ALLOWED_TRANSITIONS,
     Attachment,
@@ -614,6 +614,88 @@ class OrderService:
         })
         await self.session.flush()
         return delivery | {"filename": filename, "bytes": len(content)}
+
+    async def send_email_message(
+        self, order: PurchaseOrder, *, text: str, subject: str | None = None,
+        files: list[tuple[str, str, bytes]] | None = None,
+        now: datetime | None = None,
+    ) -> dict:
+        """Write to the supplier by email from inside the conversation.
+
+        No window to check — email has no equivalent of Meta's rule, which is the
+        one respect in which it is the easier wire. Everything else matches the
+        WhatsApp path deliberately: the same record, the same kept copies, the
+        same refusal to file anything when the send fails.
+        """
+        now = now or datetime.now(UTC)
+        body = (text or "").strip()
+        files = files or []
+        if not body and not files:
+            raise OrderInputError("a message needs some words in it, or a file")
+        for filename, _, content in files:
+            if not content:
+                raise OrderInputError(f"{filename} is empty")
+        total = sum(len(content) for _, _, content in files)
+        if total > self.settings.mail_max_attachment_bytes:
+            raise OrderInputError(
+                f"those files come to {total / 1e6:.1f}MB. This sends up to "
+                f"{self.settings.mail_max_attachment_bytes / 1e6:.0f}MB — send a link, "
+                "or fewer at a time"
+            )
+
+        supplier = await self.session.get(Supplier, order.supplier_id)
+        if supplier is None:
+            raise OrderError(f"{order.number} has no supplier on file")
+        mailer = get_mailer(self.settings)
+        if mailer.name == "none":
+            raise OrderError("mail is not configured")
+
+        # Kept on the order's subject so it lands in the supplier's existing
+        # thread rather than starting a second one they have to connect by hand.
+        heading = (subject or "").strip() or f"{order.number} — message from procurement"
+        try:
+            recipient = resolve_recipient(supplier.email, self.settings)
+            delivery = await mailer.deliver(OutboundMessage(
+                to=recipient, to_name=supplier.name, subject=heading,
+                body=body or f"Please see the attached {files[0][0]}.",
+                attachments=tuple(
+                    OutboundFile(filename=name, content_type=mime, content=content)
+                    for name, mime, content in files
+                ),
+            ))
+        except MailError as exc:
+            raise OrderError(f"{order.number} was not sent: {exc}") from exc
+
+        message = self._file_sent(
+            order, supplier, now, subject=heading,
+            body=body or f"[sent {', '.join(name for name, _, _ in files)}]",
+            kind="message",
+            to_address=delivery.get("recipient") or supplier.email,
+            delivered=bool(delivery.get("delivered")),
+            provider=mailer.name, failure=delivery.get("reason"),
+        )
+        await self.session.flush()
+        seen: set[str] = set()
+        for name, mime, content in files:
+            digest = hashlib.sha256(content).hexdigest()
+            # The same file picked twice in one selection is one attachment, and
+            # the unique constraint on the table says so too.
+            if digest in seen:
+                continue
+            seen.add(digest)
+            self.session.add(Attachment(
+                sent_message_id=message.id,
+                filename=(name or "attachment")[:300],
+                content_type=(mime or "")[:120],
+                byte_size=len(content),
+                sha256=digest,
+                content=content,
+            ))
+        self._audit("order.email_message", order.id, {
+            "files": [name for name, _, _ in files], "delivery": delivery,
+        })
+        await self.session.flush()
+        return delivery | {"files": [name for name, _, _ in files]}
 
     async def whatsapp_draft(self, order: PurchaseOrder) -> dict:
         """What the WhatsApp message would say, before it is sent.

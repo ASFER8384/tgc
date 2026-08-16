@@ -110,19 +110,19 @@
      a missing thing. */
   #threadIssues:empty { display: none; }
   #threadIssues { display: flex; flex-direction: column; gap: 0.6rem; }
-  .chanpills { display: flex; gap: 0.35rem; flex-wrap: wrap; }
-  .chanpills button { font-size: 0.76rem; padding: 0.25rem 0.6rem; border-radius: 999px;
+  /* One wire at a time. A conversation is read on the wire it happened on, and
+     the two interleaved by timestamp put a WhatsApp line between an email and
+     its reply — so this picks, it does not combine. */
+  .chanpills, .wirepills { display: flex; gap: 0.35rem; flex-wrap: wrap;
+                           align-items: center; }
+  .chanpills .hint { font-size: 0.74rem; color: var(--muted); margin-left: 0.2rem; }
+  .chanpills button,
+  .wirepills button { font-size: 0.76rem; padding: 0.25rem 0.7rem; border-radius: 999px;
                       border: 1px solid var(--rule); background: var(--panel);
                       color: var(--ink-soft); cursor: pointer; }
-  .chanpills button[aria-pressed="true"] { background: var(--accent);
+  .chanpills button[aria-pressed="true"],
+  .wirepills button[aria-pressed="true"] { background: var(--accent);
                                            border-color: var(--accent); color: var(--accent-ink); }
-  /* A tick, not colour alone. Two filled pills side by side read as "one of
-     these is selected" to anybody who has met a tab bar, and the difference
-     between the two states was carrying the whole meaning. */
-  .chanpills button::before { content: "○"; margin-right: 0.3rem; opacity: 0.6; }
-  .chanpills button[aria-pressed="true"]::before { content: "✓"; opacity: 1; }
-  .chanpills button:disabled { opacity: 0.45; cursor: default; }
-  .chanpills .hint { font-size: 0.74rem; color: var(--muted); align-self: center; }
   /* Pinned under the thread rather than inside it. The scroll belongs to the
      conversation; the box you write in should not go looking for itself. */
   .composer { border-top: 1px solid var(--rule); padding: 0.7rem 1.2rem 0.9rem;
@@ -1145,16 +1145,22 @@
        so it stays put while the thread scrolls: a composer that scrolls away is
        one somebody stops using. -->
   <div class="composer" id="threadComposer" hidden>
+    <!-- Which wire this goes out on, chosen rather than inferred. The supplier's
+         own channel is where it starts, but a mill that answers WhatsApp within
+         the hour still wants the invoice query in writing, and the person at the
+         desk is the one who knows which. -->
+    <div class="wirepills" id="composerWire"></div>
     <div class="hint" id="composerWhy"></div>
     <textarea id="composerText" rows="2"
-              placeholder="Write to the supplier on WhatsApp…"></textarea>
-    <!-- A file goes with whatever is typed above it, as one message: on WhatsApp
-         a caption belongs to the document, and sending the words separately
-         leaves the supplier a PDF with no covering note. -->
+              placeholder="Write to the supplier…"></textarea>
+    <!-- Files go with whatever is typed above them, as one message: an email
+         carries its covering note and its attachments together, and on WhatsApp
+         the words are the document's caption. Sending them apart leaves the
+         supplier a PDF with nothing saying what it is. -->
     <div class="bar">
       <label class="pick" id="composerPick">
-        Attach a file
-        <input type="file" id="composerFile" hidden />
+        Attach files
+        <input type="file" id="composerFile" hidden multiple />
       </label>
       <span class="hint" id="composerFileName"></span>
       <button type="button" id="composerSend">Send</button>
@@ -3364,8 +3370,10 @@
       return;
     }
 
-    drawChannelPills(thread);
-    drawTurns(thread.entries);
+    const showing = drawChannelPills(thread);
+    drawTurns(showing
+      ? thread.entries.filter((e) => (e.channel || "email") === showing)
+      : thread.entries);
     // The newest turn, which is the one somebody opened this to read and the one
     // they have just written. A conversation that opens at its oldest message is
     // one you scroll before you can use it.
@@ -3373,58 +3381,121 @@
     body.scrollTop = body.scrollHeight;
   }
 
-  // The order the composer is writing to, and whether it may write at all. Held
-  // here because the send handler is bound once, not redrawn with the drawer.
-  let writingTo = null;
+  // What the composer is currently writing: the order, the wire, and whether
+  // that wire will accept it. Held here because the send handler is bound once,
+  // not redrawn with the drawer.
+  let writing = { number: null, wire: null, thread: null };
 
-  // Writing back on WhatsApp, which is allowed for twenty-four hours after the
-  // supplier last wrote and refused by Meta outside that. The refusal is shown
-  // before it is typed into: finding out a message was impossible after writing
-  // it is the version of this that people work around by using their own phone.
+  // Writing back, on whichever wire the buyer picks. Email always accepts one;
+  // WhatsApp accepts free words only for twenty-four hours after the supplier
+  // writes, and that refusal is shown before the box is typed into. Finding out
+  // a message was impossible after writing it is the version of this that people
+  // work around by using their own phone.
   function drawComposer(number, thread) {
-    const wa = thread.whatsapp || {};
     const box = $("threadComposer");
     $("composerOut").hidden = true;
     $("composerText").value = "";
     $("composerFile").value = "";
     $("composerFileName").textContent = "";
 
-    if (!wa.can_send) {
-      // No number on file, or no supplier at all. Nothing to explain in the
-      // drawer that a hidden composer does not already say.
-      writingTo = null;
+    const wires = [
+      { key: "email", label: "Email", ...(thread.email || {}) },
+      { key: "whatsapp", label: "WhatsApp", ...(thread.whatsapp || {}) },
+    ].filter((w) => w.can_send);
+
+    if (!wires.length) {
+      // No address and no number, or no supplier at all. Nothing to explain in
+      // the drawer that a hidden composer does not already say.
+      writing = { number: null, wire: null, thread: null };
       box.hidden = true;
       return;
     }
 
-    writingTo = wa.open ? number : null;
     box.hidden = false;
+    // Their own channel first, because it is the one they answer on. Falling
+    // back to whichever wire exists rather than to a fixed preference: a
+    // supplier with only a number must not open on an email box that cannot send.
+    const preferred = wires.find((w) => w.key === thread.channel) || wires[0];
+    // A re-read after a send keeps the wire that was just used. Snapping back to
+    // the supplier's default between two messages would send the second one
+    // somewhere the first did not go, without saying so.
+    const kept = writing.number === number
+      && wires.some((w) => w.key === writing.wire) ? writing.wire : preferred.key;
+    writing = { number, wire: kept, thread };
+
+    $("composerWire").innerHTML = wires.length > 1
+      ? wires.map((w) => `<button type="button" data-wire="${w.key}"
+          aria-pressed="${String(w.key === writing.wire)}">${w.label}</button>`).join("")
+      : "";
+    $("composerWire").querySelectorAll("[data-wire]").forEach((b) =>
+      b.addEventListener("click", () => {
+        writing.wire = b.dataset.wire;
+        $("composerWire").querySelectorAll("[data-wire]").forEach((o) =>
+          o.setAttribute("aria-pressed", String(o.dataset.wire === writing.wire)));
+        showWire();
+      }));
+    showWire();
+  }
+
+  // The one line under the pills that says where this is going and whether it
+  // can go. Redrawn on every wire change rather than written once, because the
+  // answer differs per wire and a stale one reads as a rule that does not apply.
+  function showWire() {
+    const thread = writing.thread || {};
     const why = $("composerWhy");
-    why.classList.toggle("shut", !wa.open);
-    if (wa.open) {
-      why.textContent = wa.closes_at
-        ? `WhatsApp, to ${thread.supplier_phone}. Open until ${
-            turnWhen(wa.closes_at)}, then only the approved template.`
-        : `WhatsApp, to ${thread.supplier_phone}.`;
+    const wa = thread.whatsapp || {};
+    let open = true;
+
+    if (writing.wire === "whatsapp") {
+      open = !!wa.open;
+      if (open) {
+        why.textContent = wa.closes_at
+          ? `WhatsApp, to ${thread.supplier_phone}. Open until ${
+              turnWhen(wa.closes_at)}, then only the approved template.`
+          : `WhatsApp, to ${thread.supplier_phone}.`;
+      } else {
+        why.textContent = wa.closes_at
+          ? `The window closed at ${turnWhen(wa.closes_at)}. WhatsApp only lets us `
+            + `write in our own words for a day after they write to us — send on `
+            + `email instead, or wait for their reply.`
+          : `${thread.supplier} has not written to us on WhatsApp yet, so we cannot `
+            + `open with our own words. Send on email, or send the order on WhatsApp.`;
+      }
     } else {
-      why.textContent = wa.closes_at
-        ? `The window closed at ${turnWhen(wa.closes_at)}. WhatsApp only lets us `
-          + `write in our own words for a day after they write to us — send the `
-          + `order template, or wait for their reply.`
-        : `${thread.supplier} has not written to us on WhatsApp yet, so we cannot `
-          + `open with our own words. Send the order on WhatsApp first.`;
+      why.textContent = `Email, to ${thread.supplier_email}. It goes out on the `
+        + `order's subject, so it lands in the thread they already have.`;
     }
-    $("composerText").disabled = !wa.open;
-    $("composerSend").disabled = !wa.open;
-    $("composerFile").disabled = !wa.open;
-    $("composerPick").classList.toggle("off", !wa.open);
+
+    why.classList.toggle("shut", !open);
+    $("composerText").placeholder = writing.wire === "whatsapp"
+      ? "Write to the supplier on WhatsApp…" : "Write to the supplier by email…";
+    $("composerText").disabled = !open;
+    $("composerSend").disabled = !open;
+    $("composerFile").disabled = !open;
+    $("composerPick").classList.toggle("off", !open);
   }
 
   $("composerFile").addEventListener("change", () => {
-    const chosen = $("composerFile").files[0];
-    $("composerFileName").textContent = chosen
-      ? `${chosen.name} · ${fileSize(chosen.size)}` : "";
+    const chosen = [...$("composerFile").files];
+    $("composerFileName").textContent = chosen.length === 1
+      ? `${chosen[0].name} · ${fileSize(chosen[0].size)}`
+      : chosen.length
+        ? `${chosen.length} files · ${fileSize(
+            chosen.reduce((n, f) => n + f.size, 0))}`
+        : "";
   });
+
+  // Multipart, which api() cannot do: it sets a JSON content type, and a form
+  // upload needs the browser to write its own boundary into the header.
+  async function post(path, form) {
+    const res = await fetch(API + path, {
+      method: "POST", body: form, headers: { "X-API-Key": state.key },
+    });
+    if (res.ok) return res.json();
+    let why = `${res.status} ${res.statusText}`;
+    try { why = (await res.json()).detail || why; } catch {}
+    throw new Error(why);
+  }
 
   // Not wrapped in busy(): that hands the button back enabled when it finishes,
   // and a send can legitimately end with the composer shut — the reply that
@@ -3432,11 +3503,11 @@
   $("composerSend").addEventListener("click", async () => {
     const send = $("composerSend");
     if (send.disabled) return;
-    const number = writingTo;
+    const number = writing.number;
     const text = $("composerText").value.trim();
-    const chosen = $("composerFile").files[0] || null;
+    const chosen = [...$("composerFile").files];
     const out = $("composerOut");
-    if (!number || (!text && !chosen)) {
+    if (!number || (!text && !chosen.length)) {
       out.hidden = false;
       out.textContent = "Nothing to send.";
       return;
@@ -3444,22 +3515,22 @@
     send.disabled = true;
     send.classList.add("busy");
     try {
-      if (chosen) {
-        // One message, not two: on WhatsApp the words are the file's caption, so
-        // sending them separately leaves the supplier a PDF with no covering
-        // note and no way to tell which order it belongs to.
+      if (writing.wire === "email") {
+        // One letter carrying everything, which is how email has always worked
+        // and what the supplier will reply to as one thing.
         const form = new FormData();
-        form.append("file", chosen);
-        form.append("caption", text);
-        // Not through api(): that sets a JSON content type, and multipart needs
-        // the browser to write its own boundary into the header.
-        const res = await fetch(`${API}/purchase-orders/${number}/whatsapp/file`,
-                                { method: "POST", body: form,
-                                  headers: { "X-API-Key": state.key } });
-        if (!res.ok) {
-          let why = `${res.status} ${res.statusText}`;
-          try { why = (await res.json()).detail || why; } catch {}
-          throw new Error(why);
+        form.append("text", text);
+        chosen.forEach((f) => form.append("files", f));
+        await post(`/purchase-orders/${number}/email/message`, form);
+      } else if (chosen.length) {
+        // One message per file, because WhatsApp carries one. The words ride on
+        // the first as its caption, so the supplier reads what the file is
+        // before the file rather than after the last of them.
+        for (const [i, file] of chosen.entries()) {
+          const form = new FormData();
+          form.append("file", file);
+          form.append("caption", i === 0 ? text : "");
+          await post(`/purchase-orders/${number}/whatsapp/file`, form);
         }
       } else {
         await api(`/purchase-orders/${number}/whatsapp/message`,
@@ -3491,7 +3562,9 @@
       return acc;
     }, {});
     const used = Object.keys(counts);
-    if (used.length < 2) { $("threadChannels").innerHTML = ""; return; }
+    // One wire used means nothing to pick between, so no picker — and no filter
+    // either, or the whole thread would sit behind a control with one option.
+    if (used.length < 2) { $("threadChannels").innerHTML = ""; return null; }
 
     // Each wire switches itself on and off, and both start on. There is no All
     // pill because with independent toggles it has nothing to do: everything on
@@ -3499,29 +3572,26 @@
     // one you turned off. The last one on will not turn off — an empty drawer
     // is never what the person clicking a filter meant.
     const LABEL = { email: "Email", whatsapp: "WhatsApp" };
-    const on = new Set(used);
-    $("threadChannels").innerHTML = used.map((c) =>
-      `<button type="button" data-chan="${c}" aria-pressed="true">${
-        LABEL[c] || c} (${counts[c]})</button>`).join("")
-      // Said in words as well as in the ticks, because the state these open in
-      // is the one nobody clicks and therefore the one nobody learns from.
-      + `<span class="hint">both shown — untick one to hide it</span>`;
+    // Whichever wire the newest turn came in on. That is the conversation
+    // somebody opened this to read: an order chased on WhatsApp this morning
+    // should not open on an email thread that went quiet last week.
+    const latest = thread.entries[thread.entries.length - 1];
+    let showing = used.includes(latest?.channel) ? latest.channel : used[0];
 
-    $("threadChannels").querySelectorAll("[data-chan]").forEach((b) =>
-      b.addEventListener("click", () => {
-        const c = b.dataset.chan;
-        if (on.has(c)) {
-          // The last one on stays on: unticking it would empty the drawer, and
-          // an empty drawer is never what somebody clicking a filter meant.
-          if (on.size === 1) return;
-          on.delete(c);
-        } else {
-          on.add(c);
-        }
-        $("threadChannels").querySelectorAll("[data-chan]").forEach((o) =>
-          o.setAttribute("aria-pressed", String(on.has(o.dataset.chan))));
-        drawTurns(thread.entries.filter((e) => on.has(e.channel || "email")));
-      }));
+    const draw = () => {
+      $("threadChannels").innerHTML = used.map((c) =>
+        `<button type="button" data-chan="${c}" aria-pressed="${
+          String(c === showing)}">${LABEL[c] || c} (${counts[c]})</button>`).join("")
+        + `<span class="hint">one wire at a time</span>`;
+      $("threadChannels").querySelectorAll("[data-chan]").forEach((b) =>
+        b.addEventListener("click", () => {
+          showing = b.dataset.chan;
+          draw();
+          drawTurns(thread.entries.filter((e) => (e.channel || "email") === showing));
+        }));
+    };
+    draw();
+    return showing;
   }
 
   function drawTurns(entries) {
