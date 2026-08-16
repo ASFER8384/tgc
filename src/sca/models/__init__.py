@@ -6,7 +6,7 @@ its table, and the schema parity test will fail with a diff nobody expects.
 
 from sca.models.base import Base, JSONType, TimestampMixin, UTCDateTime, new_id
 from sca.models.issue import ISSUE_KINDS, SEVERITIES, AuditLog, Issue
-from sca.models.message import MESSAGE_KINDS, Attachment, InboundMessage
+from sca.models.message import MESSAGE_KINDS, Attachment, InboundMessage, SentMessage
 from sca.models.order import (
     ALLOWED_TRANSITIONS,
     STATUSES,
@@ -42,6 +42,7 @@ __all__ = [
     "Base",
     "Document",
     "InboundMessage",
+    "SentMessage",
     "Issue",
     "Item",
     "JSONType",

@@ -400,6 +400,84 @@ async def test_a_received_order_cannot_be_revised(client, supplier_payload):
     assert blocked.status_code == 409
 
 
+async def test_the_thread_holds_both_halves_of_the_exchange(
+    client, supplier_payload, monkeypatch
+):
+    """Replies were stored from the beginning and our own letters were not, so
+    the record was one-sided: a supplier could be answering figures nobody here
+    could still produce."""
+    from sca.mail.base import ConsoleMailer
+
+    monkeypatch.setattr("sca.orders.service.get_mailer", lambda settings: ConsoleMailer())
+    supplier, number, _ = await _sent_order(client, supplier_payload)
+    await client.post("/inbound/email", json={
+        "external_id": "msg-thread-1", "from_address": supplier["email"],
+        "subject": f"Re: {number}", "body": f"We confirm {number}.",
+    })
+
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    sides = [e["side"] for e in thread["entries"]]
+    assert sides == ["ours", "theirs"], "oldest first, both directions"
+    assert thread["entries"][0]["delivered"] is True
+    assert number in thread["entries"][0]["body"]
+    assert "We confirm" in thread["entries"][1]["body"]
+    assert thread["not_kept"] == 0
+
+
+async def test_a_revision_does_not_rewrite_the_letter_already_sent(
+    client, supplier_payload, monkeypatch
+):
+    """The whole reason the text is stored rather than recomposed. A supplier
+    answered one set of figures; showing them today's under that date would read
+    as evidence of something that never happened."""
+    from sca.mail.base import ConsoleMailer
+
+    monkeypatch.setattr("sca.orders.service.get_mailer", lambda settings: ConsoleMailer())
+    _, number, _ = await _sent_order(client, supplier_payload)
+    await client.post(f"/purchase-orders/{number}/revise", json={
+        "lines": [{"sku": "ALN-SILK-NVY", "quantity": 999, "unit_price": "40.00"}],
+        "reason": "counter offer",
+    })
+    await client.post(f"/purchase-orders/{number}/approve", json={"approver": "lead"})
+
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    first = thread["entries"][0]
+    assert "999" not in first["body"], "the sent letter must not follow the order"
+    assert first["revision"] == 0
+
+
+async def test_a_send_that_failed_leaves_neither_a_letter_nor_a_sent_order(
+    client, supplier_payload, monkeypatch
+):
+    """The two have to agree. A letter in the record beside an order still
+    sitting in approval would read as "they were told" when nobody was."""
+    from sca.mail.base import MailError
+
+    class Broken:
+        name = "smtp"
+
+        async def deliver(self, message):
+            raise MailError("SMTP delivery failed: [Errno 101] Network is unreachable")
+
+    created = await _setup(client, supplier_payload)
+    order = (await client.post("/purchase-orders", json={
+        "supplier_id": created["id"],
+        "lines": [{"sku": "ALN-SILK-NVY", "quantity": 10, "unit_price": "40.00"}],
+    })).json()
+    number = order["number"]
+    await client.post(f"/purchase-orders/{number}/approve", json={"approver": "lead"})
+
+    monkeypatch.setattr("sca.orders.service.get_mailer", lambda settings: Broken())
+    refused = await client.post(f"/purchase-orders/{number}/send")
+    assert refused.status_code == 409
+    assert "unreachable" in refused.json()["detail"]
+
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    assert thread["entries"] == []
+    assert thread["not_kept"] == 0
+    assert thread["status"] == "approved", "still waiting to be sent"
+
+
 async def test_the_preview_reads_back_what_is_being_typed(client, supplier_payload):
     """Found in production: the preview raised inside the composer because the
     stand-in lines it builds had no size attribute, the dialog caught it, and the

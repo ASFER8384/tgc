@@ -14,6 +14,7 @@ from sca.models import (
     Issue,
     PurchaseOrder,
     PurchaseOrderLine,
+    SentMessage,
     StockLevel,
     StockSnapshot,
     Supplier,
@@ -393,9 +394,6 @@ class OrderService:
         up, and were the whole system until one was.
         """
         mailer = get_mailer(self.settings)
-        if mailer.name == "none":
-            return {"provider": "none", "delivered": False, "reason": "mail is not configured"}
-
         lines = list(
             await self.session.scalars(
                 select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
@@ -406,18 +404,76 @@ class OrderService:
             ack_deadline_hours=self.settings.ack_reminder_hours,
             now=now,
         )
+        text = message or composed["body"]
+        heading = subject or composed["subject"]
+        kind = "revision" if order.revision else "order"
+
+        # Composed and filed even with no mail configured. The order still moves
+        # to sent, and the way it reaches the supplier then is a buyer copying
+        # this text out — so the record of what they were shown is exactly as
+        # worth keeping as it is when the wire carries it.
+        if mailer.name == "none":
+            reason = "mail is not configured"
+            self._file_sent(
+                order, supplier, now, subject=heading, body=text, kind=kind,
+                to_address=supplier.email, delivered=False,
+                provider="none", failure=reason,
+            )
+            return {"provider": "none", "delivered": False, "reason": reason}
+
         try:
             recipient = resolve_recipient(supplier.email, self.settings)
-            return await mailer.deliver(
+            result = await mailer.deliver(
                 OutboundMessage(
                     to=recipient,
                     to_name=supplier.name,
-                    subject=subject or composed["subject"],
-                    body=message or composed["body"],
+                    subject=heading,
+                    body=text,
                 )
             )
         except MailError as exc:
+            # No row for this one, on purpose. Raising rolls the request back, so
+            # the order does not move to sent either — and a letter in the record
+            # beside an order that was never sent would be the same lie in the
+            # other direction. A send that fails leaves the order exactly where
+            # it was, which is the honest account of what happened.
             raise OrderError(f"{order.number} was not sent: {exc}") from exc
+
+        self._file_sent(
+            order, supplier, now, subject=heading, body=text, kind=kind,
+            to_address=result.get("recipient") or supplier.email,
+            delivered=bool(result.get("delivered")),
+            provider=mailer.name, failure=result.get("reason"),
+        )
+        return result
+
+    def _file_sent(
+        self, order: PurchaseOrder, supplier: Supplier | None, now: datetime, *,
+        subject: str, body: str, kind: str, to_address: str | None,
+        delivered: bool, provider: str, failure: str | None = None,
+    ) -> None:
+        """Write down what went out, as it went out.
+
+        Not recomposed on demand later: the composer renders an order as it
+        stands, and an order that has been revised twice since would produce a
+        letter the supplier never saw, sitting in the record looking like the one
+        they answered.
+        """
+        self.session.add(
+            SentMessage(
+                purchase_order_id=order.id,
+                supplier_id=supplier.id if supplier else None,
+                to_address=to_address,
+                subject=(subject or "")[:500],
+                body=(body or "")[:20000],
+                kind=kind,
+                revision=order.revision or 0,
+                delivered=delivered,
+                provider=provider,
+                failure=(failure or None) and str(failure)[:300],
+                sent_at=now,
+            )
+        )
 
     async def acknowledge(
         self, order: PurchaseOrder, *, confirmed_date: datetime | None, now: datetime | None = None
@@ -594,12 +650,20 @@ class OrderService:
             return {"provider": "none", "delivered": False, "reason": "mail is not configured"}
         composed = compose_receipt_email(order, supplier, lines, now=now)
         recipient = resolve_recipient(supplier.email, self.settings)
-        return await mailer.deliver(
+        result = await mailer.deliver(
             OutboundMessage(
                 to=recipient, to_name=supplier.name,
                 subject=composed["subject"], body=composed["body"],
             )
         ) | {"short_lines": composed["short_lines"]}
+        self._file_sent(
+            order, supplier, now,
+            subject=composed["subject"], body=composed["body"], kind="receipt",
+            to_address=result.get("recipient") or supplier.email,
+            delivered=bool(result.get("delivered")),
+            provider=mailer.name, failure=result.get("reason"),
+        )
+        return result
 
     # --------------------------------------------------------------- chasing
     async def sweep_unacknowledged(self, *, now: datetime | None = None) -> list[Issue]:

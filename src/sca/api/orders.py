@@ -6,16 +6,19 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from sca.api.deps import ActorDep, RuntimeSettingsDep, SessionDep
 from sca.carriers.base import get_carrier
 from sca.models import (
     Attachment,
+    AuditLog,
     Document,
+    InboundMessage,
     Issue,
     PurchaseOrder,
     PurchaseOrderLine,
+    SentMessage,
     Shipment,
     Supplier,
 )
@@ -348,6 +351,91 @@ async def order_message(
         ack_deadline_hours=settings.ack_reminder_hours,
         now=datetime.now(UTC),
     )
+
+
+@router.get("/purchase-orders/{number}/thread")
+async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dict:
+    """Both halves of the exchange on one order, oldest first.
+
+    Our letters and their replies interleaved, because reading either alone
+    invites the wrong conclusion: a supplier who has answered twice looks silent
+    if only outbound is shown, and one answering a withdrawn revision looks
+    agreeable if only their words are.
+
+    Letters sent before this was recorded are not reconstructed. The audit log
+    knows one went out and to whom; it does not know what it said, and rendering
+    today's figures under an old date would be inventing evidence.
+    """
+    order = await _by_number(session, number)
+    supplier = await session.get(Supplier, order.supplier_id)
+
+    entries: list[dict] = []
+    for msg in await session.scalars(
+        select(SentMessage).where(SentMessage.purchase_order_id == order.id)
+    ):
+        entries.append({
+            "id": msg.id,
+            "side": "ours",
+            "at": msg.sent_at,
+            "who": "Procurement",
+            "to": msg.to_address,
+            "subject": msg.subject,
+            "body": msg.body,
+            "kind": msg.kind,
+            "revision": msg.revision,
+            "delivered": msg.delivered,
+            "failure": msg.failure,
+        })
+
+    for msg in await session.scalars(
+        select(InboundMessage).where(InboundMessage.purchase_order_id == order.id)
+    ):
+        entries.append({
+            "id": msg.id,
+            "side": "theirs",
+            "at": msg.received_at,
+            "who": supplier.name if supplier else (msg.from_address or "Supplier"),
+            "from": msg.from_address,
+            "subject": msg.subject,
+            "body": msg.body,
+            "kind": msg.kind,
+            "confidence": msg.confidence,
+            # Read but not acted on: below the threshold the extractor files a
+            # message for a person instead of moving the order, and a reader
+            # deserves to know which of the two happened.
+            "acted_on": msg.processed_at is not None,
+        })
+
+    entries.sort(key=lambda e: e["at"])
+
+    # What the record cannot show. Counted as a difference rather than by
+    # comparing timestamps: the audit row is written after the letter it
+    # describes, so "older than the first letter kept" would miscount the very
+    # send that started the keeping. Every send leaves an audit row; only the
+    # ones since this table existed left a letter.
+    sends = await session.scalar(
+        select(func.count())
+        .select_from(AuditLog)
+        .where(
+            AuditLog.entity == "purchase_order",
+            AuditLog.entity_id == order.id,
+            AuditLog.action == "order.send",
+        )
+    )
+    kept = sum(1 for e in entries if e["side"] == "ours" and e["kind"] != "receipt")
+    unkept = max(0, (sends or 0) - kept)
+
+    return {
+        "number": order.number,
+        "supplier": supplier.name if supplier else None,
+        "supplier_email": supplier.email if supplier else None,
+        "status": order.status,
+        "revision": order.revision,
+        "entries": entries,
+        # Named plainly. "0 letters" and "we did not keep them" are different
+        # things to read on a screen that claims to be a record.
+        "not_kept": unkept,
+    }
 
 
 class MessagePreviewIn(BaseModel):

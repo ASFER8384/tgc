@@ -49,6 +49,48 @@ class InboundMessage(Base, TimestampMixin):
     processed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
+class SentMessage(Base, TimestampMixin):
+    """Every letter this system put in front of a supplier, kept as it went out.
+
+    The replies were already stored verbatim and our own half of the exchange was
+    not, which left the record one-sided: a supplier could be answering a price
+    nobody here could still produce, because the order had been revised twice
+    since and the composer only ever renders the order as it stands now.
+
+    Recomposing an old letter from today's rows would be worse than keeping
+    nothing — it would read as evidence while showing figures that were never
+    sent. So the text is written down at the moment it leaves.
+
+    A letter that could not be delivered at all leaves no row: the send raises,
+    the request rolls back, and the order stays where it was. A stored letter
+    beside an order that was never sent would be the same lie pointing the other
+    way. `delivered` is false for the case that does happen — composed and shown
+    to the buyer with no mail configured, then carried by hand.
+    """
+
+    __tablename__ = "sent_messages"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    purchase_order_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    supplier_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    # Where it actually went, which is not always the address on the supplier: a
+    # redirect routes test mail to one mailbox, and a record saying otherwise
+    # would send somebody looking through an inbox the letter never reached.
+    to_address: Mapped[str | None] = mapped_column(String(320))
+    subject: Mapped[str | None] = mapped_column(String(500))
+    body: Mapped[str] = mapped_column(String(20000), nullable=False, default="")
+    # order, revision, receipt — what this letter was for. The revision it went
+    # out under is on the row beside it, because "PO-5012" alone does not say
+    # which set of figures the supplier was looking at.
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, default="order")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    delivered: Mapped[bool] = mapped_column(nullable=False, default=False)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
+    # Why it did not go, where it did not. Empty on a delivered message.
+    failure: Mapped[str | None] = mapped_column(String(300))
+    sent_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+
+
 class Attachment(Base, TimestampMixin):
     """The file a supplier actually sent, kept byte for byte.
 

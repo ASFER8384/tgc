@@ -90,6 +90,32 @@
   /* These are forms, not tables, so they are narrower than the message dialogs —
      a 1040px column of single fields reads as a page that lost its layout. */
   #supplierDialog, #itemDialog, #cancelDialog { max-width: min(560px, 96vw); }
+
+  /* The thread is a side sheet rather than a centred box: it is read against
+     the order list it was opened from, and a modal in the middle of the screen
+     hides the row that raised the question. */
+  #threadDialog { margin: 0 0 0 auto; height: 100vh; max-height: 100vh;
+                  max-width: min(620px, 96vw); border-radius: 0;
+                  border-width: 0 0 0 1px; }
+  #threadDialog .panel-head { flex-wrap: wrap; gap: 0.5rem; }
+  /* The badge sits on the baseline of the text beside it rather than stretching
+     to the row, which is what a status tag does everywhere else on the page. */
+  #threadWho { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  #threadClose { margin-left: auto; }
+  #threadDialog .panel-body { max-height: calc(100vh - 4.2rem); }
+  .thread { display: flex; flex-direction: column; gap: 0.9rem; }
+  /* Ours on the left against the panel, theirs indented and tinted. Side is
+     carried by position and by a word, never by colour alone. */
+  .turn { border: 1px solid var(--rule); border-radius: 4px; padding: 0.6rem 0.7rem; }
+  .turn.theirs { margin-left: 1.6rem; background: var(--sunk); }
+  .turn-head { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem;
+               align-items: baseline; font-size: 0.78rem; color: var(--muted); }
+  .turn-head b { color: var(--ink); font-size: 0.82rem; font-weight: 650; }
+  .turn-body { margin: 0.5rem 0 0; font-family: var(--mono);
+               font-size: 0.76rem; line-height: 1.5; white-space: pre-wrap;
+               word-break: break-word; max-height: 15rem; overflow-y: auto; }
+  .turn.failed { border-color: var(--high); }
+  .turn-note { margin-top: 0.4rem; font-size: 0.76rem; color: var(--high); }
   /* Wider than the other forms: every row carries a quantity, a price and the
      line total beside each other, and squeezing those into 560px puts three
      numbers on top of one another. */
@@ -934,6 +960,21 @@
       </div>
     </div>
   </form>
+</dialog>
+
+<!-- Both halves of the exchange on one order. A side sheet rather than a centred
+     modal, because the question it answers is usually about the row it was
+     opened from and covering that row up answers it worse. -->
+<dialog id="threadDialog">
+  <div class="panel-head">
+    <h2 id="threadTitle">Conversation</h2>
+    <span class="hint" id="threadWho"></span>
+    <button type="button" class="ghost small" id="threadClose">Close</button>
+  </div>
+  <div class="panel-body">
+    <div class="readout" id="threadGap" hidden></div>
+    <div class="thread" id="threadTurns"></div>
+  </div>
 </dialog>
 
 <!-- An order raised by hand rather than by the plan. Same lifecycle, same
@@ -2380,6 +2421,12 @@
         buttons.push(
           `<button class="ghost small" data-receipt="${o.number}">Tell the supplier</button>`);
       }
+      // The whole exchange, both directions. First among the quiet buttons
+      // because "what has actually been said to this supplier" is the question
+      // asked most often of a row, and it used to be answerable only by opening
+      // somebody's mailbox.
+      buttons.push(
+        `<button class="ghost small" data-thread="${o.number}">Conversation</button>`);
       // "Email" read as an instruction to send one, which is what the Send
       // button does. This opens the composed text to be read, and on an order
       // already gone it is history rather than a draft — so the label says what
@@ -2414,6 +2461,8 @@
     $("orders").querySelectorAll("[data-send]").forEach((b) =>
       b.addEventListener("click", () => busy(b, () => act(
         `/purchase-orders/${b.dataset.send}/send`))));
+    $("orders").querySelectorAll("[data-thread]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, () => openThread(b.dataset.thread))));
     $("orders").querySelectorAll("[data-message]").forEach((b) =>
       b.addEventListener("click", () => busy(b, async () => {
         try {
@@ -2860,6 +2909,107 @@
         `${number} was cancelled, but the page could not reload: ${err.message}`);
     }
   }));
+
+  // ------------------------------------------------------------ conversation
+  // What each turn was. The supplier's side comes from the extractor, which is
+  // allowed to say "unknown" — a reply nobody could classify is filed for a
+  // person rather than guessed into a status change, and the word for that is
+  // "unread by the machine", not silence.
+  const TURN_KIND = {
+    order: "the order",
+    revision: "a revision",
+    receipt: "receipt of goods",
+    acknowledgement: "confirming",
+    delay: "a delay",
+    invoice: "an invoice",
+    packing_list: "a packing list",
+    quote: "a quote",
+    question: "a question",
+    unknown: "not classified",
+  };
+
+  const turnWhen = (at) => new Date(at).toLocaleString("en-GB", {
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+
+  async function openThread(number) {
+    $("threadTitle").textContent = `${number} conversation`;
+    $("threadWho").textContent = "";
+    $("threadGap").hidden = true;
+    $("threadTurns").innerHTML = `<div class="empty">Reading…</div>`;
+    $("threadDialog").showModal();
+    let thread;
+    try {
+      thread = await api(`/purchase-orders/${number}/thread`);
+    } catch (err) {
+      $("threadTurns").innerHTML =
+        `<div class="empty">Could not read it: ${escapeHtml(err.message)}</div>`;
+      return;
+    }
+
+    // The same badge the row carries, not a word in the hint line. Somebody
+    // reading a supplier's confirmation needs to know whether it still stands:
+    // the identical mark in both places is what says "this is that order".
+    $("threadWho").innerHTML = [
+      thread.status
+        ? `<span class="tag st-${escapeHtml(thread.status)}">${
+            escapeHtml(thread.status.replace(/_/g, " "))}</span>`
+        : "",
+      thread.revision ? `<span>Rev ${thread.revision}</span>` : "",
+      escapeHtml([thread.supplier, thread.supplier_email].filter(Boolean).join(" · ")),
+    ].filter(Boolean).join(" ");
+
+    // Said before the letters, not after. A reader who scrolls a short thread
+    // and finds nothing from before today should not have to work out whether
+    // that means nothing was sent.
+    if (thread.not_kept) {
+      $("threadGap").textContent =
+        `${thread.not_kept} earlier letter(s) went out before this system kept ` +
+        `its own half of the conversation. The audit log has the times and the ` +
+        `address; the text was not stored, and writing it out from today's ` +
+        `figures would show the supplier something they were never sent.`;
+      $("threadGap").hidden = false;
+    }
+
+    if (!thread.entries.length) {
+      $("threadTurns").innerHTML =
+        `<div class="empty">Nothing recorded either way yet.</div>`;
+      return;
+    }
+
+    $("threadTurns").innerHTML = thread.entries.map((e) => {
+      const ours = e.side === "ours";
+      const failed = ours && !e.delivered;
+      // The word, not just the indent. Position alone is a convention a reader
+      // has to learn and a screen reader cannot see at all.
+      const who = ours
+        ? `We wrote${e.revision ? ` · Rev ${e.revision}` : ""}`
+        : `${escapeHtml(e.who || "They")} replied`;
+      const marks = [TURN_KIND[e.kind] || e.kind];
+      if (ours) {
+        marks.push(e.delivered
+          ? `delivered to ${escapeHtml(e.to || "?")}`
+          : "not delivered");
+      } else if (!e.acted_on) {
+        // Filed for a person rather than acted on, which is a fact about the
+        // order and not only about the extractor.
+        marks.push("read, but the order was not moved by it");
+      }
+      return `<div class="turn ${ours ? "ours" : "theirs"}${failed ? " failed" : ""}">
+        <div class="turn-head">
+          <b>${who}</b>
+          <span>${turnWhen(e.at)}</span>
+          <span>${escapeHtml(marks.join(" · "))}</span>
+        </div>
+        ${e.subject ? `<div class="turn-head"><span>${escapeHtml(e.subject)}</span></div>` : ""}
+        <pre class="turn-body">${escapeHtml(e.body || "(no text)")}</pre>
+        ${failed && e.failure
+          ? `<div class="turn-note">${escapeHtml(e.failure)}</div>` : ""}
+      </div>`;
+    }).join("");
+  }
+
+  $("threadClose").addEventListener("click", () => $("threadDialog").close());
 
   // The order the dialog is currently editing. One dialog, one order at a time.
   let revising = null;
