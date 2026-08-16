@@ -2866,7 +2866,11 @@
 
   async function revise(number) {
     const detail = await api(`/purchase-orders/${number}`);
-    revising = { number, currency: detail.currency, lines: detail.lines };
+    // bodyEdited lives here rather than in this function because the send
+    // handler needs it: a body the buyer wrote is theirs and goes out as typed,
+    // and one the template wrote has to be re-read from the saved order before
+    // it does.
+    revising = { number, currency: detail.currency, lines: detail.lines, bodyEdited: false };
     resetDialogFields();
 
     $("reviseTitle").textContent = `Revise ${number}`;
@@ -2906,16 +2910,15 @@
     // worse than no body at all: it is a letter that contradicts the order it
     // is carrying. Once the buyer types in it themselves it stops being
     // regenerated, because their words outrank the template.
-    let bodyEdited = false;
     let pending = null;
     const recompose = async () => {
-      if (bodyEdited) return;
+      if (revising.bodyEdited) return;
       try {
         const message = await api(`/purchase-orders/${number}/message`, {
           method: "POST",
           body: JSON.stringify({ lines: revisedLines(), reason: $("reviseReason").value.trim() }),
         });
-        if (!bodyEdited) $("reviseBody").value = message.body;
+        if (!revising.bodyEdited) $("reviseBody").value = message.body;
       } catch { /* leave the last good draft in place */ }
     };
     const scheduleRecompose = () => {
@@ -2924,7 +2927,7 @@
       pending = setTimeout(recompose, 350);
     };
 
-    $("reviseBody").addEventListener("input", () => { bodyEdited = true; });
+    $("reviseBody").addEventListener("input", () => { revising.bodyEdited = true; });
     $("reviseReason").addEventListener("input", scheduleRecompose);
     $("reviseLines").querySelectorAll("input").forEach((input) =>
       input.addEventListener("input", () => { retotal(); scheduleRecompose(); }));
@@ -2990,10 +2993,22 @@
         await refreshAll();
         return;
       }
-      // The edited text is what goes out, not the recomposed template.
+      // The letter has to carry the figures that were just saved. It was being
+      // regenerated on a 350ms debounce while this read the box the instant it
+      // was clicked, so a buyer who changed a quantity and pressed Send inside
+      // that window mailed the supplier the previous revision's numbers under
+      // the new revision's heading — an order and a letter that contradict each
+      // other, sent as one message.
+      //
+      // So an untouched draft is not sent at all. The server composes from the
+      // rows it just stored, which is the same source the quantities come from
+      // and cannot lag behind them. A body the buyer typed is still sent as
+      // typed: their words outrank the template, and regenerating over them
+      // would be the same failure in the other direction.
       const sent = await api(`/purchase-orders/${revising.number}/send`, {
         method: "POST",
-        body: JSON.stringify({ body: $("reviseBody").value }),
+        body: JSON.stringify(
+          revising.bodyEdited ? { body: $("reviseBody").value } : {}),
       });
       $("reviseDialog").close();
       const delivery = sent.delivery && sent.delivery.delivery;
