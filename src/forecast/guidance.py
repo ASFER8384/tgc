@@ -37,6 +37,26 @@ WINDOWS = (4, 8, 13, 26)
 STEADY = 0.5
 LUMPY = 1.0
 
+# How much of the demand spread to cover while waiting for the mill. 1.64 is the
+# 95th percentile of a normal — one stockout in twenty replenishment cycles.
+#
+# Not derived, and the only judgement left in the chain: it is a statement about
+# how much lost sale is worse than how much held cash, which is the business's
+# to make and not the data's. Everything it multiplies — the spread, the wait —
+# is measured.
+SERVICE_Z = 1.64
+# Bounds on the safety term, in weeks. A line with two sales has a wild spread
+# and would otherwise demand a year of cover; a perfectly steady one would ask
+# for none and stock out on the first late delivery.
+MIN_SAFETY_WEEKS = 0.5
+MAX_SAFETY_WEEKS = 8.0
+# How long a single order is expected to last, which is what separates "order
+# now" from "order up to". Taken from the mill's own minimum: a minimum of 300
+# against 40 a week *is* an eight week cycle, whatever anybody would prefer.
+MIN_CYCLE_WEEKS = 2.0
+MAX_CYCLE_WEEKS = 8.0
+DEFAULT_CYCLE_WEEKS = 4.0
+
 # Below this there is not enough history for a window comparison to mean
 # anything, and picking a "best" one from four numbers would be reading noise.
 MIN_WEEKS_FOR_WINDOW = 8
@@ -54,6 +74,15 @@ class Guidance:
     lead_time_weeks: float | None = None
     lead_time_from: str | None = None
     suggested_reorder_weeks: float | None = None
+    # Order up to this much cover. Reorder answers "when", this answers "how
+    # much", and the gap between them is how long one order is meant to last.
+    suggested_target_weeks: float | None = None
+    # The safety term inside the reorder point, kept separate so it can be read.
+    # "Six weeks" is an instruction; "three weeks of waiting plus three for how
+    # unevenly this sells" is a number somebody can disagree with.
+    safety_weeks: float | None = None
+    cycle_weeks: float | None = None
+    threshold_basis: str | None = None
     reorder_warning: str | None = None
     best_window: int | None = None
     best_window_error: float | None = None
@@ -76,6 +105,10 @@ class Guidance:
             ),
             "lead_time_from": self.lead_time_from,
             "suggested_reorder_weeks": self.suggested_reorder_weeks,
+            "suggested_target_weeks": self.suggested_target_weeks,
+            "safety_weeks": None if self.safety_weeks is None else round(self.safety_weeks, 1),
+            "cycle_weeks": None if self.cycle_weeks is None else round(self.cycle_weeks, 1),
+            "threshold_basis": self.threshold_basis,
             "reorder_warning": self.reorder_warning,
             "best_window": self.best_window,
             "best_window_error": (
@@ -170,10 +203,6 @@ async def build(
         if days:
             guidance.lead_time_weeks = days / 7.0
             guidance.lead_time_from = source
-            # Rounded up to the half week, then a week of slack. An order placed
-            # exactly one lead time out arrives the day the shelf empties, which
-            # is on time only if nothing goes wrong and nothing ever does.
-            guidance.suggested_reorder_weeks = round(days / 7.0 + 1.0, 1)
             current = float(
                 item.reorder_cover_weeks if item.reorder_cover_weeks is not None else 0
             )
@@ -191,6 +220,7 @@ async def build(
                 guidance.best_window, guidance.best_window_error = best[0], best[1]
 
         guidance.volatility, guidance.steadiness = _steadiness(rows)
+        _derive_thresholds(guidance, item, links.get(sku, []))
 
         scores = per_item.get(sku)
         if scores:
@@ -217,6 +247,67 @@ async def build(
 
         out[sku] = guidance
     return out
+
+
+def _derive_thresholds(
+    guidance: Guidance, item: Item, links: list[SupplierItem]
+) -> None:
+    """When to reorder and how much to hold, from evidence rather than a constant.
+
+    A single number for the whole catalogue is wrong on nearly every line, and
+    wrong in the expensive direction on the ones that matter. Four weeks is late
+    for a mill that takes six and early for one that takes one; it is thin for a
+    line that arrives in lumps and generous for one that sells the same amount
+    every week. All three of those are measured here already.
+
+        reorder = how long the mill takes  +  how unevenly this line sells
+        target  = reorder  +  how long one order is meant to last
+
+    The safety term is the textbook one, z·σ·√L: the spread of weekly demand,
+    scaled by the square root of the wait, because a longer wait exposes more
+    weeks of variation but they partly cancel. σ arrives as a coefficient of
+    variation from ``_steadiness`` — measured off this line's own weeks, with
+    the weeks it could not be sold already excluded.
+
+    The cycle comes from the mill's own minimum. A minimum of 300 against 40 a
+    week is an eight week cycle whether anybody likes it or not, and setting a
+    target shorter than that would trigger a line that is still full.
+
+    Anything that cannot be derived is left null, and the planner falls back to
+    the deployment default for that line only. A guess dressed as a measurement
+    is worse than the constant it replaced.
+    """
+    lead = guidance.lead_time_weeks
+    if not lead or lead <= 0:
+        return
+
+    spread = guidance.volatility
+    if spread is None:
+        # No usable history: the wait is known and the variation is not, so the
+        # safety term is the floor rather than nothing. Said out loud in the
+        # basis, because "3.5 weeks" should not look measured when half of it
+        # was a default.
+        safety = MIN_SAFETY_WEEKS
+        basis = "lead time; no demand history to measure the spread"
+    else:
+        safety = SERVICE_Z * spread * (lead ** 0.5)
+        basis = f"lead time {lead:.1f}w + {SERVICE_Z}σ for a {guidance.steadiness} line"
+    safety = min(MAX_SAFETY_WEEKS, max(MIN_SAFETY_WEEKS, safety))
+
+    # What one order is worth in weeks, at this line's own rate. The item's own
+    # minimum first, then any supplier's, since that is who would be sent it.
+    weekly = guidance.weekly or 0.0
+    moq = item.moq or next((link.moq for link in links if link.moq), 0)
+    if weekly > 0 and moq:
+        cycle = min(MAX_CYCLE_WEEKS, max(MIN_CYCLE_WEEKS, moq / weekly))
+    else:
+        cycle = DEFAULT_CYCLE_WEEKS
+
+    guidance.safety_weeks = safety
+    guidance.cycle_weeks = cycle
+    guidance.suggested_reorder_weeks = round(lead + safety, 1)
+    guidance.suggested_target_weeks = round(lead + safety + cycle, 1)
+    guidance.threshold_basis = basis
 
 
 def _lead_time(

@@ -48,6 +48,12 @@ class Suggestion:
     # Everyone who could make this line, best first, each priced at their own
     # minimum. The buyer picks; the first is only where the cursor starts.
     options: list[dict] = field(default_factory=list)
+    # The cover thresholds this line was actually judged against, and where they
+    # came from. A trigger that varies per line has to say why it varied, or it
+    # reads as the number moving on its own.
+    reorder_weeks: float = 0.0
+    target_weeks: float = 0.0
+    threshold_from: str = ""
 
     @property
     def alternatives(self) -> int:
@@ -66,6 +72,9 @@ class Suggestion:
             "line_total": str(self.line_total),
             "reason": self.reason,
             "forecast_source": self.forecast_source,
+            "reorder_weeks": round(self.reorder_weeks, 1),
+            "target_weeks": round(self.target_weeks, 1),
+            "threshold_from": self.threshold_from,
             "weekly_demand": round(self.weekly_demand, 1),
             "minimum": self.minimum,
             "below_minimum": self.below_minimum,
@@ -157,11 +166,23 @@ class PlanningService:
             floor = self._policy(item, "min_stock", "min_stock_default")
             floor = int(floor or 0)
             below_floor = floor > 0 and available < floor
-            # This item's thresholds, or the deployment's where it has none.
-            reorder_weeks = float(
-                self._policy(item, "reorder_cover_weeks", "reorder_cover_weeks"))
-            target_weeks = float(
-                self._policy(item, "target_cover_weeks", "target_cover_weeks"))
+            # This line's thresholds: its own where somebody set one, otherwise
+            # the pair the forecast derived for it, otherwise the deployment's.
+            reorder_weeks = float(self._policy(
+                item, "reorder_cover_weeks", "reorder_cover_weeks",
+                derived=snapshot.model_reorder_weeks))
+            target_weeks = float(self._policy(
+                item, "target_cover_weeks", "target_cover_weeks",
+                derived=snapshot.model_target_weeks))
+            # Where the pair came from, so a buyer looking at a line that
+            # triggered at seven weeks can see it was the mill's clock and this
+            # line's own spread rather than a number somebody chose.
+            if item.reorder_cover_weeks is not None:
+                threshold_from = "set on the item"
+            elif snapshot.model_reorder_weeks is not None:
+                threshold_from = snapshot.model_threshold_basis or "the forecast"
+            else:
+                threshold_from = "the deployment default"
 
             if weekly <= 0 and not below_floor:
                 # No forecast, nothing sold, and no floor anybody set. Suggesting
@@ -237,6 +258,9 @@ class PlanningService:
                         below_floor=below_floor,
                     ),
                     forecast_source=source if weekly > 0 else "minimum",
+                    reorder_weeks=reorder_weeks,
+                    target_weeks=target_weeks,
+                    threshold_from=threshold_from,
                     weekly_demand=weekly,
                     minimum=floor,
                     below_minimum=below_floor,
@@ -249,16 +273,27 @@ class PlanningService:
         out.sort(key=lambda s: s.weeks_cover if s.weeks_cover is not None else -1.0)
         return out
 
-    def _policy(self, item, field: str, setting: str):
-        """This item's own figure, or the deployment's where it has none.
+    def _policy(self, item, field: str, setting: str, derived=None):
+        """This item's own figure, then the forecast's, then the deployment's.
 
-        Null and not zero is what separates the two. A zero minimum is somebody
-        saying this line has no floor; a null is somebody not having an opinion,
-        and a deployment that later raises the default should move the second
-        and leave the first alone.
+        Null and not zero is what separates the first from the rest. A zero
+        minimum is somebody saying this line has no floor; a null is somebody not
+        having an opinion, and a deployment that later raises the default should
+        move the second and leave the first alone.
+
+        The forecast sits in the middle because it knows things the constant
+        cannot: how long this mill actually takes, how unevenly this line sells,
+        and how much one order is worth in weeks. A single figure for the whole
+        catalogue is late for a slow supplier and early for a fast one, and it
+        was late and early on the same screen. It stays the last resort for the
+        lines the forecast cannot speak for — no lead time, or nothing sold yet.
         """
         value = getattr(item, field, None)
-        return getattr(self.settings, setting) if value is None else value
+        if value is not None:
+            return value
+        if derived is not None:
+            return derived
+        return getattr(self.settings, setting)
 
     @staticmethod
     def _reason(

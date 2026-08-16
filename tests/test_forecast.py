@@ -18,6 +18,7 @@ from cdp.models.person import Person
 from forecast import features as feature_module
 from forecast import panel as panel_module
 from forecast.evaluate import Score, decide, holdout
+from forecast.guidance import Guidance, _derive_thresholds
 from forecast.model import MIN_ROWS, train
 from sca.models import Item, StockLevel, StockSnapshot, Supplier
 
@@ -495,7 +496,13 @@ async def test_guidance_warns_when_the_reorder_point_is_shorter_than_the_mill(
     out = (await client.get("/forecast/guidance")).json()
     row = out["items"][SKU]
     assert row["lead_time_weeks"] == pytest.approx(6.0)
-    assert row["suggested_reorder_weeks"] == 7.0
+    # Lead time plus a safety term, not lead time plus a flat week. One sale is
+    # no basis for a spread, so the safety term is its floor and says so —
+    # which is still strictly more than the mill's own six weeks, because a
+    # trigger inside the lead time is a guaranteed stockout with extra steps.
+    assert row["suggested_reorder_weeks"] == 6.5
+    assert row["safety_weeks"] == 0.5
+    assert "no demand history" in row["threshold_basis"]
     assert "arrives after the shelf is empty" in row["reorder_warning"]
 
 
@@ -542,3 +549,89 @@ async def test_guidance_says_nothing_it_cannot_know(client, session):
     assert row["weeks_cover"] is None
     assert row["best_window"] is None
     assert row["steadiness"] == "unknown"
+
+
+# ------------------------------------------------------- thresholds, derived
+# The reorder point used to be one number for the whole catalogue: late for a
+# mill that takes six weeks, early for one that takes one, thin for a line that
+# arrives in lumps. All three were measured and none of them reached the
+# decision. What is pinned here is that each now moves it, in the right
+# direction and by a defensible amount.
+
+
+
+class _Item:
+    def __init__(self, moq=0):
+        self.moq = moq
+
+
+def _derived(*, lead, spread, weekly=40.0, moq=200, steadiness="variable"):
+    g = Guidance(sku="X", weekly=weekly, lead_time_weeks=lead,
+                 volatility=spread, steadiness=steadiness)
+    _derive_thresholds(g, _Item(moq=moq), [])
+    return g
+
+
+def test_a_slower_mill_triggers_earlier():
+    """The whole point. An order placed four weeks out from a mill that takes
+    six arrives two weeks after the shelf emptied, every time."""
+    quick = _derived(lead=1.0, spread=0.5)
+    slow = _derived(lead=6.0, spread=0.5)
+    assert slow.suggested_reorder_weeks > quick.suggested_reorder_weeks
+    # And never inside the lead time itself, which would be a guaranteed
+    # stockout dressed as a threshold.
+    assert slow.suggested_reorder_weeks > 6.0
+
+
+def test_a_lumpy_line_carries_more_cover_than_a_steady_one():
+    steady = _derived(lead=3.0, spread=0.2, steadiness="steady")
+    lumpy = _derived(lead=3.0, spread=1.4, steadiness="lumpy")
+    assert lumpy.suggested_reorder_weeks > steady.suggested_reorder_weeks
+
+
+def test_safety_grows_with_the_wait_but_slower_than_it():
+    """Root, not linear: a longer wait exposes more weeks of variation, but
+    they partly cancel. Doubling the wait must not double the buffer."""
+    short = _derived(lead=2.0, spread=0.6)
+    long = _derived(lead=8.0, spread=0.6)
+    assert long.safety_weeks > short.safety_weeks
+    assert long.safety_weeks < short.safety_weeks * 4
+
+
+def test_a_wild_line_cannot_demand_a_year_of_cover():
+    """Two sales and a huge spread is not evidence for holding a year."""
+    wild = _derived(lead=3.0, spread=12.0)
+    assert wild.safety_weeks <= 8.0
+
+
+def test_the_cycle_is_what_the_mill_forces():
+    """A minimum of 400 against 40 a week is a ten week cycle whether anybody
+    likes it or not — capped, because the rounding already buys the quantity."""
+    small = _derived(lead=3.0, spread=0.5, moq=80, weekly=40)
+    large = _derived(lead=3.0, spread=0.5, moq=400, weekly=40)
+    assert large.cycle_weeks > small.cycle_weeks
+    assert large.suggested_target_weeks > large.suggested_reorder_weeks
+
+
+def test_target_is_always_above_the_trigger():
+    """Otherwise a line orders itself back to below its own reorder point and
+    triggers again the next morning, forever."""
+    for lead in (1.0, 3.0, 8.0):
+        for spread in (0.1, 0.7, 2.0):
+            g = _derived(lead=lead, spread=spread)
+            assert g.suggested_target_weeks > g.suggested_reorder_weeks
+
+
+def test_no_lead_time_derives_nothing():
+    """No mill clock, no threshold. The deployment default governs that line
+    alone rather than a number invented to look measured."""
+    g = Guidance(sku="X", weekly=40.0, volatility=0.5)
+    _derive_thresholds(g, _Item(moq=200), [])
+    assert g.suggested_reorder_weeks is None
+    assert g.suggested_target_weeks is None
+
+
+def test_no_history_says_so_rather_than_guessing_a_spread():
+    g = _derived(lead=3.0, spread=None)
+    assert g.safety_weeks == 0.5
+    assert "no demand history" in g.threshold_basis

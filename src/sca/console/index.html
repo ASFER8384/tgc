@@ -1475,9 +1475,17 @@
         + `where there is neither, the average week over the last ${
             p.demand_window_weeks} weeks of real orders. Each row says which it is.`],
       ["Weeks cover", "(stock + already on order) ÷ that rate"],
-      ["Order when", `cover drops under ${p.reorder_cover_weeks} weeks, or under the supplier's `
-        + `lead time if that is longer`],
-      ["Buy", `enough for ${p.target_cover_weeks} weeks, rounded up to their minimum and pack size`],
+      ["Order when", "cover drops under this line's own trigger — how long its mill "
+        + "actually takes, plus a margin for how unevenly it sells. A six week mill "
+        + "triggers at more than a one week mill, and a lumpy line at more than a "
+        + "steady one. Each row says where its trigger came from."],
+      ["Buy", "up to the trigger plus one order's worth, where an order's worth is "
+        + "the mill's minimum divided by this line's rate — then rounded up to that "
+        + "minimum and pack size"],
+      ["Where those come from", `derived per line by the forecast. A figure set on the `
+        + `item beats it; a line the forecast cannot speak for — no lead time, nothing `
+        + `sold yet — falls back to ${p.reorder_cover_weeks} and ${p.target_cover_weeks} `
+        + `weeks`],
     ];
 
     // A worked example beats the rule. Taken from a row on screen, so a buyer
@@ -2186,6 +2194,14 @@
         <td class="num">${sold}${typed}${drift}</td>
         <td class="num">${i.on_hand}</td>
         <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}${
+          // The trigger this line was actually judged against, and who set it.
+          // A threshold that varies per line has to say why it varied, or it
+          // reads as the number moving on its own.
+          line.reorder_weeks
+            ? `<br><span style="color:var(--muted);font-size:0.72rem" title="${
+                escapeHtml(line.threshold_from || "")}">triggers at ${
+                line.reorder_weeks} wk</span>`
+            : ""}${
           // A line under a hard floor is not the same suggestion as one that ran
           // low on cover: somebody stated this number, and on an item with no
           // sales history it is the only reason the row is here at all.

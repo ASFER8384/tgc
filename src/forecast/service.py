@@ -166,7 +166,7 @@ async def run_forecast(
 
     items = _item_rows(per_item)
     if publish:
-        await _publish(session, per_item, actor=actor, run_id=run.id)
+        await _publish(session, per_item, panel, actor=actor, run_id=run.id)
         run.published = True
 
     session.add(AuditLog(
@@ -205,15 +205,35 @@ def _item_rows(per_item: pd.DataFrame) -> list[dict]:
 
 
 async def _publish(
-    session: AsyncSession, per_item: pd.DataFrame, *, actor: str, run_id: str
+    session: AsyncSession,
+    per_item: pd.DataFrame,
+    panel,
+    *,
+    actor: str,
+    run_id: str,
 ) -> None:
     """Write the weekly figure where the buying desk already reads it.
 
     An average of the coming four weeks rather than next week alone: the field is
     a weekly rate that the planner multiplies by a cover target, and handing it a
     single week would make every reorder decision swing on one noisy number.
+
+    The thresholds go with it. When to reorder and how much cover to buy up to
+    are derived from the mill's lead time, this line's own week-to-week spread
+    and the minimum it has to be bought in — all measured, all already here, and
+    none of them reaching the decision while the desk used one constant for the
+    whole catalogue. Writing them beside the rate keeps the buying half free of
+    any knowledge of the forecasting half, and keeps the two from disagreeing
+    about a line.
     """
+    from forecast import guidance as guidance_module
+
+    # The rate first, for every line. The thresholds are computed from it — a
+    # safety term needs the demand it is protecting and a cycle needs the rate
+    # the minimum is divided by — so deriving them before the write would size
+    # this run's thresholds against the last run's demand.
     changed = []
+    touched = []
     for sku, part in per_item.groupby("sku", observed=True):
         weekly = float(part.sort_values("week")["units"].head(4).mean())
         snapshot = await session.get(StockSnapshot, str(sku))
@@ -228,7 +248,30 @@ async def _publish(
         # Signed, so the desk can say where the rate came from. Without this the
         # figure written here was read back as something a person had typed.
         snapshot.weekly_forecast_source = "model"
+        touched.append((str(sku), snapshot))
         changed.append({"sku": str(sku), "from": before, "to": round(weekly, 2)})
+
+    # Flushed so the guidance pass reads the rates just written rather than the
+    # ones they replaced.
+    await session.flush()
+    advice = await guidance_module.build(session, panel)
+    by_sku = {row["sku"]: row for row in changed}
+    for sku, snapshot in touched:
+        hint = advice.get(sku)
+        if not hint or not hint.suggested_reorder_weeks or not hint.suggested_target_weeks:
+            # Nothing derivable — no lead time, or no rate to divide by. Left
+            # null so the planner falls back to the deployment default for this
+            # line alone, rather than carrying a stale pair from a run when it
+            # could be derived.
+            snapshot.model_reorder_weeks = None
+            snapshot.model_target_weeks = None
+            snapshot.model_threshold_basis = None
+            continue
+        snapshot.model_reorder_weeks = Decimal(str(hint.suggested_reorder_weeks))
+        snapshot.model_target_weeks = Decimal(str(hint.suggested_target_weeks))
+        snapshot.model_threshold_basis = (hint.threshold_basis or "")[:120]
+        by_sku[sku]["reorder_weeks"] = hint.suggested_reorder_weeks
+        by_sku[sku]["target_weeks"] = hint.suggested_target_weeks
 
     session.add(AuditLog(
         actor=actor, action="forecast.weekly", entity="forecast_run", entity_id=run_id,

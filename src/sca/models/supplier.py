@@ -299,6 +299,17 @@ class StockSnapshot(Base, TimestampMixin):
     # Null means neither has claimed it: a row written before this was recorded,
     # or one still at zero. Not "manual", which is the answer that was wrong.
     weekly_forecast_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The thresholds the forecast derived for this line: when to reorder, and how
+    # much cover to buy up to. Written by the same run that writes the rate, and
+    # read by the planner, so the two halves never disagree about a line and the
+    # buying half needs no knowledge of the forecasting half to use them.
+    #
+    # Null where they could not be derived — no lead time, no rate — and the
+    # deployment default governs that line alone. A guess dressed as a
+    # measurement is worse than the constant it replaced.
+    model_reorder_weeks: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    model_target_weeks: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    model_threshold_basis: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
 
 class StockLevel(Base):
