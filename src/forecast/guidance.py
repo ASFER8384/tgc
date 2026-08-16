@@ -51,11 +51,24 @@ SERVICE_Z = 1.64
 MIN_SAFETY_WEEKS = 0.5
 MAX_SAFETY_WEEKS = 8.0
 # How long a single order is expected to last, which is what separates "order
-# now" from "order up to". Taken from the mill's own minimum: a minimum of 300
-# against 40 a week *is* an eight week cycle, whatever anybody would prefer.
-MIN_CYCLE_WEEKS = 2.0
-MAX_CYCLE_WEEKS = 8.0
-DEFAULT_CYCLE_WEEKS = 4.0
+# now" from "order up to".
+#
+# One month, matching the horizon the order plan buys for. The two panels
+# answering the same question over different periods was the single most
+# confusing thing on either screen — one said 161 and the other 350, both
+# correct, with nothing saying they were measuring different spans.
+#
+# A month is a calendar fact rather than a tuning knob. What it replaced was
+# worse: the mill's minimum divided by the weekly rate, capped at eight weeks.
+# On a line whose minimum was a year's supply that ratio came to 51 weeks and
+# the cap did all the work, so the number governing every order on the desk was
+# a constant nobody had chosen on purpose.
+#
+# The minimum still raises it where it genuinely forces a longer cycle — a mill
+# that will not cut less than ten weeks' worth sets a ten week cycle by
+# arithmetic, not by preference — but it is a floor now, not the whole rule.
+WEEKS_PER_MONTH = 4.35
+MAX_CYCLE_WEEKS = 13.0
 
 # Below this there is not enough history for a window comparison to mean
 # anything, and picking a "best" one from four numbers would be reading noise.
@@ -269,9 +282,12 @@ def _derive_thresholds(
     variation from ``_steadiness`` — measured off this line's own weeks, with
     the weeks it could not be sold already excluded.
 
-    The cycle comes from the mill's own minimum. A minimum of 300 against 40 a
-    week is an eight week cycle whether anybody likes it or not, and setting a
-    target shorter than that would trigger a line that is still full.
+    The cycle is one month, matching what the order plan buys for, so the two
+    screens stop answering the same question over different spans. The mill's
+    minimum raises it only where it genuinely forces a longer one: a mill that
+    will not cut less than ten weeks' worth sets a ten week cycle by arithmetic
+    rather than by preference, and a target shorter than that would retrigger a
+    line that is still full.
 
     Anything that cannot be derived is left null, and the planner falls back to
     the deployment default for that line only. A guess dressed as a measurement
@@ -298,10 +314,8 @@ def _derive_thresholds(
     # minimum first, then any supplier's, since that is who would be sent it.
     weekly = guidance.weekly or 0.0
     moq = item.moq or next((link.moq for link in links if link.moq), 0)
-    if weekly > 0 and moq:
-        cycle = min(MAX_CYCLE_WEEKS, max(MIN_CYCLE_WEEKS, moq / weekly))
-    else:
-        cycle = DEFAULT_CYCLE_WEEKS
+    forced = (moq / weekly) if weekly > 0 and moq else 0.0
+    cycle = min(MAX_CYCLE_WEEKS, max(WEEKS_PER_MONTH, forced))
 
     guidance.safety_weeks = safety
     guidance.cycle_weeks = cycle
