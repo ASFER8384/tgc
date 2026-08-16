@@ -13,10 +13,10 @@ exception for operational mail, so a purchase order to a supplier who has not
 written to us today is a template, not the letter. Once they reply, a
 twenty-four hour window opens in which free text is allowed.
 
-That is why `send_template` is the only thing here. Free text within the window
-needs the window to be known, and knowing it needs the inbound webhook, which
-does not exist yet. Sending free text without it would fail per-message at
-Meta's edge, on a supplier's order, with a message nobody was watching for.
+So there are two ways to send and they are not interchangeable: `send_template`
+opens a conversation, `send_text` continues one. Which is allowed depends on
+when the supplier last wrote, which is a fact about the record rather than about
+this module — so the window is checked by the caller, before either is reached.
 """
 
 import json
@@ -50,10 +50,25 @@ class TemplateMessage:
     variables: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class TextMessage:
+    """Free text, which is only legal inside the customer service window.
+
+    Meta allows a business to write in its own words for twenty-four hours after
+    the other side writes first. Outside that, a send is refused at their edge —
+    so the window is checked here rather than discovered as a failed order.
+    """
+
+    to: str
+    text: str
+
+
 class Sender(Protocol):
     name: str
 
     async def send_template(self, message: TemplateMessage) -> dict: ...
+
+    async def send_text(self, message: TextMessage) -> dict: ...
 
 
 class NullSender:
@@ -62,6 +77,12 @@ class NullSender:
     name = "none"
 
     async def send_template(self, message: TemplateMessage) -> dict:
+        return self._off()
+
+    async def send_text(self, message: TextMessage) -> dict:
+        return self._off()
+
+    def _off(self) -> dict:
         return {
             "provider": self.name,
             "delivered": False,
@@ -78,7 +99,7 @@ class ConsoleSender:
     """
 
     name: str = "console"
-    sent: list[TemplateMessage] = field(default_factory=list)
+    sent: list[TemplateMessage | TextMessage] = field(default_factory=list)
 
     async def send_template(self, message: TemplateMessage) -> dict:
         self.sent.append(message)
@@ -86,6 +107,11 @@ class ConsoleSender:
             f"[whatsapp:console] to={message.to} template={message.template}"
             f" vars={list(message.variables)}"
         )
+        return {"provider": self.name, "delivered": True, "recipient": message.to}
+
+    async def send_text(self, message: TextMessage) -> dict:
+        self.sent.append(message)
+        print(f"[whatsapp:console] to={message.to} text={message.text[:60]!r}")
         return {"provider": self.name, "delivered": True, "recipient": message.to}
 
 
@@ -139,6 +165,19 @@ class CloudSender:
         # dependency list as it is. One supplier's slow send must not stall the
         # event loop for every other request.
         return await asyncio.to_thread(self._post, payload)
+
+    async def send_text(self, message: TextMessage) -> dict:
+        import asyncio
+
+        return await asyncio.to_thread(self._post, {
+            "messaging_product": "whatsapp",
+            "to": message.to,
+            "type": "text",
+            # Off, deliberately. Link previews are fetched by Meta from whatever
+            # the text happens to contain, and a purchase order is not a place
+            # for a preview card nobody chose.
+            "text": {"preview_url": False, "body": message.text},
+        })
 
     def _post(self, payload: dict) -> dict:
         settings = self.settings

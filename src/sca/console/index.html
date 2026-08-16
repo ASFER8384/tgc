@@ -117,6 +117,18 @@
   .chanpills button[aria-pressed="true"] { background: var(--accent);
                                            border-color: var(--accent); color: var(--accent-ink); }
   .chanpills button:disabled { opacity: 0.45; cursor: default; }
+  /* Pinned under the thread rather than inside it. The scroll belongs to the
+     conversation; the box you write in should not go looking for itself. */
+  .composer { border-top: 1px solid var(--rule); padding: 0.7rem 1.2rem 0.9rem;
+              display: flex; flex-direction: column; gap: 0.5rem;
+              background: var(--panel); }
+  .composer textarea { font: inherit; font-size: 0.85rem; padding: 0.45rem 0.6rem;
+                       border: 1px solid var(--rule); border-radius: 4px;
+                       background: var(--panel); color: var(--ink); resize: vertical; }
+  .composer textarea:disabled { background: var(--sunk); color: var(--muted); }
+  .composer .bar { display: flex; justify-content: flex-end; }
+  .composer .hint { font-size: 0.76rem; color: var(--muted); }
+  .composer .hint.shut { color: var(--high); }
   .thread { display: flex; flex-direction: column; gap: 0.9rem; }
   /* Ours on the left against the panel, theirs indented and tinted. Side is
      carried by position and by a word, never by colour alone. */
@@ -1104,11 +1116,23 @@
     <div id="threadIssues"></div>
     <!-- One order can be worked on two wires, and reading either alone gives the
          wrong answer: a supplier who replied on email looks silent on WhatsApp.
-         All is the default for that reason — the filter is for narrowing, never
-         the state somebody arrives in. -->
+         Both toggles start on for that reason — the filter is for narrowing,
+         never the state somebody arrives in. -->
     <div class="chanpills" id="threadChannels"></div>
     <div class="readout" id="threadGap" hidden></div>
     <div class="thread" id="threadTurns"></div>
+  </div>
+  <!-- Writing back, from where the conversation is read. Outside the panel body
+       so it stays put while the thread scrolls: a composer that scrolls away is
+       one somebody stops using. -->
+  <div class="composer" id="threadComposer" hidden>
+    <div class="hint" id="composerWhy"></div>
+    <textarea id="composerText" rows="2"
+              placeholder="Write to the supplier on WhatsApp…"></textarea>
+    <div class="bar">
+      <button type="button" id="composerSend">Send</button>
+    </div>
+    <div class="readout" id="composerOut" hidden></div>
   </div>
 </dialog>
 
@@ -3291,6 +3315,8 @@
       $("threadGap").hidden = false;
     }
 
+    drawComposer(number, thread);
+
     if (!thread.entries.length) {
       $("threadChannels").innerHTML = "";
       $("threadTurns").innerHTML =
@@ -3301,6 +3327,81 @@
     drawChannelPills(thread);
     drawTurns(thread.entries);
   }
+
+  // The order the composer is writing to, and whether it may write at all. Held
+  // here because the send handler is bound once, not redrawn with the drawer.
+  let writingTo = null;
+
+  // Writing back on WhatsApp, which is allowed for twenty-four hours after the
+  // supplier last wrote and refused by Meta outside that. The refusal is shown
+  // before it is typed into: finding out a message was impossible after writing
+  // it is the version of this that people work around by using their own phone.
+  function drawComposer(number, thread) {
+    const wa = thread.whatsapp || {};
+    const box = $("threadComposer");
+    $("composerOut").hidden = true;
+    $("composerText").value = "";
+
+    if (!wa.can_send) {
+      // No number on file, or no supplier at all. Nothing to explain in the
+      // drawer that a hidden composer does not already say.
+      writingTo = null;
+      box.hidden = true;
+      return;
+    }
+
+    writingTo = wa.open ? number : null;
+    box.hidden = false;
+    const why = $("composerWhy");
+    why.classList.toggle("shut", !wa.open);
+    if (wa.open) {
+      why.textContent = wa.closes_at
+        ? `WhatsApp, to ${thread.supplier_phone}. Open until ${
+            turnWhen(wa.closes_at)}, then only the approved template.`
+        : `WhatsApp, to ${thread.supplier_phone}.`;
+    } else {
+      why.textContent = wa.closes_at
+        ? `The window closed at ${turnWhen(wa.closes_at)}. WhatsApp only lets us `
+          + `write in our own words for a day after they write to us — send the `
+          + `order template, or wait for their reply.`
+        : `${thread.supplier} has not written to us on WhatsApp yet, so we cannot `
+          + `open with our own words. Send the order on WhatsApp first.`;
+    }
+    $("composerText").disabled = !wa.open;
+    $("composerSend").disabled = !wa.open;
+  }
+
+  // Not wrapped in busy(): that hands the button back enabled when it finishes,
+  // and a send can legitimately end with the composer shut — the reply that
+  // opened the window may have been the last one it will get.
+  $("composerSend").addEventListener("click", async () => {
+    const send = $("composerSend");
+    if (send.disabled) return;
+    const number = writingTo;
+    const text = $("composerText").value.trim();
+    const out = $("composerOut");
+    if (!number || !text) {
+      out.hidden = false;
+      out.textContent = "Nothing to send.";
+      return;
+    }
+    send.disabled = true;
+    send.classList.add("busy");
+    try {
+      await api(`/purchase-orders/${number}/whatsapp/message`,
+                { method: "POST", body: JSON.stringify({ text }) });
+    } catch (err) {
+      out.hidden = false;
+      out.textContent = `Not sent: ${err.message}`;
+      send.disabled = false;
+      return;
+    } finally {
+      send.classList.remove("busy");
+    }
+    // Reopened rather than appended to, so what the drawer shows is what the
+    // record holds — including the delivery mark, which is the server's to say.
+    await openThread(number);
+  });
 
   // Which wires this order has actually been worked on, with counts. Only the
   // ones with something on them: a WhatsApp pill reading zero on an order that
@@ -3314,20 +3415,28 @@
     const used = Object.keys(counts);
     if (used.length < 2) { $("threadChannels").innerHTML = ""; return; }
 
+    // Each wire switches itself on and off, and both start on. There is no All
+    // pill because with independent toggles it has nothing to do: everything on
+    // is the state somebody arrives in, and the way back to it is pressing the
+    // one you turned off. The last one on will not turn off — an empty drawer
+    // is never what the person clicking a filter meant.
     const LABEL = { email: "Email", whatsapp: "WhatsApp" };
-    $("threadChannels").innerHTML =
-      `<button type="button" data-chan="" aria-pressed="true">All
-         (${thread.entries.length})</button>`
-      + used.map((c) =>
-        `<button type="button" data-chan="${c}" aria-pressed="false">${
-          LABEL[c] || c} (${counts[c]})</button>`).join("");
+    const on = new Set(used);
+    $("threadChannels").innerHTML = used.map((c) =>
+      `<button type="button" data-chan="${c}" aria-pressed="true">${
+        LABEL[c] || c} (${counts[c]})</button>`).join("");
 
     $("threadChannels").querySelectorAll("[data-chan]").forEach((b) =>
       b.addEventListener("click", () => {
-        $("threadChannels").querySelectorAll("[data-chan]").forEach((o) =>
-          o.setAttribute("aria-pressed", String(o === b)));
-        const want = b.dataset.chan;
-        drawTurns(thread.entries.filter((e) => !want || (e.channel || "email") === want));
+        const c = b.dataset.chan;
+        if (on.has(c)) {
+          if (on.size === 1) return;
+          on.delete(c);
+        } else {
+          on.add(c);
+        }
+        b.setAttribute("aria-pressed", String(on.has(c)));
+        drawTurns(thread.entries.filter((e) => on.has(e.channel || "email")));
       }));
   }
 

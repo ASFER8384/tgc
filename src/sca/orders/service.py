@@ -11,6 +11,7 @@ from sca.mail import MailError, OutboundMessage, get_mailer, resolve_recipient
 from sca.models import (
     ALLOWED_TRANSITIONS,
     AuditLog,
+    InboundMessage,
     Issue,
     PurchaseOrder,
     PurchaseOrderLine,
@@ -21,7 +22,7 @@ from sca.models import (
 )
 from sca.orders.compose import compose_order_email, compose_receipt_email
 from sca.scheduling.windows import WorkingHours, is_open, next_open, working_hours_between
-from sca.whatsapp import TemplateMessage, WhatsAppError, get_sender
+from sca.whatsapp import TemplateMessage, TextMessage, WhatsAppError, get_sender
 from sca.whatsapp import resolve_recipient as wa_recipient
 
 
@@ -457,6 +458,80 @@ class OrderService:
             provider=mailer.name, failure=result.get("reason"),
         )
         return result
+
+    # Meta's customer service window. A business may write in its own words for
+    # this long after the other side writes, and not a minute past it.
+    WA_WINDOW = timedelta(hours=24)
+
+    async def whatsapp_window(
+        self, supplier: Supplier, *, now: datetime | None = None
+    ) -> tuple[bool, datetime | None]:
+        """Whether free text is allowed, and until when.
+
+        Measured from the supplier's last inbound WhatsApp message, because that
+        is what opens it. Checked here rather than left to fail at Meta's edge:
+        a refusal that arrives as a failed order, hours later, on a message
+        nobody was watching, is the worst place to learn this rule.
+        """
+        now = now or datetime.now(UTC)
+        last = await self.session.scalar(
+            select(InboundMessage.received_at)
+            .where(
+                InboundMessage.supplier_id == supplier.id,
+                InboundMessage.source == "whatsapp",
+            )
+            .order_by(InboundMessage.received_at.desc())
+            .limit(1)
+        )
+        if last is None:
+            return False, None
+        closes = last + self.WA_WINDOW
+        return closes > now, closes
+
+    async def send_whatsapp_text(
+        self, order: PurchaseOrder, text: str, *, now: datetime | None = None
+    ) -> dict:
+        """Write to the supplier in our own words, inside the open window."""
+        now = now or datetime.now(UTC)
+        body = (text or "").strip()
+        if not body:
+            raise OrderInputError("a message needs some words in it")
+        supplier = await self.session.get(Supplier, order.supplier_id)
+        if supplier is None:
+            raise OrderError(f"{order.number} has no supplier on file")
+
+        open_now, closes = await self.whatsapp_window(supplier, now=now)
+        if not open_now:
+            raise OrderError(
+                "WhatsApp only allows free text for 24 hours after the supplier "
+                "writes. " + (
+                    f"{supplier.name} last wrote on {closes - self.WA_WINDOW:%d %b %H:%M}, "
+                    "so that window has closed"
+                    if closes else f"{supplier.name} has never written on WhatsApp"
+                ) + " — send the order again to reopen it."
+            )
+
+        sender = get_sender(self.settings)
+        if sender.name == "none":
+            raise OrderError("whatsapp is not configured")
+        try:
+            recipient = wa_recipient(supplier.phone, self.settings)
+            delivery = await sender.send_text(TextMessage(to=recipient, text=body))
+        except WhatsAppError as exc:
+            raise OrderError(f"{order.number} was not sent: {exc}") from exc
+
+        self._file_sent(
+            order, supplier, now,
+            # No subject on WhatsApp. Naming the order is what lets this turn be
+            # read a month later without the row above it.
+            subject=f"WhatsApp about {order.number}", body=body, kind="message",
+            to_address=delivery.get("recipient") or supplier.phone,
+            delivered=bool(delivery.get("delivered")),
+            provider=f"whatsapp:{sender.name}", failure=delivery.get("reason"),
+        )
+        self._audit("order.whatsapp_text", order.id, {"delivery": delivery})
+        await self.session.flush()
+        return delivery
 
     async def whatsapp_draft(self, order: PurchaseOrder) -> dict:
         """What the WhatsApp message would say, before it is sent.

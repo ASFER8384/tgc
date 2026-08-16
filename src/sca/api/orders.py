@@ -389,7 +389,9 @@ def _letter_inside(reply: str) -> str | None:
 
 
 @router.get("/purchase-orders/{number}/thread")
-async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dict:
+async def order_thread(
+    number: str, session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep
+) -> dict:
     """Both halves of the exchange on one order, oldest first.
 
     Our letters and their replies interleaved, because reading either alone
@@ -428,7 +430,7 @@ async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dic
             # is what was filed and what goes out when they reply, and a reader
             # who is not told that will believe the supplier has read a line
             # table they have never seen.
-            "as_template": msg.provider.startswith("whatsapp"),
+            "as_template": msg.provider.startswith("whatsapp") and msg.kind != "message",
         })
 
     for msg in await session.scalars(
@@ -539,13 +541,29 @@ async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dic
         )
     ]
 
+    # Whether we may write to them in our own words, and until when. On the
+    # thread rather than fetched separately because it is a fact about this
+    # conversation, and because the composer that needs it is in the drawer the
+    # thread draws.
+    window_open, window_closes = (False, None)
+    if supplier is not None:
+        window_open, window_closes = await OrderService(
+            session, actor=actor, settings=settings
+        ).whatsapp_window(supplier)
+
     return {
         "number": order.number,
         "supplier": supplier.name if supplier else None,
         "supplier_email": supplier.email if supplier else None,
+        "supplier_phone": supplier.phone if supplier else None,
         "status": order.status,
         "revision": order.revision,
         "issues": issues,
+        "whatsapp": {
+            "open": window_open,
+            "closes_at": window_closes,
+            "can_send": bool(supplier and supplier.phone),
+        },
         "entries": entries,
         # Named plainly. "0 letters" and "we did not keep them" are different
         # things to read on a screen that claims to be a record.
@@ -708,6 +726,30 @@ async def send_whatsapp(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     detail = await _order_detail(session, order)
     return detail | {"delivery": delivery}
+
+
+class WhatsAppTextIn(BaseModel):
+    text: str
+
+
+@router.post("/purchase-orders/{number}/whatsapp/message")
+async def send_whatsapp_text(
+    number: str,
+    body: WhatsAppTextIn,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
+) -> dict:
+    """Write to the supplier in our own words, inside the open window."""
+    order = await _by_number(session, number)
+    service = OrderService(session, actor=actor, settings=settings)
+    try:
+        delivery = await service.send_whatsapp_text(order, body.text)
+    except OrderInputError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except OrderError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return {"number": order.number, "delivery": delivery}
 
 
 @router.get("/purchase-orders/{number}/receipt-note")

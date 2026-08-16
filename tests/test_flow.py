@@ -473,6 +473,133 @@ async def test_a_whatsapp_supplier_with_no_number_is_refused_not_guessed(
     assert detail["status"] == "approved", "still waiting to be sent"
 
 
+async def _whatsapp_order(client, supplier_payload, phone="+91 82209 58384"):
+    """An order sent on WhatsApp, ready to be written to. Returns its number."""
+    await _setup(client, supplier_payload)
+    await client.post("/suppliers", json=supplier_payload | {
+        "working_days": "1,2,3,4,5,6,7", "work_start_hour": 0, "work_end_hour": 24,
+        "channel": "whatsapp", "phone": phone, "country": "IN",
+    })
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 260, "on_order": 0, "weekly_forecast": "90",
+    })
+    created = (await client.post("/planning/create-orders")).json()
+    number = created["orders"][0]["number"]
+    await client.post(f"/purchase-orders/{number}/approve", json={"approver": "lead"})
+    await client.post(f"/purchase-orders/{number}/send")
+    return number
+
+
+async def _wrote_to_us(sessionmaker, phone, *, ago=timedelta(hours=1)):
+    """A supplier's WhatsApp message, at a chosen distance in the past.
+
+    Written straight to the table rather than pushed through the webhook: what
+    is under test is the window the message opens, and going via Meta's envelope
+    would leave the received time to whatever the fixture happened to encode.
+    """
+    from sqlalchemy import select
+
+    from sca.models import InboundMessage
+
+    digits = "".join(c for c in phone if c.isdigit())
+    async with sessionmaker() as session:
+        supplier = await session.scalar(select(Supplier).limit(1))
+        session.add(InboundMessage(
+            external_id=f"wamid.WINDOW-{ago.total_seconds():.0f}",
+            source="whatsapp", from_address=digits, supplier_id=supplier.id,
+            body="ok", received_at=datetime.now(UTC) - ago, kind="unknown",
+        ))
+        await session.commit()
+
+
+async def test_free_text_is_refused_until_the_supplier_writes_first(
+    client, supplier_payload, monkeypatch
+):
+    """Meta refuses a business's own words unless the other side wrote within the
+    day. Discovering that at their edge means a message somebody composed, sent,
+    and believed had arrived — so the refusal has to happen here, with the reason
+    on it."""
+    from sca.whatsapp.base import ConsoleSender
+
+    phone = ConsoleSender()
+    monkeypatch.setattr("sca.orders.service.get_sender", lambda settings: phone)
+
+    number = await _whatsapp_order(client, supplier_payload)
+    refused = await client.post(f"/purchase-orders/{number}/whatsapp/message",
+                                json={"text": "any word on the silk?"})
+    assert refused.status_code == 409
+    assert "24 hours" in refused.json()["detail"]
+    assert "never written" in refused.json()["detail"], "which of the two closed states"
+    assert not [m for m in phone.sent if getattr(m, "text", None)], "nothing left"
+
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    assert thread["whatsapp"]["open"] is False
+    assert thread["whatsapp"]["can_send"] is True, "the number is on file; the clock is not"
+
+
+async def test_a_reply_opens_the_window_and_free_text_goes_out(
+    client, supplier_payload, monkeypatch, sessionmaker_fixture
+):
+    from sca.whatsapp.base import ConsoleSender
+
+    phone = ConsoleSender()
+    monkeypatch.setattr("sca.orders.service.get_sender", lambda settings: phone)
+
+    number = await _whatsapp_order(client, supplier_payload)
+    await _wrote_to_us(sessionmaker_fixture, "+91 82209 58384")
+
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    assert thread["whatsapp"]["open"] is True
+    assert thread["whatsapp"]["closes_at"], "and the drawer can say until when"
+
+    out = await client.post(f"/purchase-orders/{number}/whatsapp/message",
+                            json={"text": "any word on the silk?"})
+    assert out.status_code == 200
+    assert phone.sent[-1].text == "any word on the silk?"
+    assert phone.sent[-1].to == "918220958384"
+
+    # And it is in the record as free text, not as the template: the drawer marks
+    # a template send with what the wire actually carried, which would be a lie
+    # over words somebody typed.
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    ours = [e for e in thread["entries"] if e["side"] == "ours"]
+    assert ours[-1]["body"] == "any word on the silk?"
+    assert ours[-1]["channel"] == "whatsapp"
+    assert ours[-1]["as_template"] is False
+
+
+async def test_a_day_old_reply_does_not_still_hold_the_window_open(
+    client, supplier_payload, monkeypatch, sessionmaker_fixture
+):
+    """The bound is 24 hours from their message, not from any message. A supplier
+    who wrote yesterday reads as reachable on a thread that has been open all
+    week, and the send fails at Meta rather than here."""
+    from sca.whatsapp.base import ConsoleSender
+
+    monkeypatch.setattr("sca.orders.service.get_sender", lambda settings: ConsoleSender())
+    number = await _whatsapp_order(client, supplier_payload)
+    await _wrote_to_us(sessionmaker_fixture, "+91 82209 58384", ago=timedelta(hours=25))
+
+    refused = await client.post(f"/purchase-orders/{number}/whatsapp/message",
+                                json={"text": "still waiting"})
+    assert refused.status_code == 409
+    assert "window has closed" in refused.json()["detail"]
+
+
+async def test_an_empty_message_is_not_a_message(
+    client, supplier_payload, monkeypatch, sessionmaker_fixture
+):
+    from sca.whatsapp.base import ConsoleSender
+
+    monkeypatch.setattr("sca.orders.service.get_sender", lambda settings: ConsoleSender())
+    number = await _whatsapp_order(client, supplier_payload)
+    await _wrote_to_us(sessionmaker_fixture, "+91 82209 58384")
+
+    empty = await client.post(f"/purchase-orders/{number}/whatsapp/message",
+                              json={"text": "   "})
+    assert empty.status_code == 422
+
+
 async def test_the_thread_holds_both_halves_of_the_exchange(
     client, supplier_payload, monkeypatch
 ):
