@@ -861,6 +861,13 @@
         <input id="supName" placeholder="Guangzhou Silk Mill" /></label>
       <label class="field">Email
         <input id="supEmail" placeholder="orders@supplier.com" /></label>
+      <!-- Type it as it is written on their card. It is stored with the country
+           code and nothing else, because that is the only form a message can be
+           addressed to — and a number kept three different ways is one supplier
+           recorded three times. -->
+      <label class="field">Phone
+        <input id="supPhone" placeholder="+91 79047 18707" />
+        <span class="hint" id="supPhoneHint"></span></label>
       <!-- Country drives the distance and the holiday calendar, so without it
            an arrival estimate has no journey in it. -->
       <label class="field">Country
@@ -3441,6 +3448,12 @@
     $("supCode").disabled = Boolean(s);
     $("supName").value = s ? s.name : "";
     $("supEmail").value = s ? (s.email || "") : "";
+    // Shown as stored, which is the normalised form. A buyer who typed it with
+    // spaces sees what was actually kept rather than what they typed, so the
+    // one time the normalisation gets a number wrong is visible immediately.
+    $("supPhone").value = s ? (s.phone ? `+${s.phone}` : "") : "";
+    $("supPhoneHint").textContent = s && s.phone
+      ? "stored as " + s.phone : "with the country code";
     $("supCountry").value = s ? (s.country || "") : "";
     $("supTz").value = s ? s.timezone : "Asia/Shanghai";
     $("supDays").value = s ? s.working_days : "1,2,3,4,5";
@@ -3696,6 +3709,9 @@
         code: $("supCode").value.trim(),
         name: $("supName").value.trim(),
         email: $("supEmail").value.trim(),
+        // Null rather than "", so the server can tell "no number given" from
+        // "a number that normalised to nothing".
+        phone: $("supPhone").value.trim() || null,
         // Null rather than "", so a supplier with no country reads as unknown
         // and the arrival estimate says so instead of measuring from nowhere.
         country: $("supCountry").value || null,
@@ -3759,7 +3775,7 @@
         `${out.name} ${editing ? "saved" : "added"}. ${out.local_time} their time, ` +
         `${out.open_now ? "open now" : "opens " + out.next_open_local}.` + attached);
       if (!editing) {
-        ["supCode", "supName", "supEmail"].forEach((id) => { $(id).value = ""; });
+        ["supCode", "supName", "supEmail", "supPhone"].forEach((id) => { $(id).value = ""; });
         $("supSkus").querySelectorAll("input:checked").forEach((b) => { b.checked = false; });
       }
       await refreshAll();

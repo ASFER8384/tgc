@@ -25,6 +25,12 @@ class Supplier(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     country: Mapped[str | None] = mapped_column(String(2))
     email: Mapped[str | None] = mapped_column(String(320))
+    # In E.164 with the country code and no punctuation — 918647274369928, not
+    # "079047 18707". Stored that way because WhatsApp addresses a person by
+    # exactly those digits, and a number kept as somebody typed it is a number
+    # that has to be guessed at every time it is used. Normalised on the way in
+    # rather than on the way out, so what is on the record is what would be sent.
+    phone: Mapped[str | None] = mapped_column(String(32))
     channel: Mapped[str] = mapped_column(String(16), nullable=False, default="email")
 
     # IANA name, for example Asia/Shanghai. Stored as text and resolved with

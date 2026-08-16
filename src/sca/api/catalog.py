@@ -31,6 +31,11 @@ class SupplierIn(BaseModel):
     name: str
     country: str | None = None
     email: str | None = None
+    # Free-form on the way in — a buyer types what is on the supplier's card,
+    # spaces, dashes, leading zero and all. It is normalised to E.164 before it
+    # is stored, so the record holds the one form that can actually be dialled
+    # or messaged.
+    phone: str | None = None
     channel: str = "email"
     timezone: str = "Asia/Riyadh"
     working_days: str = Field(default="1,2,3,4,5", description="ISO weekdays, Monday is 1")
@@ -47,6 +52,8 @@ class SupplierOut(BaseModel):
     name: str
     country: str | None
     email: str | None
+    phone: str | None
+    channel: str
     timezone: str
     lead_time_days: int
     currency: str
@@ -104,6 +111,37 @@ class StockIn(BaseModel):
     recorded_at: datetime | None = None
 
 
+def _e164(raw: str | None, country: str | None) -> str | None:
+    """A typed phone number as the one string that can be messaged.
+
+    WhatsApp addresses a recipient by digits with the country code and nothing
+    else. A number kept as somebody typed it — "079047 18707", "+91 79047
+    18707", "0091-7904718707" — is three records of one supplier, and the guess
+    about which is which would otherwise be made at send time, once per message.
+
+    A leading zero is a national trunk prefix and never part of the
+    international form, so it is dropped once the country code is known. A
+    number with no country code and no country on the supplier is left exactly
+    as typed rather than guessed at: sending to the wrong country is worse than
+    refusing to send.
+    """
+    if raw is None:
+        return None
+    digits = "".join(ch for ch in raw if ch.isdigit() or ch == "+")
+    if not digits:
+        return None
+    if digits.startswith("+"):
+        return digits[1:] or None
+    if digits.startswith("00"):
+        return digits[2:] or None
+    dial = {"SA": "966", "IN": "91", "CN": "86", "AE": "971", "TR": "90"}.get(
+        (country or "").upper()
+    )
+    if dial is None:
+        return digits
+    return dial + digits.lstrip("0")
+
+
 @router.post("/suppliers", response_model=SupplierOut, status_code=status.HTTP_201_CREATED)
 async def upsert_supplier(body: SupplierIn, session: SessionDep, actor: ActorDep) -> SupplierOut:
     supplier = await session.scalar(select(Supplier).where(Supplier.code == body.code))
@@ -112,6 +150,7 @@ async def upsert_supplier(body: SupplierIn, session: SessionDep, actor: ActorDep
         session.add(supplier)
     for field_name, value in body.model_dump().items():
         setattr(supplier, field_name, value)
+    supplier.phone = _e164(body.phone, body.country)
     await session.flush()
     return _supplier_out(supplier)
 
@@ -574,6 +613,8 @@ def _supplier_out(supplier: Supplier) -> SupplierOut:
         name=supplier.name,
         country=supplier.country,
         email=supplier.email,
+        phone=supplier.phone,
+        channel=supplier.channel,
         timezone=supplier.timezone,
         lead_time_days=supplier.lead_time_days,
         currency=supplier.currency,
