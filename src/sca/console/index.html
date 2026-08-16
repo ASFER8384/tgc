@@ -90,6 +90,9 @@
   /* These are forms, not tables, so they are narrower than the message dialogs —
      a 1040px column of single fields reads as a page that lost its layout. */
   #supplierDialog, #itemDialog, #cancelDialog { max-width: min(560px, 96vw); }
+  /* A letter to read, so it gets the message dialogs' width rather than a
+     confirm box's — but narrower than the order, which carries a line table. */
+  #receiptDialog { max-width: min(760px, 96vw); }
 
   /* The thread is a side sheet rather than a centred box: it is read against
      the order list it was opened from, and a modal in the middle of the screen
@@ -404,7 +407,12 @@
   /* The curve, under the line it belongs to. Sunk rather than boxed: it is part
      of the row above it, and a border would make it read as its own line item. */
   .sizes-row td { background: var(--sunk); border-top: none; padding: 0.5rem 1rem 0.7rem; }
-  .sizes { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  /* On the same line as the names it introduces. Each box is two rows — the
+     name beside its input, the forecast figure under both — so centring left
+     the label floating halfway down while the words it labels sat above it.
+     Baseline rather than flex-start because the label is set smaller than the
+     names, and matching their tops would still leave the text sitting high. */
+  .sizes { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
   .sizes-label { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
                  color: var(--muted); }
   /* The box and, under it, what the forecast asked for. A grid rather than a
@@ -1018,6 +1026,28 @@
       </div>
     </div>
   </form>
+</dialog>
+
+<!-- The receipt note, read before it is sent. A browser confirm box asked "are
+     you sure" about text nobody could see — and this letter is a supplier's cue
+     to invoice, and on a short delivery the written record of what turned up. -->
+<dialog id="receiptDialog">
+  <div class="panel-head">
+    <h2 id="receiptTitle">Tell the supplier</h2>
+    <span class="hint" id="receiptTo"></span>
+  </div>
+  <div class="panel-body">
+    <div class="readout" id="receiptWhy" hidden></div>
+    <label class="field">Subject
+      <input id="receiptSubject" readonly /></label>
+    <label class="field">Body
+      <textarea id="receiptBody" style="min-height:300px" readonly></textarea></label>
+    <div class="bar">
+      <button type="button" id="receiptSend">Send it</button>
+      <button type="button" class="ghost" id="receiptCancel">Not now</button>
+    </div>
+    <div class="readout" id="receiptOut" hidden></div>
+  </div>
 </dialog>
 
 <!-- Both halves of the exchange on one order. A side sheet rather than a centred
@@ -2184,7 +2214,9 @@
     return `<tr class="sizes-row" data-sizes-for="${escapeHtml(item.sku)}">
       <td colspan="8">
         <div class="sizes">
-          <span class="sizes-label">Cut as</span>
+          <!-- "Cut as" is a cloth word. It is right for an abaya and means
+               nothing for a lipstick, and this row splits both. -->
+          <span class="sizes-label">Order as</span>
           ${boxes}
           <span class="sizes-sum" data-size-sum="${escapeHtml(item.sku)}"></span>
         </div>
@@ -2592,16 +2624,7 @@
         } catch (err) { show($("createOut"), "Failed: " + err.message); }
       })));
     $("orders").querySelectorAll("[data-receipt]").forEach((b) =>
-      b.addEventListener("click", () => busy(b, async () => {
-        const number = b.dataset.receipt;
-        if (!confirm(`Email ${number}'s receipt to the supplier now?`)) return;
-        try {
-          const out = await api(`/purchase-orders/${number}/receipt-note`, { method: "POST" });
-          show($("createOut"), out.delivered
-            ? `Receipt for ${number} sent to ${out.recipient}.`
-            : `Not sent: ${out.reason || "mail is not configured"}`);
-        } catch (err) { show($("createOut"), "Failed: " + err.message); }
-      })));
+      b.addEventListener("click", () => busy(b, () => openReceipt(b.dataset.receipt))));
     $("orders").querySelectorAll("[data-revise]").forEach((b) =>
       b.addEventListener("click", () => busy(b, () => revise(b.dataset.revise))));
     $("orders").querySelectorAll("[data-cancel]").forEach((b) =>
@@ -2989,6 +3012,53 @@
         `${number} was cancelled, but the page could not reload: ${err.message}`);
     }
   }));
+
+  // ------------------------------------------------------------ receipt note
+  // Which order the open dialog is about. One dialog, one order.
+  let telling = null;
+
+  async function openReceipt(number) {
+    telling = number;
+    $("receiptTitle").textContent = `Tell the supplier about ${number}`;
+    $("receiptTo").textContent = "";
+    $("receiptWhy").hidden = true;
+    $("receiptOut").hidden = true;
+    $("receiptSubject").value = "";
+    $("receiptBody").value = "reading…";
+    $("receiptSend").disabled = true;
+    $("receiptDialog").showModal();
+    try {
+      const note = await api(`/purchase-orders/${number}/receipt-note`);
+      $("receiptTo").textContent = `to ${note.to || "no address on file"}`;
+      $("receiptSubject").value = note.subject || "";
+      $("receiptBody").value = note.body || "";
+      // The reason to send it, stated where the decision is made. A note about
+      // goods that all turned up is a courtesy; one about a short delivery is
+      // the written record that has to exist before their invoice does.
+      if (note.short_lines && note.short_lines.length) {
+        $("receiptWhy").textContent =
+          `${note.short_lines.length} line(s) arrived short. This is what puts `
+          + `that on the record before their invoice arrives.`;
+        $("receiptWhy").hidden = false;
+      }
+      $("receiptSend").disabled = !note.sendable;
+    } catch (err) {
+      $("receiptBody").value = "";
+      show($("receiptOut"), "Could not read it: " + err.message);
+    }
+  }
+
+  $("receiptSend").addEventListener("click", () => busy($("receiptSend"), async () => {
+    try {
+      const out = await api(`/purchase-orders/${telling}/receipt-note`, { method: "POST" });
+      $("receiptDialog").close();
+      show($("createOut"), out.delivered
+        ? `Receipt for ${telling} sent to ${out.recipient}.`
+        : `Not sent: ${out.reason || "mail is not configured"}`);
+      await refreshAll();
+    } catch (err) { show($("receiptOut"), "Failed: " + err.message); }
+  }));
+  $("receiptCancel").addEventListener("click", () => $("receiptDialog").close());
 
   // ------------------------------------------------------------ conversation
   // What each turn was. The supplier's side comes from the extractor, which is

@@ -22,7 +22,7 @@ from sca.models import (
     Shipment,
     Supplier,
 )
-from sca.orders.compose import compose_order_email
+from sca.orders.compose import compose_order_email, compose_receipt_email
 from sca.orders.service import OrderError, OrderInputError, OrderService
 from sca.planning.service import PlanningService
 
@@ -610,6 +610,36 @@ async def receive_order(
     )
     detail = await _order_detail(session, order)
     return detail | {"issues_raised": [i.detail for i in issues]}
+
+
+@router.get("/purchase-orders/{number}/receipt-note")
+async def preview_receipt_note(
+    number: str, session: SessionDep, actor: ActorDep, settings: RuntimeSettingsDep
+) -> dict:
+    """The receipt note as it would go out, before it does.
+
+    A GET, for the same reason the order message is one: reading what is about
+    to leave the building must never be the act of sending it. This is what the
+    console shows in place of a browser confirm box — "are you sure" is not a
+    question anybody can answer without the text.
+    """
+    order = await _by_number(session, number)
+    supplier = await session.get(Supplier, order.supplier_id)
+    if supplier is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "order has no supplier")
+    lines = list(
+        await session.scalars(
+            select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+        )
+    )
+    composed = compose_receipt_email(order, supplier, lines, now=datetime.now(UTC))
+    return composed | {
+        "to": supplier.email,
+        "supplier": supplier.name,
+        # Whether it may be sent at all. The button is only offered on a received
+        # order, but a stale page is a page that can ask for anything.
+        "sendable": order.status == "received",
+    }
 
 
 @router.post("/purchase-orders/{number}/receipt-note")
