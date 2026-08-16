@@ -471,3 +471,79 @@ async def test_order_numbers_are_sequential(session, supplier_payload):
     second = await service.create(supplier.id, [{"sku": "Y", "quantity": 1, "unit_price": "1"}])
     assert first.number != second.number
     assert (await session.get(PurchaseOrder, second.id)).number.startswith("PO-")
+
+
+# --------------------------------------------------------- the buyer's own hand
+# The forecast proposes and a person decides. What is pinned here is that the
+# decision survives the trip: the typed quantity is what gets ordered, the size
+# curve reaches the mill, and a curve that disagrees with its line is refused
+# rather than sent for the supplier to choose between.
+
+
+async def _low(client, supplier_payload):
+    await _setup(client, supplier_payload)
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 260, "on_order": 0, "weekly_forecast": "90",
+    })
+
+
+async def test_a_typed_quantity_beats_the_suggestion(client, supplier_payload):
+    await _low(client, supplier_payload)
+    created = (await client.post("/planning/create-orders", json={
+        "skus": ["ALN-SILK-NVY"], "quantity_by_sku": {"ALN-SILK-NVY": 120},
+    })).json()
+    number = created["orders"][0]["number"]
+    order = (await client.get(f"/purchase-orders/{number}")).json()
+    # 500 was suggested; the buyer knows something the forecast does not.
+    assert order["lines"][0]["quantity"] == 120
+    assert order["total_value"] == "5040.00"
+
+
+async def test_zero_is_a_decision_not_to_buy(client, supplier_payload):
+    await _low(client, supplier_payload)
+    created = (await client.post("/planning/create-orders", json={
+        "skus": ["ALN-SILK-NVY"], "quantity_by_sku": {"ALN-SILK-NVY": 0},
+    })).json()
+    # Not an order for nothing, and not the suggestion either.
+    assert created["created"] == 0
+
+
+async def test_the_size_curve_reaches_the_mill(client, supplier_payload):
+    await _low(client, supplier_payload)
+    curve = {"S": 15, "M": 45, "L": 40, "XL": 15, "XXL": 5}
+    created = (await client.post("/planning/create-orders", json={
+        "skus": ["ALN-SILK-NVY"], "quantity_by_sku": {"ALN-SILK-NVY": 120},
+        "sizes_by_sku": {"ALN-SILK-NVY": curve},
+    })).json()
+    number = created["orders"][0]["number"]
+    order = (await client.get(f"/purchase-orders/{number}")).json()
+    assert order["lines"][0]["sizes"] == curve
+
+    # And it is in the words the supplier actually receives, not only in the row.
+    message = (await client.get(f"/purchase-orders/{number}/message")).json()
+    body = message.get("body") or message.get("text") or ""
+    assert "M x 45" in body and "XXL x 5" in body
+
+
+async def test_a_curve_that_does_not_add_up_is_refused(client, supplier_payload):
+    await _low(client, supplier_payload)
+    refused = await client.post("/planning/create-orders", json={
+        "skus": ["ALN-SILK-NVY"], "quantity_by_sku": {"ALN-SILK-NVY": 100},
+        "sizes_by_sku": {"ALN-SILK-NVY": {"M": 45, "L": 40}},
+    })
+    # Two different numbers on one line lets the mill choose which to cut.
+    assert refused.status_code == 422
+    assert "85" in refused.json()["detail"] and "100" in refused.json()["detail"]
+    assert (await client.get("/purchase-orders")).json() == []
+
+
+async def test_no_curve_stays_absent_rather_than_becoming_an_even_split(
+    client, supplier_payload
+):
+    await _low(client, supplier_payload)
+    created = (await client.post("/planning/create-orders", json={
+        "skus": ["ALN-SILK-NVY"],
+    })).json()
+    number = created["orders"][0]["number"]
+    order = (await client.get(f"/purchase-orders/{number}")).json()
+    assert order["lines"][0]["sizes"] is None

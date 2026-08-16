@@ -26,6 +26,29 @@ class OrderError(ValueError):
     """Raised for an illegal transition or a missing precondition."""
 
 
+def _checked_sizes(line: dict, quantity: int) -> dict[str, int] | None:
+    """The size split for a line, but only when it agrees with the quantity.
+
+    A mill cannot cut "18 abayas"; it needs the curve. But a split that adds to
+    something other than the line puts two different numbers on one order and
+    lets the supplier choose between them, so a disagreement is refused here
+    rather than sent. Absent stays absent — no split is not an even split.
+    """
+    raw = line.get("sizes")
+    if not raw:
+        return None
+    sizes = {str(size): int(count) for size, count in raw.items() if int(count) > 0}
+    if not sizes:
+        return None
+    stated = sum(sizes.values())
+    if stated != quantity:
+        raise OrderError(
+            f"{line.get('sku', 'line')}: the sizes add to {stated}, "
+            f"but the line orders {quantity}"
+        )
+    return sizes
+
+
 class OrderService:
     def __init__(
         self, session: AsyncSession, *, actor: str = "system", settings: Settings | None = None
@@ -77,6 +100,7 @@ class OrderService:
                     quantity=quantity,
                     unit_price=unit_price,
                     line_total=line_total,
+                    sizes=_checked_sizes(line, quantity),
                 )
             )
 
@@ -143,6 +167,7 @@ class OrderService:
                     quantity=quantity,
                     unit_price=unit_price,
                     line_total=line_total,
+                    sizes=_checked_sizes(line, quantity),
                 )
             )
 

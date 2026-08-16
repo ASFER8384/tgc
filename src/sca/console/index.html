@@ -342,6 +342,32 @@
   .decided-row .warn { grid-column: 1 / -1; color: var(--high); font-size: 0.74rem; }
   @media (max-width: 780px) { .decided-row { grid-template-columns: minmax(0, 1fr); } }
 
+  /* The quantity is a figure to change, so it looks like one. Sized to the
+     numbers it holds rather than the column, and right-aligned so a column of
+     them still reads as a column of numbers. */
+  input.qty { width: 5.5rem; text-align: right; font: inherit;
+              font-variant-numeric: tabular-nums; padding: 0.25rem 0.4rem;
+              border: 1px solid var(--rule); border-radius: 5px;
+              background: var(--panel); color: var(--ink); }
+  input.qty:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  [data-qty] .of { display: block; font-size: 0.7rem; color: var(--muted);
+                   padding-top: 0.15rem; }
+  /* The curve, under the line it belongs to. Sunk rather than boxed: it is part
+     of the row above it, and a border would make it read as its own line item. */
+  .sizes-row td { background: var(--sunk); border-top: none; padding: 0.5rem 1rem 0.7rem; }
+  .sizes { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  .sizes-label { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+                 color: var(--muted); }
+  .size-box { display: flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; }
+  .size-box span { color: var(--ink-soft); }
+  .size-box input { width: 3.6rem; text-align: right; font: inherit;
+                    font-variant-numeric: tabular-nums; padding: 0.15rem 0.35rem;
+                    border: 1px solid var(--rule); border-radius: 5px;
+                    background: var(--panel); color: var(--ink); }
+  .size-box input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .sizes-sum { font-size: 0.74rem; color: var(--muted); margin-left: auto; }
+  .sizes-sum.bad { color: var(--high); }
+
   .how { padding: 0.7rem 1rem; background: var(--sunk); font-size: 0.8rem;
          line-height: 1.5; color: var(--ink-soft); }
   .how b { font-weight: 600; color: var(--ink); }
@@ -1940,17 +1966,126 @@
     }
   }
 
+  // The curve under the line it belongs to, one box per size. A mill cannot cut
+  // "18 abayas", and the split the forecast measured is the best first answer —
+  // but it is a suggestion like the quantity, so it is typed over rather than
+  // read. Lines with no measured curve get no row: an even split nobody chose
+  // is a worse instruction than no split at all.
+  function sizeRow(item, line) {
+    const curve = (state.sizeCurve || {})[item.sku];
+    if (!curve) return "";
+    const boxes = Object.entries(curve).sort(([a], [b]) => a.localeCompare(b))
+      .map(([size, count]) => `
+        <label class="size-box">
+          <span>${escapeHtml(size)}</span>
+          <input type="number" min="0" step="1" value="${count}"
+                 data-size-input="${escapeHtml(item.sku)}"
+                 data-size="${escapeHtml(size)}"
+                 aria-label="${escapeHtml(size)} of ${escapeHtml(item.sku)}">
+        </label>`).join("");
+    return `<tr class="sizes-row" data-sizes-for="${escapeHtml(item.sku)}">
+      <td colspan="8">
+        <div class="sizes">
+          <span class="sizes-label">Cut as</span>
+          ${boxes}
+          <span class="sizes-sum" data-size-sum="${escapeHtml(item.sku)}"></span>
+        </div>
+      </td></tr>`;
+  }
+
+  // What is actually going to be ordered for a line, after any typing. Read from
+  // the inputs rather than tracked in state, because the inputs are the thing
+  // the buyer is looking at and a copy of them is a copy that can be stale.
+  function typedQuantity(sku) {
+    const box = $("suggestions").querySelector(`[data-qty-input="${CSS.escape(sku)}"]`);
+    if (!box) return null;
+    const value = parseInt(box.value, 10);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+
+  function typedSizes(sku) {
+    const boxes = [...$("suggestions")
+      .querySelectorAll(`[data-size-input="${CSS.escape(sku)}"]`)];
+    if (!boxes.length) return null;
+    const out = {};
+    boxes.forEach((box) => {
+      const count = parseInt(box.value, 10);
+      if (Number.isFinite(count) && count > 0) out[box.dataset.size] = count;
+    });
+    return Object.keys(out).length ? out : null;
+  }
+
+  /** Keep a row honest: the sizes must add to the quantity being ordered, and a
+   *  row that does not is refused here rather than by the API after a click. */
+  function syncRow(sku, unitCost) {
+    const host = $("suggestions");
+    const quantity = typedQuantity(sku);
+    const box = host.querySelector(`[data-qty-input="${CSS.escape(sku)}"]`);
+    const note = host.querySelector(`[data-qty-note="${CSS.escape(sku)}"]`);
+    const value = host.querySelector(`[data-val="${CSS.escape(sku)}"]`);
+    const sum = host.querySelector(`[data-size-sum="${CSS.escape(sku)}"]`);
+    const draft = host.querySelector(`[data-draft="${CSS.escape(sku)}"]`);
+    const sizes = typedSizes(sku);
+    const stated = sizes ? Object.values(sizes).reduce((n, c) => n + c, 0) : null;
+
+    if (note && box) {
+      const suggested = Number(box.dataset.suggested);
+      note.textContent = quantity === null || quantity === suggested
+        ? "" : `suggested ${suggested.toLocaleString("en-US")}`;
+    }
+    if (value && quantity !== null && unitCost != null) {
+      value.textContent = money((unitCost * quantity).toFixed(2));
+    }
+    let problem = "";
+    if (quantity === null) problem = "type a whole number";
+    else if (stated !== null && stated !== quantity) {
+      problem = `sizes add to ${stated}, line orders ${quantity}`;
+    }
+    if (sum) {
+      sum.textContent = stated === null ? ""
+        : problem ? problem : `${stated.toLocaleString("en-US")} in total`;
+      sum.classList.toggle("bad", Boolean(problem));
+    }
+    // The button is what turns typing into an order, so it is the thing that
+    // stops. Disabling it says the row is not ready without throwing away what
+    // was typed, which is what a validation that clears the field would do.
+    if (draft) {
+      draft.disabled = Boolean(problem);
+      draft.title = problem || "";
+    }
+    return { quantity, sizes, problem };
+  }
+
   async function loadSuggestions() {
     // Both calls, one table. The plan knows what to buy but only reports the
     // lines that need buying; the catalogue knows everything but not what to do
     // about it. Joined on SKU here rather than in the API, because each endpoint
     // is right on its own and neither should learn about the other for a layout.
-    const [items, plan] = await Promise.all([
+    // A third call, for the shape of each line. The planner says how many; only
+    // the forecast plan knows the curve, because it is worked out per shop and
+    // per size from what actually sold. It is allowed to fail — a desk that
+    // cannot suggest sizes should still be able to buy.
+    const [items, plan, curves] = await Promise.all([
       api("/items"),
       api("/planning/suggest", { method: "POST" }),
+      api("/forecast/plan").catch(() => null),
     ]);
     const buy = {};
     plan.by_supplier.forEach((g) => g.lines.forEach((l) => { buy[l.sku] = l; }));
+    state.sizeCurve = {};
+    state.unitCost = {};
+    ((curves && curves.items) || []).forEach((entry) => {
+      // Summed across shops: a purchase order goes to a mill, and the mill cuts
+      // a curve for the group. Which shop it lands in is a distribution question
+      // answered after it arrives, not something to put in front of a supplier.
+      const totals = {};
+      (entry.locations || []).forEach((place) =>
+        (place.sizes || []).forEach((size) => {
+          totals[size.size] = (totals[size.size] || 0) + size.order;
+        }));
+      const named = Object.entries(totals).filter(([, count]) => count > 0);
+      if (named.length) state.sizeCurve[entry.sku] = Object.fromEntries(named);
+    });
     state.items = items;
     // The shelves are only drawn when somebody is looking at them. They need a
     // second call and a storefront's catalogue, and neither belongs in the path
@@ -1991,10 +2126,17 @@
             ? `<br><span style="color:var(--high);font-size:0.76rem">under ${
                 line.minimum}</span>`
             : ""}</td>
-        <td class="num" data-qty="${i.sku}">${line.suggest_quantity}</td>
+        <td class="num" data-qty="${i.sku}">
+          <input class="qty" type="number" min="0" step="1"
+                 value="${line.suggest_quantity}"
+                 data-qty-input="${i.sku}"
+                 data-suggested="${line.suggest_quantity}"
+                 aria-label="Quantity to buy of ${i.sku}">
+          <span class="of" data-qty-note="${i.sku}"></span></td>
         <td class="num" data-val="${i.sku}">${money(line.line_total)}</td>
         <td>${supplierCell(i, line)}</td>
-        <td><button class="small" data-draft="${i.sku}">Draft</button></td></tr>`;
+        <td><button class="small" data-draft="${i.sku}">Draft</button></td></tr>
+        ${sizeRow(i, line)}`;
     }).join("")
       : `<tr><td colspan="8" class="empty">Every line has cover. Nothing to buy today.</td></tr>`;
 
@@ -2006,11 +2148,37 @@
         const sku = select.dataset.pick;
         const chosen = (buy[sku]?.options || []).find((o) => o.code === select.value);
         if (!chosen) return;
-        const row = $("suggestions").querySelector(`[data-qty="${sku}"]`);
-        const value = $("suggestions").querySelector(`[data-val="${sku}"]`);
-        if (row) row.textContent = chosen.quantity.toLocaleString("en-US");
-        if (value) value.textContent = money(chosen.line_total);
+        // Their minimum and pack size, so the typed figure is replaced rather
+        // than kept: a quantity that suited the old supplier may be one this one
+        // rejects, and silently carrying it across drafts something that bounces.
+        const box = $("suggestions").querySelector(`[data-qty-input="${CSS.escape(sku)}"]`);
+        if (box) { box.value = chosen.quantity; box.dataset.suggested = chosen.quantity; }
+        state.unitCost[sku] = Number(chosen.unit_cost);
         select.closest("td").querySelector(".pick-why").textContent = whyPick(chosen, buy[sku]);
+        syncRow(sku, state.unitCost[sku]);
+      }));
+
+    // Typing anywhere on a row re-reads that row: the value follows the
+    // quantity, and the sizes have to keep adding up to it.
+    rows.forEach((i) => {
+      state.unitCost[i.sku] = Number(buy[i.sku].unit_cost);
+      syncRow(i.sku, state.unitCost[i.sku]);
+    });
+    $("suggestions").querySelectorAll("[data-qty-input]").forEach((box) =>
+      box.addEventListener("input", () => syncRow(box.dataset.qtyInput,
+                                                  state.unitCost[box.dataset.qtyInput])));
+    // A size box moves the line total with it — typing a curve *is* deciding the
+    // quantity, and making somebody total it themselves and retype it is how the
+    // two come to disagree.
+    $("suggestions").querySelectorAll("[data-size-input]").forEach((box) =>
+      box.addEventListener("input", () => {
+        const sku = box.dataset.sizeInput;
+        const sizes = typedSizes(sku);
+        const stated = sizes ? Object.values(sizes).reduce((n, c) => n + c, 0) : 0;
+        const qty = $("suggestions")
+          .querySelector(`[data-qty-input="${CSS.escape(sku)}"]`);
+        if (qty) qty.value = stated;
+        syncRow(sku, state.unitCost[sku]);
       }));
 
     $("suggestions").querySelectorAll("[data-draft]").forEach((b) =>
@@ -2019,10 +2187,17 @@
         const select = $("suggestions").querySelector(`[data-pick="${sku}"]`);
         const override = select && select.value !== select.dataset.suggested
           ? { [sku]: select.value } : {};
+        const row = syncRow(sku, state.unitCost[sku]);
+        if (row.problem) { show($("createOut"), `${sku}: ${row.problem}`); return; }
         try {
           const out = await api("/planning/create-orders", {
             method: "POST",
-            body: JSON.stringify({ skus: [sku], supplier_by_sku: override }),
+            body: JSON.stringify({
+              skus: [sku],
+              supplier_by_sku: override,
+              quantity_by_sku: { [sku]: row.quantity },
+              ...(row.sizes ? { sizes_by_sku: { [sku]: row.sizes } } : {}),
+            }),
           });
           show($("createOut"), out.created
             ? out.orders.map((o) => `${o.number}  ${o.total_value}  ${o.status}` +
@@ -2886,8 +3061,24 @@
   }
 
   $("createOrders").addEventListener("click", () => busy($("createOrders"), async () => {
+    // Whatever is on screen, for every row — including the rows nobody touched,
+    // whose boxes still hold the suggestion. Drafting everything must not be the
+    // one path that quietly ignores what a buyer typed.
+    const quantity_by_sku = {}, sizes_by_sku = {};
+    const problems = [];
+    $("suggestions").querySelectorAll("[data-qty-input]").forEach((box) => {
+      const sku = box.dataset.qtyInput;
+      const row = syncRow(sku, state.unitCost ? state.unitCost[sku] : null);
+      if (row.problem) { problems.push(`${sku}: ${row.problem}`); return; }
+      quantity_by_sku[sku] = row.quantity;
+      if (row.sizes) sizes_by_sku[sku] = row.sizes;
+    });
+    if (problems.length) { show($("createOut"), problems.join("\n")); return; }
     try {
-      const out = await api("/planning/create-orders", { method: "POST" });
+      const out = await api("/planning/create-orders", {
+        method: "POST",
+        body: JSON.stringify({ quantity_by_sku, sizes_by_sku }),
+      });
       show($("createOut"), out.created
         ? out.orders.map((o) => `${o.number}  ${o.total_value}  ${o.status}` +
             (o.approval_reason ? `  (${o.approval_reason})` : "")).join("\n")

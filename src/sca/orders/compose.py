@@ -90,12 +90,21 @@ def compose_order_email(
         f" - {supplier.name}"
     )
 
-    table = [
-        f"  {line.sku:<18} {line.description[:28]:<28} "
-        f"{line.quantity:>8,} x {Decimal(str(line.unit_price)):>10,.2f} = "
-        f"{Decimal(str(line.line_total)):>12,.2f}"
-        for line in lines
-    ]
+    # The curve under its line, indented, where a line has one. This is the part
+    # a mill actually cuts to — without it somebody reads the split off a screen
+    # and retypes it into a reply, which is where a size order goes wrong.
+    table = []
+    for line in lines:
+        table.append(
+            f"  {line.sku:<18} {line.description[:28]:<28} "
+            f"{line.quantity:>8,} x {Decimal(str(line.unit_price)):>10,.2f} = "
+            f"{Decimal(str(line.line_total)):>12,.2f}"
+        )
+        if line.sizes:
+            split = "  ".join(
+                f"{size} x {count:,}" for size, count in sorted(line.sizes.items())
+            )
+            table.append(f"  {'':<18} sizes: {split}")
 
     # Their working day, not ours, and named so it cannot be misread.
     open_now = is_open(hours, now)

@@ -124,6 +124,15 @@ class CreateOrdersIn(BaseModel):
     # where the cursor starts, not a verdict: a line covering a launch is worth
     # paying more to get sooner, and that judgement is theirs.
     supplier_by_sku: dict[str, str] = {}
+    # What the buyer typed over the suggestion. The forecast proposes; a person
+    # who knows about the launch, the promotion or the container that is already
+    # late decides. Absent means take the suggestion.
+    quantity_by_sku: dict[str, int] = {}
+    # The curve to cut, per line. A mill needs sizes, and the split the forecast
+    # works out per shop is the best first answer — but it is a suggestion like
+    # the quantity, so it arrives from the desk where it can be edited rather
+    # than being recomputed here and quietly disagreeing with what was on screen.
+    sizes_by_sku: dict[str, dict[str, int]] = {}
 
 
 @router.post("/planning/create-orders", status_code=status.HTTP_201_CREATED)
@@ -137,6 +146,8 @@ async def create_from_suggestions(
     stream of individual requests, and consolidating is what earns the freight."""
     wanted = set(body.skus) if body and body.skus else None
     picked = dict(body.supplier_by_sku) if body else {}
+    typed = dict(body.quantity_by_sku) if body else {}
+    curves = dict(body.sizes_by_sku) if body else {}
     suggestions = await PlanningService(session, settings=settings).suggest()
     if wanted is not None:
         suggestions = [s for s in suggestions if s.sku in wanted]
@@ -160,17 +171,37 @@ async def create_from_suggestions(
             supplier_id = option["supplier_id"]
             quantity = option["quantity"]
             unit_price = Decimal(option["unit_cost"])
+        # Last word to the person. Applied after the supplier switch, because
+        # switching re-prices the line and a figure typed against the old
+        # supplier is still the quantity they meant to buy.
+        if suggestion.sku in typed:
+            quantity = int(typed[suggestion.sku])
+            if quantity < 0:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    f"{suggestion.sku}: a quantity cannot be negative",
+                )
+        if quantity == 0:
+            # Typed to nothing is a decision not to buy this line, not an order
+            # for zero of it.
+            continue
         grouped.setdefault(supplier_id, []).append(
             {
                 "sku": suggestion.sku,
                 "description": suggestion.description,
                 "quantity": quantity,
                 "unit_price": unit_price,
+                "sizes": curves.get(suggestion.sku),
             }
         )
     created = []
     for supplier_id, lines in grouped.items():
-        order = await service.create(supplier_id, lines, origin="forecast")
+        try:
+            order = await service.create(supplier_id, lines, origin="forecast")
+        except OrderError as err:
+            # A size split that disagrees with its quantity is the buyer's typing,
+            # so it comes back as something to fix rather than a server fault.
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(err)) from err
         created.append({
             "number": order.number,
             "supplier_id": supplier_id,
@@ -590,6 +621,8 @@ async def _order_detail(session, order: PurchaseOrder) -> dict:
                 "sku": line.sku, "description": line.description, "quantity": line.quantity,
                 "unit_price": str(line.unit_price), "line_total": str(line.line_total),
                 "received_quantity": line.received_quantity,
+                # Null where nobody stated a curve, which is not an even split.
+                "sizes": line.sizes or None,
             }
             for line in lines
         ],

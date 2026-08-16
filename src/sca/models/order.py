@@ -87,6 +87,15 @@ class PurchaseOrderLine(Base):
     unit_price: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
     line_total: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
     received_quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # What the quantity is made of, when anybody said. A mill cannot cut "18
+    # abayas" — it needs the curve, and the curve is what the forecast already
+    # works out per shop and per size. Null means nobody stated one, which is
+    # different from an even split and must not be rendered as one.
+    #
+    # Sizes rather than a second table: they are read and written with the line,
+    # never queried across lines, and a row per size would make every existing
+    # query about purchase orders learn a join it has no use for.
+    sizes: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
 
 
 class Shipment(Base, TimestampMixin):
