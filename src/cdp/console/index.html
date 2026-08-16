@@ -256,9 +256,13 @@
   .consbrand { border: 1px solid var(--rule); border-radius: 4px; padding: 0.55rem 0.65rem; }
   .consbrand h4 { margin: 0 0 0.45rem; font-size: 0.7rem; font-weight: 500; }
   .cons {
-    display: grid; grid-template-columns: 1rem 1fr auto; align-items: center; gap: 0.5rem;
-    padding: 0.35rem 0; font-size: 0.85rem; border-top: 1px solid var(--rule);
+    display: grid; grid-template-columns: 1rem 1fr auto; align-items: start; gap: 0.5rem;
+    padding: 0.45rem 0; font-size: 0.85rem; border-top: 1px solid var(--rule);
   }
+  /* The sentence under the permission's name. Whoever is granting this on her
+     behalf is reading off this screen, so the words she should hear are on it. */
+  .cons .what em { display: block; font-style: normal; font-size: 0.76rem;
+                   color: var(--muted); line-height: 1.35; margin-top: 0.1rem; }
   .consbrand .cons:first-of-type { border-top: none; }
   .cons .mark { font-weight: 700; text-align: center; }
   .cons.yes .mark { color: var(--ok); }
@@ -1288,6 +1292,53 @@
     cross_brand_profiling: "Use across brands",
   };
 
+  // What she is actually agreeing to, in the words somebody would say out loud
+  // at a till. The label alone is a filing name: "Use across brands" tells a
+  // customer nothing and tells the person asking her even less, which is how a
+  // permission ends up refused for want of a sentence.
+  //
+  // Written from her side and naming the brand doing the asking, because the
+  // grant is that brand's and the direction matters — Aleena reading what she
+  // bought elsewhere is not the other brands reading her Aleena history.
+  const PURPOSE_SAYS = {
+    marketing_email: (b) => `${b} may email you about new pieces and offers.`,
+    marketing_whatsapp: (b) => `${b} may message you on WhatsApp about new pieces and offers.`,
+    personalization: (b) =>
+      `${b} may use what you have bought from ${b} to choose what it shows you.`,
+    ad_audience_sharing: (b) =>
+      `${b} may share a scrambled form of your contact details with ad platforms, `
+      + `so you see its ads rather than a stranger's.`,
+    cross_brand_profiling: (b) =>
+      `${b} may see what you have bought from our other brands, so it can show you `
+      + `things you would actually like instead of guessing.`,
+  };
+
+  const titleCase = (word) => word.charAt(0).toUpperCase() + word.slice(1);
+
+  // Every brand a definition reads. Mirrors referenced_brands() on the server,
+  // which is what actually decides — this is only here so the page can say why
+  // a count is smaller than it looks.
+  function brandsRead(definition) {
+    if (Array.isArray(definition)) return definition.flatMap(brandsRead);
+    if (!definition || typeof definition !== "object") return [];
+    const found = ["brand_purchased", "brand_not_purchased"]
+      .filter((k) => k in definition).map((k) => String(definition[k]).toLowerCase());
+    return found.concat(
+      ["all", "any", "none"].flatMap((k) => (k in definition ? brandsRead(definition[k]) : [])));
+  }
+
+  // The gate applies to *other* brands only. A segment saved under Aleena that
+  // reads Aleena's own history crosses nothing, and saying otherwise would send
+  // somebody hunting for a permission that was never required.
+  function crossesBrands(definition, own) {
+    return brandsRead(definition).some((b) => b !== own);
+  }
+
+  function purposeSays(purpose, brand) {
+    const say = PURPOSE_SAYS[purpose];
+    return say ? say(titleCase(brand)) : "";
+  }
+
   const CHANNEL_LABEL = {
     shopify: "Online store", pos: "In store", shopify_pos: "Shopify POS", whatsapp: "WhatsApp",
     activation: "Mall stand", email: "Email", ads: "Ads", support: "Support",
@@ -1913,7 +1964,8 @@
         Object.entries(purposes).map(([purpose, granted]) =>
           `<div class="cons ${granted ? "yes" : "no"}">
              <span class="mark">${granted ? "✓" : "✕"}</span>
-             <span class="what">${PURPOSE_LABEL[purpose] || purpose.replace(/_/g, " ")}</span>
+             <span class="what">${PURPOSE_LABEL[purpose] || purpose.replace(/_/g, " ")}
+               <em>${purposeSays(purpose, brand)}</em></span>
              <button class="ghost" data-brand="${brand}" data-purpose="${purpose}"
                      data-grant="${!granted}">${granted ? "Revoke" : "Grant"}</button>
            </div>`
@@ -2163,8 +2215,18 @@
         const pill = document.createElement("button");
         pill.className = "seg";
         pill.setAttribute("aria-pressed", String(state.segment === s.key));
-        pill.title = s.required_consent
-          ? `Needs ${PURPOSE_LABEL[s.required_consent] || s.required_consent}` : "No consent required";
+        // Names the second gate too. A segment that reads another brand's
+        // history needs cross-brand permission whether or not it was asked for,
+        // and a marketer looking at a count far smaller than expected is owed
+        // the reason on the thing itself.
+        pill.title = [
+          s.required_consent
+            ? `Needs ${PURPOSE_LABEL[s.required_consent] || s.required_consent}`
+            : "No consent required",
+          crossesBrands(s.definition, s.brand)
+            ? "and Use across brands, because it reads another brand's history"
+            : "",
+        ].filter(Boolean).join(" ");
         pill.innerHTML = `${s.name}<span class="seg-size">–</span>`;
         pill.addEventListener("click", () => {
           state.segment = s.key;
