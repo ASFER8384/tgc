@@ -182,28 +182,18 @@
   </div>
 
   <nav class="jumps" aria-label="On this page" id="jumps">
-    <a href="#plan">What to order</a>
     <a href="#items">What will sell</a>
+    <a href="#plan">What to order</a>
     <a href="#buyers">Who will buy</a>
   </nav>
 
   <div class="tiles" id="tiles"></div>
 
-  <!-- The order, not the prediction. The model below forecasts an item's units
-       group-wide, which is the number a gate is held against and not the number
-       anybody orders against: a mill is told a curve and a destination. This
-       reads the trading history straight, against the Saudi calendar, and says
-       what to buy for which shop in which size. -->
-  <div class="panel" id="plan">
-    <div class="panel-head">
-      <h2>What to order, shop by shop and size by size</h2>
-      <span class="hint" id="planHint">loading</span>
-    </div>
-    <div class="panel-body" id="planCalendar"></div>
-    <div id="planItems"><div class="empty">loading</div></div>
-    <div class="note" id="planNote"></div>
-  </div>
-
+  <!-- The short horizon first: what is moving, at a glance, one row an item. The
+       plan under it is the longer and heavier read, and putting it first meant
+       scrolling past a shop-by-shop size breakdown to answer "how are we doing".
+       Reading order follows how often a question is asked, not how much work the
+       answer took. -->
   <div class="panel" id="items">
     <div class="panel-head">
       <h2>Every item, the weeks straight ahead</h2>
@@ -222,10 +212,25 @@
     <!-- Kept to two lines. The long version of this said the same thing three
          times over and nobody reads a paragraph under a table; the detail that
          was cut lives on the hover of the column and row it explains. -->
-    <div class="note">Read this for <em>who</em>, the plan above for <em>how much to
+    <div class="note">Read this for <em>who</em>, the plan below for <em>how much to
       buy</em> — four weeks rolling over named customers here, a calendar month over
       every buyer there, so the two are not meant to match.
       <br><b>Order</b> only drafts a line on the buying desk; nothing here places one.</div>
+  </div>
+
+  <!-- The order, not the prediction. The model above forecasts an item's units
+       group-wide, which is the number a gate is held against and not the number
+       anybody orders against: a mill is told a curve and a destination. This
+       reads the trading history straight, against the Saudi calendar, and says
+       what to buy for which shop in which size. -->
+  <div class="panel" id="plan">
+    <div class="panel-head">
+      <h2>What to order, shop by shop and size by size</h2>
+      <span class="hint" id="planHint">loading</span>
+    </div>
+    <div class="panel-body" id="planCalendar"></div>
+    <div id="planItems"><div class="empty">loading</div></div>
+    <div class="note" id="planNote"></div>
   </div>
 
   <!-- The same predictions read one row at a time instead of summed. On the same
@@ -473,7 +478,7 @@
         <span class="label">Units, ${escapeHtml(span.month || "next 4 weeks")}</span>
         <span class="big">${num(month, 0)}</span>
         <span class="says">Four weeks rolling from today, not a calendar month —
-          buy against the order plan above.</span>
+          buy against the order plan below.</span>
       </div>
       <div class="tile${short.length ? " bad" : ""}">
         <span class="label">Items short of cover</span>
