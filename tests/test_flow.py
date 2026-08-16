@@ -400,6 +400,41 @@ async def test_a_received_order_cannot_be_revised(client, supplier_payload):
     assert blocked.status_code == 409
 
 
+async def test_booking_goods_in_writes_to_nobody(client, supplier_payload, monkeypatch):
+    """Found in production: three receipt emails reached a supplier that nobody
+    had pressed send for. Counting stock onto a shelf is a warehouse act, and it
+    must not put mail in somebody else's inbox as a side effect of being honest
+    about what arrived."""
+    from sca.mail.base import ConsoleMailer
+
+    postbox = ConsoleMailer()
+    monkeypatch.setattr("sca.orders.service.get_mailer", lambda settings: postbox)
+
+    supplier, number, _ = await _sent_order(client, supplier_payload)
+    await client.post("/inbound/email", json={
+        "external_id": "msg-ack-quiet", "from_address": supplier["email"],
+        "subject": f"Re: {number}", "body": f"We confirm {number}.",
+    })
+    sent_before = len(postbox.sent)
+    received = await client.post(f"/purchase-orders/{number}/receive", json={"received": {}})
+    assert received.json()["status"] == "received"
+    assert len(postbox.sent) == sent_before, "receiving must not send mail"
+
+    # And the note is still sendable, by somebody who asked for it.
+    note = await client.post(f"/purchase-orders/{number}/receipt-note")
+    assert note.status_code == 200
+    assert note.json()["delivered"] is True
+    assert len(postbox.sent) == sent_before + 1
+    assert number in postbox.sent[-1].subject
+
+
+async def test_a_receipt_note_cannot_be_sent_before_the_goods_arrive(client, supplier_payload):
+    _, number, _ = await _sent_order(client, supplier_payload)
+    refused = await client.post(f"/purchase-orders/{number}/receipt-note")
+    assert refused.status_code == 409
+    assert "not been received" in refused.json()["detail"]
+
+
 async def test_the_supplier_message_names_their_timezone_and_the_revision(
     client, supplier_payload
 ):

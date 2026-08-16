@@ -2373,6 +2373,12 @@
         // order, and until it happens the supplier counts as never having
         // completed one, so every order to them keeps needing approval.
         buttons.push(`<button class="small" data-receive="${o.number}">Receive</button>`);
+      } else if (o.status === "received") {
+        // Booking goods in no longer mails anybody. This is the half that does,
+        // and it is a supplier's cue to invoice — so it is worth pressing on an
+        // order that arrived short, and easy to skip on one that did not.
+        buttons.push(
+          `<button class="ghost small" data-receipt="${o.number}">Tell the supplier</button>`);
       }
       // "Email" read as an instruction to send one, which is what the Send
       // button does. This opens the composed text to be read, and on an order
@@ -2447,10 +2453,24 @@
           const out = await api(`/purchase-orders/${b.dataset.receive}/receive`, {
             method: "POST", body: JSON.stringify({ received: {} }),
           });
+          // Says that nothing was mailed, because it used to be and the page
+          // never said so. "Tell the supplier" is the button that does it.
           show($("createOut"), `${out.number} received and closed.` +
             (out.issues_raised && out.issues_raised.length
-              ? "\n" + out.issues_raised.join("\n") : ""));
+              ? "\n" + out.issues_raised.join("\n") : "") +
+            "\nNothing sent to the supplier — use Tell the supplier for that.");
           await refreshAll();
+        } catch (err) { show($("createOut"), "Failed: " + err.message); }
+      })));
+    $("orders").querySelectorAll("[data-receipt]").forEach((b) =>
+      b.addEventListener("click", () => busy(b, async () => {
+        const number = b.dataset.receipt;
+        if (!confirm(`Email ${number}'s receipt to the supplier now?`)) return;
+        try {
+          const out = await api(`/purchase-orders/${number}/receipt-note`, { method: "POST" });
+          show($("createOut"), out.delivered
+            ? `Receipt for ${number} sent to ${out.recipient}.`
+            : `Not sent: ${out.reason || "mail is not configured"}`);
         } catch (err) { show($("createOut"), "Failed: " + err.message); }
       })));
     $("orders").querySelectorAll("[data-revise]").forEach((b) =>

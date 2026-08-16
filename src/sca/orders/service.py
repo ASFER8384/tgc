@@ -450,9 +450,15 @@ class OrderService:
         return issue
 
     async def receive(
-        self, order: PurchaseOrder, received: dict[str, int], *, now: datetime | None = None
+        self, order: PurchaseOrder, received: dict[str, int], *,
+        notify: bool = False, now: datetime | None = None,
     ) -> list[Issue]:
-        """Book in what arrived and raise a short shipment where it does not match."""
+        """Book in what arrived and raise a short shipment where it does not match.
+
+        Sends the supplier a receipt note only when asked to. Off by default:
+        counting goods in is a warehouse act, and it should not put mail in
+        somebody else's inbox as a side effect.
+        """
         now = now or datetime.now(UTC)
         lines = list(
             await self.session.scalars(
@@ -515,17 +521,24 @@ class OrderService:
         if order.status in ("acknowledged", "in_transit"):
             self._transition(order, "received")
 
-        # Told, not just recorded. A receipt is what lets a supplier invoice, and
-        # a shortfall has to reach them before their invoice reaches us. A mail
-        # failure here does not undo the receipt: the goods are on the shelf
-        # whether or not the note went out, which is the opposite of sending.
-        supplier = await self.session.get(Supplier, order.supplier_id)
-        receipt = {"provider": "none", "delivered": False}
-        if supplier is not None:
-            try:
-                receipt = await self._deliver_receipt(order, supplier, lines, now)
-            except MailError as exc:
-                receipt = {"delivered": False, "reason": str(exc)}
+        # Recorded here, told separately. A receipt is what lets a supplier
+        # invoice, and a shortfall has to reach them before their invoice reaches
+        # us — but booking goods onto a shelf and writing to a supplier are two
+        # decisions, and this used to make the second one silently on the buyer's
+        # behalf. Nothing on the page said mail had gone, so the only way to find
+        # out was to read the supplier's inbox.
+        #
+        # A mail failure still does not undo the receipt: the goods are on the
+        # shelf whether or not the note went out, which is the opposite of
+        # sending an order.
+        receipt = {"provider": "none", "delivered": False, "reason": "not asked for"}
+        if notify:
+            supplier = await self.session.get(Supplier, order.supplier_id)
+            if supplier is not None:
+                try:
+                    receipt = await self._deliver_receipt(order, supplier, lines, now)
+                except MailError as exc:
+                    receipt = {"delivered": False, "reason": str(exc)}
 
         self._audit(
             "order.receive", order.id,
@@ -533,6 +546,34 @@ class OrderService:
         )
         await self.session.flush()
         return issues
+
+    async def send_receipt(
+        self, order: PurchaseOrder, *, now: datetime | None = None
+    ) -> dict:
+        """Mail the receipt note for an order already booked in.
+
+        The deliberate half of what `receive` used to do on its own. Separate so
+        that a buyer who wants the supplier told presses something that says so,
+        and one who is only correcting a count does not write to anybody.
+        """
+        now = now or datetime.now(UTC)
+        if order.status != "received":
+            raise OrderError(f"{order.number} has not been received yet")
+        supplier = await self.session.get(Supplier, order.supplier_id)
+        if supplier is None:
+            raise OrderError(f"{order.number} has no supplier on file")
+        lines = list(
+            await self.session.scalars(
+                select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+            )
+        )
+        try:
+            receipt = await self._deliver_receipt(order, supplier, lines, now)
+        except MailError as exc:
+            raise OrderError(str(exc)) from exc
+        self._audit("order.receipt_note", order.id, {"receipt": receipt})
+        await self.session.flush()
+        return receipt
 
     async def _deliver_receipt(
         self, order: PurchaseOrder, supplier: Supplier,

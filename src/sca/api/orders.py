@@ -47,6 +47,10 @@ class ReceiveIn(BaseModel):
     # sku to quantity actually counted in. Anything omitted is treated as
     # received in full, which is the common case and keeps the payload short.
     received: dict[str, int] = {}
+    # Whether to mail the supplier a receipt note. Off, because booking goods in
+    # is a warehouse act and should not write to somebody outside the building
+    # unless a person said to. The note is still available on its own endpoint.
+    notify: bool = False
 
 
 class ShipmentIn(BaseModel):
@@ -450,10 +454,25 @@ async def receive_order(
 ) -> dict:
     order = await _by_number(session, number)
     issues = await OrderService(session, actor=actor, settings=settings).receive(
-        order, body.received
+        order, body.received, notify=body.notify
     )
     detail = await _order_detail(session, order)
     return detail | {"issues_raised": [i.detail for i in issues]}
+
+
+@router.post("/purchase-orders/{number}/receipt-note")
+async def send_receipt_note(
+    number: str,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
+) -> dict:
+    """Mail the supplier the receipt for an order already booked in."""
+    order = await _by_number(session, number)
+    try:
+        return await OrderService(session, actor=actor, settings=settings).send_receipt(order)
+    except OrderError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 @router.post("/purchase-orders/{number}/shipment", status_code=status.HTTP_201_CREATED)
