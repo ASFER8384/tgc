@@ -20,7 +20,7 @@ from sca.models import (
     Supplier,
 )
 from sca.orders.compose import compose_order_email
-from sca.orders.service import OrderError, OrderService
+from sca.orders.service import OrderError, OrderInputError, OrderService
 from sca.planning.service import PlanningService
 
 router = APIRouter(tags=["orders"])
@@ -31,6 +31,11 @@ class LineIn(BaseModel):
     description: str | None = None
     quantity: int
     unit_price: Decimal
+    # The size split, where the caller has one. Absent stays absent: no split is
+    # not an even split, and a mill told nothing about sizes will ask rather than
+    # guess. Carried on the line rather than a parallel map so that a revision
+    # cannot move a quantity and leave a curve behind that no longer adds to it.
+    sizes: dict[str, int] | None = None
 
 
 class OrderIn(BaseModel):
@@ -379,6 +384,13 @@ async def preview_message(
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 line_total=(line.unit_price * line.quantity).quantize(Decimal("0.01")),
+                # Required, not optional. The letter prints a size split when one
+                # is there, and a stand-in line without the attribute raised
+                # inside the composer — which the dialog caught and swallowed,
+                # leaving the previous draft on screen looking like the current
+                # one. A preview that silently stops updating is worse than no
+                # preview: it reads as confirmation.
+                sizes=line.sizes,
             )
             for line in body.lines
         ]
@@ -421,6 +433,12 @@ async def revise_order(
         await OrderService(session, actor=actor, settings=settings).revise(
             order, [line.model_dump() for line in body.lines], reason=body.reason
         )
+    # Before the general case, and a different answer: a size split that does not
+    # add up to its line is the buyer's typing and can be retyped, where "cannot
+    # revise a cancelled order" is a conflict with the order's state that no
+    # amount of retyping fixes.
+    except OrderInputError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except OrderError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return await _order_detail(session, order)

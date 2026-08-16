@@ -26,6 +26,16 @@ class OrderError(ValueError):
     """Raised for an illegal transition or a missing precondition."""
 
 
+class OrderInputError(OrderError):
+    """Raised when the figures sent are self-contradictory.
+
+    Separate from its parent because the two want different answers: an illegal
+    transition is a conflict with the order's state and nothing the caller can
+    retype, while this is the buyer's own typing and comes back as something to
+    fix. Callers that do not care may keep catching OrderError.
+    """
+
+
 def _checked_sizes(line: dict, quantity: int) -> dict[str, int] | None:
     """The size split for a line, but only when it agrees with the quantity.
 
@@ -42,7 +52,7 @@ def _checked_sizes(line: dict, quantity: int) -> dict[str, int] | None:
         return None
     stated = sum(sizes.values())
     if stated != quantity:
-        raise OrderError(
+        raise OrderInputError(
             f"{line.get('sku', 'line')}: the sizes add to {stated}, "
             f"but the line orders {quantity}"
         )

@@ -400,6 +400,60 @@ async def test_a_received_order_cannot_be_revised(client, supplier_payload):
     assert blocked.status_code == 409
 
 
+async def test_the_preview_reads_back_what_is_being_typed(client, supplier_payload):
+    """Found in production: the preview raised inside the composer because the
+    stand-in lines it builds had no size attribute, the dialog caught it, and the
+    previous draft stayed on screen looking current. A buyer read a letter for
+    ten units while saving fifteen."""
+    _, number, _ = await _sent_order(client, supplier_payload)
+    preview = await client.post(f"/purchase-orders/{number}/message", json={
+        "lines": [{"sku": "ALN-SILK-NVY", "quantity": 20, "unit_price": "40.00"}],
+        "reason": "counter offer",
+    })
+    assert preview.status_code == 200
+    body = preview.json()["body"]
+    assert "20 x" in body
+    assert "800.00" in body
+    assert "counter offer" in body
+
+    # And a curve typed alongside it reaches the mill in the same letter.
+    with_sizes = await client.post(f"/purchase-orders/{number}/message", json={
+        "lines": [{
+            "sku": "ALN-SILK-NVY", "quantity": 20, "unit_price": "40.00",
+            "sizes": {"L": 12, "S": 8},
+        }],
+        "reason": "counter offer",
+    })
+    assert "sizes: L x 12  S x 8" in with_sizes.json()["body"]
+
+
+async def test_a_revision_carries_the_size_split_it_was_given(client, supplier_payload):
+    """A revision rebuilds every line from what the caller sends, so a split left
+    out of that payload is a split deleted from the order — silently, on an order
+    the mill has already been told the sizes for."""
+    _, number, _ = await _sent_order(client, supplier_payload)
+    revised = await client.post(f"/purchase-orders/{number}/revise", json={
+        "lines": [{
+            "sku": "ALN-SILK-NVY", "quantity": 30, "unit_price": "40.00",
+            "sizes": {"L": 18, "S": 12},
+        }],
+        "reason": "counter offer",
+    })
+    assert revised.status_code == 200
+    assert revised.json()["lines"][0]["sizes"] == {"L": 18, "S": 12}
+
+    # And a split that does not add up to the line is refused, not sent.
+    refused = await client.post(f"/purchase-orders/{number}/revise", json={
+        "lines": [{
+            "sku": "ALN-SILK-NVY", "quantity": 30, "unit_price": "40.00",
+            "sizes": {"L": 18, "S": 5},
+        }],
+        "reason": "counter offer",
+    })
+    assert refused.status_code == 422
+    assert "add to 23" in refused.json()["detail"]
+
+
 async def test_booking_goods_in_writes_to_nobody(client, supplier_payload, monkeypatch):
     """Found in production: three receipt emails reached a supplier that nobody
     had pressed send for. Counting stock onto a shelf is a warehouse act, and it

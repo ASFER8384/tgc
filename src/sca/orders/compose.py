@@ -100,9 +100,13 @@ def compose_order_email(
             f"{line.quantity:>8,} x {Decimal(str(line.unit_price)):>10,.2f} = "
             f"{Decimal(str(line.line_total)):>12,.2f}"
         )
-        if line.sizes:
+        # getattr rather than an attribute: the preview composes from stand-in
+        # lines assembled out of what is in the editor, and a letter is not worth
+        # failing to write because one of them was built without a curve.
+        sizes = getattr(line, "sizes", None)
+        if sizes:
             split = "  ".join(
-                f"{size} x {count:,}" for size, count in sorted(line.sizes.items())
+                f"{size} x {count:,}" for size, count in sorted(sizes.items())
             )
             table.append(f"  {'':<18} sizes: {split}")
 

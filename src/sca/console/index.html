@@ -2893,17 +2893,25 @@
     // rather than one you find out about after saving.
     const retotal = () => {
       let sum = 0;
+      let recut = 0;
       detail.lines.forEach((l, i) => {
         const qty = Number($("reviseLines").querySelector(`[data-qty="${i}"]`).value) || 0;
         const price = Number($("reviseLines").querySelector(`[data-price="${i}"]`).value) || 0;
         const line = qty * price;
         sum += line;
+        if (l.sizes && qty !== l.quantity) recut += 1;
         $("reviseLines").querySelector(`[data-total="${i}"]`).textContent = money(line);
       });
       $("reviseHint").textContent =
         `${detail.status.replace(/_/g, " ")} · ${money(sum)} ${detail.currency}` +
         (Math.round(sum) !== Math.round(Number(detail.total_value))
-          ? ` (was ${money(detail.total_value)})` : "");
+          ? ` (was ${money(detail.total_value)})` : "") +
+        // Said out loud, because the alternative is a mill that was given a
+        // size curve on Tuesday and none on Wednesday with nothing marking the
+        // change.
+        (recut
+          ? ` · ${recut} line(s) lose their size split — the new quantity has to be cut again`
+          : "");
     };
 
     // The message follows the figures. A body still quoting the old price is
@@ -2953,12 +2961,22 @@
   }
 
   function revisedLines() {
-    return revising.lines.map((l, i) => ({
-      sku: l.sku,
-      description: l.description,
-      quantity: Number($("reviseLines").querySelector(`[data-qty="${i}"]`).value) || l.quantity,
-      unit_price: $("reviseLines").querySelector(`[data-price="${i}"]`).value.trim(),
-    }));
+    return revising.lines.map((l, i) => {
+      const quantity =
+        Number($("reviseLines").querySelector(`[data-qty="${i}"]`).value) || l.quantity;
+      // The curve rides along while the quantity it was cut for still holds.
+      // Change the quantity and it is dropped, because a split that no longer
+      // adds up is two different numbers on one order for the mill to choose
+      // between — and this dialog has no size boxes to re-cut it in. Dropping
+      // it says "no split stated"; keeping it would say something false.
+      return {
+        sku: l.sku,
+        description: l.description,
+        quantity,
+        unit_price: $("reviseLines").querySelector(`[data-price="${i}"]`).value.trim(),
+        sizes: l.sizes && quantity === l.quantity ? l.sizes : null,
+      };
+    });
   }
 
   async function saveRevision() {
