@@ -70,6 +70,23 @@ async def test_the_handshake_needs_the_right_token(client, wired):
     assert wrong.status_code == 403
 
 
+async def test_meta_does_not_need_an_api_key(client, wired):
+    """Found before the first real delivery: the webhook carried the same API key
+    dependency as every other route, so Meta's push answered 401 and Meta would
+    have retried it for days. Its authentication is the signature on the body —
+    putting this service's API key in a third party's webhook console would be a
+    shared secret that opens every other route here."""
+    raw, signature = _signed(_reply("confirmed", "918220958384", message_id="wamid.NOKEY"))
+    client.headers.pop("X-API-Key", None)
+    out = await client.post("/webhooks/whatsapp", content=raw,
+                            headers={"X-Hub-Signature-256": signature})
+    assert out.status_code == 200, "no API key, and it still accepts a signed body"
+
+    # And without a signature it is still refused, key or no key.
+    refused = await client.post("/webhooks/whatsapp", content=raw)
+    assert refused.status_code == 403
+
+
 async def test_an_unsigned_body_is_refused(client, wired):
     """The one that matters. Without the signature check this endpoint lets a
     stranger acknowledge an order, move it out of chasing, and stop anybody here

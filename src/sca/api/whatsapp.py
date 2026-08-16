@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 
-from sca.api.deps import ActorDep, RuntimeSettingsDep, SessionDep
+from sca.api.deps import RuntimeSettingsDep, SessionDep
 from sca.inbound.service import InboundService
 
 router = APIRouter(tags=["whatsapp"])
@@ -66,10 +66,16 @@ def _signed_by_meta(body: bytes, header: str | None, secret: str | None) -> bool
 async def receive(
     request: Request,
     session: SessionDep,
-    actor: ActorDep,
     settings: RuntimeSettingsDep,
     x_hub_signature_256: str | None = Header(default=None),
 ) -> dict:
+    """Deliberately without the API key dependency every other route carries.
+
+    Meta will not send one. This endpoint is authenticated by the signature on
+    the body instead, which is stronger for the purpose: an API key in Meta's
+    webhook configuration would be a shared secret sitting in a third party's
+    console, where the same header would open every other route in this service.
+    """
     raw = await request.body()
     if not _signed_by_meta(raw, x_hub_signature_256, settings.wa_app_secret):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "signature does not match")
