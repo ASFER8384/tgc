@@ -420,6 +420,15 @@ async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dic
             "revision": msg.revision,
             "delivered": msg.delivered,
             "failure": msg.failure,
+            # Read off the provider rather than stored twice. "smtp" and
+            # "whatsapp:cloud" already say which wire carried it, and a second
+            # column holding the same fact is a second column to get wrong.
+            "channel": "whatsapp" if msg.provider.startswith("whatsapp") else "email",
+            # WhatsApp carried the approved template, not this text. The letter
+            # is what was filed and what goes out when they reply, and a reader
+            # who is not told that will believe the supplier has read a line
+            # table they have never seen.
+            "as_template": msg.provider.startswith("whatsapp"),
         })
 
     for msg in await session.scalars(
@@ -439,6 +448,11 @@ async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dic
             # message for a person instead of moving the order, and a reader
             # deserves to know which of the two happened.
             "acted_on": msg.processed_at is not None,
+            # Every reply arrives by email today. The WhatsApp webhook is not
+            # built, so a supplier answering on WhatsApp is answering into a
+            # channel nothing is listening on — which the drawer says out loud
+            # rather than leaving as an empty side of the conversation.
+            "channel": msg.source if msg.source in ("email", "whatsapp") else "email",
         })
 
     # Letters sent before the text was kept still belong in the timeline. The
@@ -496,6 +510,10 @@ async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dic
             "revision": None,
             "delivered": bool(delivery.get("delivered")),
             "failure": None,
+            # Everything from before the record existed went by email; there was
+            # no other way to send then.
+            "channel": "email",
+            "as_template": False,
         })
 
     entries.sort(key=lambda e: e["at"])
