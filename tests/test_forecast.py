@@ -69,7 +69,9 @@ async def test_the_panel_has_a_row_for_every_week_including_the_empty_ones(sessi
     await _sale(session, person, weeks_ago=1, quantity=2)
 
     built = await panel_module.build(session, now=NOW, timezone="UTC")
-    assert [r.units for r in built.items[SKU]] == [4, 0, 0, 0, 0, 2, 0]
+    # Six weeks, ending at the last one that finished. The week in progress is
+    # absent on purpose — see the test below.
+    assert [r.units for r in built.items[SKU]] == [4, 0, 0, 0, 0, 2]
 
 
 async def test_availability_is_unknown_rather_than_full_where_the_ledger_is_silent(session):
@@ -96,6 +98,29 @@ async def test_a_week_with_nothing_on_the_shelf_is_marked_unknowable(session):
     assert covered and all(r.stocked_out and r.unknowable for r in covered)
 
 
+async def test_the_week_in_progress_is_left_out(session):
+    """The most expensive line in this module.
+
+    A week that is not over arrives holding whatever has happened so far, so a
+    Monday reads as a 90% collapse. That is not a rounding error — it is the last
+    row of the table, and the lag features every model here is built on lean on
+    the last row hardest. The model learns that demand has just fallen off a
+    cliff and forecasts the cliff forward.
+
+    On the real trading history this was the difference between forecasting 7
+    units a week and 40, against an item that actually sells about 35.
+    """
+    await _catalogue(session, skus=(SKU,))
+    person = await _person(session)
+    await _sale(session, person, weeks_ago=1, quantity=20)
+    # A sale in the week that has not finished yet.
+    await _sale(session, person, weeks_ago=0, quantity=1)
+
+    built = await panel_module.build(session, now=NOW, timezone="UTC")
+    assert built.items[SKU][-1].units == 20, "the last row must be a finished week"
+    assert 1 not in [r.units for r in built.items[SKU]]
+
+
 async def test_a_walk_in_sale_is_demand_but_not_a_customer(session):
     """Dropping it would understate demand for exactly the items that sell for
     cash. Reading it as a customer would invent a shopper with a remarkable
@@ -105,7 +130,7 @@ async def test_a_walk_in_sale_is_demand_but_not_a_customer(session):
     await _sale(session, person, weeks_ago=2, quantity=3, anonymous=True)
 
     built = await panel_module.build(session, now=NOW, timezone="UTC")
-    assert built.items[SKU][-3].units == 3
+    assert built.items[SKU][-2].units == 3
     assert built.rows == []
     assert built.attributed_share == 0.0
 

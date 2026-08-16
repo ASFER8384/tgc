@@ -183,6 +183,26 @@ async def buyers(sku: str, session: SessionDep, actor: ActorDep) -> dict:
     return {"sku": sku, "run_id": run.id, "buyers": out}
 
 
+@router.get("/plan")
+async def order_plan(
+    session: SessionDep, actor: ActorDep, cover_months: float = 1.0
+) -> dict:
+    """What to order for next month, per shop and per size.
+
+    Deliberately not served by the trained model. That one forecasts an item's
+    weekly units group-wide, which is the number a gate can be held against and
+    not the number anybody orders against — a mill is told a curve and a
+    destination. This reads two years of trading directly, against the Saudi
+    calendar, and reports its own walk-forward error beside the answer.
+
+    No import of the training stack, so this answers whether or not a model has
+    ever been fitted and whether or not LightGBM is installed.
+    """
+    from forecast.plan import build_plan
+
+    return await build_plan(session, cover_months=max(0.1, min(cover_months, 6.0)))
+
+
 @router.get("/runs")
 async def runs(session: SessionDep, actor: ActorDep, limit: int = 20) -> list[dict]:
     """Every attempt, accepted and rejected. The rejected ones are the evidence

@@ -171,12 +171,28 @@
   </div>
 
   <nav class="jumps" aria-label="On this page">
+    <a href="#plan">What to order</a>
     <a href="#items">What will sell</a>
     <a href="#buyers">Who will buy</a>
     <a href="#record">The track record</a>
   </nav>
 
   <div class="tiles" id="tiles"></div>
+
+  <!-- The order, not the prediction. The model below forecasts an item's units
+       group-wide, which is the number a gate is held against and not the number
+       anybody orders against: a mill is told a curve and a destination. This
+       reads the trading history straight, against the Saudi calendar, and says
+       what to buy for which shop in which size. -->
+  <div class="panel" id="plan">
+    <div class="panel-head">
+      <h2>What to order, shop by shop and size by size</h2>
+      <span class="hint" id="planHint">loading</span>
+    </div>
+    <div class="panel-body" id="planCalendar"></div>
+    <div id="planItems"><div class="empty">loading</div></div>
+    <div class="note" id="planNote"></div>
+  </div>
 
   <div class="panel" id="items">
     <div class="panel-head">
@@ -192,9 +208,15 @@
       </tr></thead>
       <tbody id="itemRows"><tr><td colspan="9" class="empty">loading</td></tr></tbody>
     </table></div>
-    <div class="note"><b>Order</b> is the shortfall against this item's cover target. It
-      becomes a draft on the buying desk for someone to edit and approve — nothing here
-      places an order.</div>
+    <div class="note"><b>These are not the numbers in the order plan above, and they
+      should not match.</b> This table is the model's next four weeks from today, counting
+      only customers it can name — a walk-in cash sale is real demand but belongs to no
+      person, and roughly a fifth of the trade arrives that way. The plan above covers a
+      whole calendar month, every channel and every buyer, named or not. Read this one for
+      <em>who</em> and the plan for <em>how much to buy</em>.
+      <br><br><b>Order</b> is the shortfall against this item's cover target. It becomes a
+      draft on the buying desk for someone to edit and approve — nothing here places an
+      order.</div>
   </div>
 
   <!-- The same predictions read one row at a time instead of summed. On the same
@@ -555,8 +577,170 @@
   // One page, so one load. The track record is fetched when it is first opened
   // rather than on arrival — two more queries for a panel most visits never
   // unfold is a slower page for everybody.
+  const esc = (v) => String(v == null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // Charts are inline SVG rather than a library. The page is served from the app
+  // and a chart that needs a CDN is a chart that is blank the first time somebody
+  // opens this on a bad connection.
+  //
+  // One hue throughout: these are magnitudes of one quantity, so a second colour
+  // would be decoration pretending to be a category. The only other ink marks a
+  // line as short, which is a state rather than a series.
+  function barChart(rows, opts) {
+    const o = Object.assign({ width: 560, row: 22, gap: 6, label: 92, unit: "" }, opts || {});
+    if (!rows.length) return "";
+    const max = Math.max(...rows.map((r) => Math.abs(r.value)), o.baseline || 0) || 1;
+    const plot = o.width - o.label - 54;
+    const height = rows.length * (o.row + o.gap);
+    const bars = rows.map((r, i) => {
+      const y = i * (o.row + o.gap);
+      const w = Math.max(1, Math.round(plot * Math.abs(r.value) / max));
+      const fill = r.mark ? "var(--high)" : "var(--accent)";
+      return '<g><text x="' + (o.label - 8) + '" y="' + (y + o.row * 0.72) + '" text-anchor="end" font-size="11" fill="currentColor">' + esc(r.label) + '</text>'
+        + '<rect x="' + o.label + '" y="' + (y + 3) + '" width="' + w + '" height="' + (o.row - 6) + '" rx="3" fill="' + fill + '" opacity="' + (r.faded ? 0.35 : 0.9) + '"></rect>'
+        + '<text x="' + (o.label + w + 6) + '" y="' + (y + o.row * 0.72) + '" font-size="11" fill="currentColor" opacity="0.75">' + esc(r.text == null ? r.value : r.text) + o.unit + '</text></g>';
+    }).join("");
+    // A reference line where the quantity has a meaningful one: a seasonal
+    // multiplier is read against 1.0 and is meaningless without it.
+    const base = o.baseline
+      ? '<line x1="' + (o.label + plot * o.baseline / max) + '" y1="0" x2="' + (o.label + plot * o.baseline / max) + '" y2="' + height + '" stroke="currentColor" stroke-dasharray="3 3" opacity="0.35"></line>'
+      : "";
+    return '<svg viewBox="0 0 ' + o.width + ' ' + height + '" role="img" aria-label="' + esc(o.title || "chart") + '" style="max-width:100%;height:auto">' + base + bars + '</svg>';
+  }
+
+  // History as columns with the forecast standing apart from it. One series, so
+  // no legend — the caption names it, and the forecast is the only hollow column.
+  function historyChart(history, forecast, monthLabel) {
+    const rows = history.slice(-18);
+    if (!rows.length) return "";
+    const max = Math.max(...rows.map((r) => r.units), forecast) || 1;
+    const w = 560, h = 130, pad = 18;
+    const step = (w - pad) / (rows.length + 1);
+    const bw = Math.max(4, step * 0.62);
+    let out = "";
+    rows.forEach((r, i) => {
+      const bh = Math.max(1, (h - 34) * r.units / max);
+      out += '<rect x="' + (pad + i * step) + '" y="' + (h - 22 - bh) + '" width="' + bw + '" height="' + bh + '" rx="2" fill="var(--accent)" opacity="0.85"><title>' + esc(r.month) + ": " + r.units + '</title></rect>';
+      if (i % 3 === 0) {
+        out += '<text x="' + (pad + i * step) + '" y="' + (h - 8) + '" font-size="9" fill="currentColor" opacity="0.6">' + esc(r.month.slice(2)) + '</text>';
+      }
+    });
+    const fh = Math.max(1, (h - 34) * forecast / max);
+    const fx = pad + rows.length * step;
+    out += '<rect x="' + fx + '" y="' + (h - 22 - fh) + '" width="' + bw + '" height="' + fh + '" rx="2" fill="none" stroke="var(--high)" stroke-width="2" stroke-dasharray="3 2"><title>' + esc(monthLabel) + ": " + forecast + ' forecast</title></rect>';
+    out += '<text x="' + (fx + bw + 4) + '" y="' + (h - 22 - fh + 9) + '" font-size="10" fill="var(--high)">' + forecast + '</text>';
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Monthly units with next month forecast" style="max-width:100%;height:auto">' + out + '</svg>';
+  }
+
+  function planLocationRow(l) {
+    const sizes = l.sizes.filter((x) => x.order || x.on_hand || x.expected >= 0.5);
+    const chips = sizes.map((x) =>
+      '<span style="display:inline-block;margin:0 0.4rem 0.2rem 0;font-size:0.8rem">'
+      + esc(x.size) + '<span style="color:var(--muted)"> ' + x.on_hand + '&rarr;</span>'
+      + '<b' + (x.order ? ' style="color:var(--high)"' : '') + '>' + x.order + '</b></span>').join("");
+    return '<tr><td><strong>' + esc(l.name) + '</strong>'
+      + (l.note ? '<br><span style="color:var(--muted);font-size:0.74rem">' + esc(l.note) + '</span>' : '')
+      + '</td><td class="num">' + (l.share * 100).toFixed(0) + '%</td>'
+      + '<td class="num">' + l.expected + '</td><td class="num">' + l.on_hand + '</td>'
+      + '<td class="num">' + (l.order ? '<strong>' + l.order + '</strong>' : '<span style="color:var(--muted)">0</span>') + '</td>'
+      + '<td style="white-space:normal">' + chips + '</td></tr>';
+  }
+
+  function planItemBlock(it, plan) {
+    const shops = it.locations.filter((l) => l.order || l.expected >= 0.5 || l.on_hand);
+    const rows = shops.map(planLocationRow).join("");
+    const sizeRows = it.sizes.filter((x) => x.order)
+      .map((x) => ({ label: x.size, value: x.order, text: x.order }));
+    const seasonRows = it.seasonality.map((r) => ({
+      label: r.label, value: r.multiplier, text: "x" + r.multiplier.toFixed(2),
+      mark: r.days_next_month > 0, faded: r.days_observed < 12,
+    }));
+    const mill = it.sizes.filter((x) => x.order)
+      .map((x) => '<b>' + esc(x.size) + '&times;' + x.order + '</b>').join(" &middot; ") || "&mdash;";
+    const buyers = it.buyers.map((x) =>
+      '<tr><td>' + esc(x.name || "—") + '</td><td class="num">' + x.units + '</td>'
+      + '<td>' + esc(x.shop || "") + '</td><td>' + esc(x.favourite_size || "") + '</td>'
+      + '<td>' + esc(x.last_order || "") + '</td></tr>').join("");
+
+    return '<div style="border-top:1px solid var(--rule);padding:0.8rem 1rem">'
+      + '<div style="display:flex;gap:0.6rem;align-items:baseline;flex-wrap:wrap">'
+      + '<strong>' + esc(it.sku) + '</strong><span style="color:var(--muted)">' + esc(it.name)
+      + (it.brand ? " · " + esc(it.brand) : "") + '</span>'
+      + '<span style="margin-left:auto;font-size:0.86rem">expect <b>' + it.expected
+      + '</b> · holding ' + it.on_hand + ' · order <b style="color:'
+      + (it.order ? "var(--high)" : "var(--muted)") + '">' + it.order + '</b></span></div>'
+      + '<div style="font-size:0.8rem;color:var(--muted);padding:0.2rem 0 0.5rem">'
+      + it.level + ' a day in ordinary trading × ' + it.season + ' days-worth in '
+      + esc(plan.month) + ' = ' + it.expected + ' expected'
+      + (it.notes.length ? " — " + it.notes.map(esc).join(" ") : "") + '</div>'
+      + '<div class="table-wrap"><table><thead><tr><th>Where</th><th class="num">Share</th>'
+      + '<th class="num">Expect</th><th class="num">Held</th><th class="num">Order</th>'
+      + '<th>By size (held&rarr;order)</th></tr></thead><tbody>' + rows + '</tbody>'
+      + '<tfoot><tr><td><b>Total for the mill</b></td><td></td><td class="num">' + it.expected
+      + '</td><td class="num">' + it.on_hand + '</td><td class="num"><b>' + it.order + '</b></td>'
+      + '<td>' + mill + '</td></tr></tfoot></table></div>'
+      + '<details style="margin-top:0.5rem"><summary style="cursor:pointer;font-size:0.84rem">'
+      + 'How this number was reached, and who buys it</summary>'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(19rem,1fr));gap:1rem;padding-top:0.6rem">'
+      + '<figure style="margin:0"><figcaption style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">'
+      + 'Units a month, with next month dashed</figcaption>'
+      + historyChart(it.monthly_history, it.expected, plan.month) + '</figure>'
+      + '<figure style="margin:0"><figcaption style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">'
+      + 'How hard each part of the year trades, per day, against 1.0. Red bars fall in '
+      + esc(plan.month) + '; faded bars rest on under a fortnight of history.</figcaption>'
+      + barChart(seasonRows, { baseline: 1, title: "Seasonal multipliers", label: 150 }) + '</figure>'
+      + (sizeRows.length ? '<figure style="margin:0"><figcaption style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">The order, by size</figcaption>'
+          + barChart(sizeRows, { title: "Order by size", label: 84 }) + '</figure>' : "")
+      + (buyers ? '<div><div style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">Who bought it in the last year</div>'
+          + '<table><thead><tr><th>Customer</th><th class="num">Units</th><th>Shop</th>'
+          + '<th>Usual size</th><th>Last</th></tr></thead><tbody>' + buyers + '</tbody></table></div>' : "")
+      + '</div></details></div>';
+  }
+
+  function drawPlan(plan) {
+    state.plan = plan;
+    const b = plan.backtest;
+    $("planHint").textContent = plan.month + " · checked against the last "
+      + b.months + " months: " + (b.wape * 100).toFixed(0) + "% average error, "
+      + (b.naive_wape * 100).toFixed(0) + "% for a plain 3-month average";
+
+    const regimes = plan.calendar.regimes.map((r) =>
+      '<div style="display:flex;justify-content:space-between;gap:1rem;font-size:0.86rem;padding:0.15rem 0">'
+      + '<span>' + esc(r.label) + '</span><span style="color:var(--muted)">' + r.days
+      + ' day(s)</span></div>').join("");
+    const notes = plan.calendar.notes.map((n) =>
+      '<div style="font-size:0.86rem;padding:0.15rem 0">· ' + esc(n) + '</div>').join("")
+      || '<div class="hint">Nothing in the Saudi calendar moves this month.</div>';
+    $("planCalendar").innerHTML =
+      '<div style="display:flex;gap:1.2rem;flex-wrap:wrap;align-items:flex-start">'
+      + '<div style="min-width:14rem"><div class="eyebrow">What ' + esc(plan.month)
+      + ' is made of</div>' + regimes + '</div>'
+      + '<div style="flex:1;min-width:16rem">' + notes + '</div></div>';
+
+    $("planNote").innerHTML = "Built from " + plan.method.history_months
+      + " months of trading against the Saudi calendar — Ramadan and both Eids move about"
+      + " eleven days earlier each year, so the peak is measured against the real dates rather"
+      + " than against a month name. Walked forward over the last " + b.months + " months it ran <b>"
+      + Math.abs(b.bias * 100).toFixed(0) + "% " + (b.bias < 0 ? "light" : "heavy")
+      + "</b>, which is where the cover multiplier earns its keep. Nothing here places an order.";
+
+    $("planItems").innerHTML = plan.items.map((it) => planItemBlock(it, plan)).join("")
+      || '<div class="empty">Nothing to plan yet.</div>';
+  }
+
+  async function loadPlan() {
+    try {
+      drawPlan(await api("/forecast/plan"));
+    } catch (e) {
+      $("planItems").innerHTML = '<div class="empty">Could not build the plan: '
+        + esc(e.message || e) + '</div>';
+    }
+  }
+
   function loadAll() {
     if (!state.key) return;
+    loadPlan();
     loadSummary();
     if (state.loadedRuns) loadRuns();
   }

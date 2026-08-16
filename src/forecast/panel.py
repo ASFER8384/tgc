@@ -231,7 +231,23 @@ async def build(session: AsyncSession, *, now: datetime, timezone: str = "Asia/R
                      lines_without_sku=lines_without_sku)
 
     first = min(min(weeks) for weeks in weekly.values())
-    last = week_of(now, zone)
+    # The week in progress is not a week that sold badly. It is a week that is
+    # not over, and it arrives in the panel holding whatever has happened so far
+    # — a Monday reads as a 90% collapse and a Saturday as a mild one.
+    #
+    # That is not a rounding problem, it is the last row of the table, and the
+    # lag features every model here is built on lean on the last row hardest. A
+    # panel that ends mid-week teaches the model that demand has just fallen off
+    # a cliff, and it forecasts the cliff forward. On this history it was the
+    # difference between 7 units a week and 40.
+    #
+    # So the panel stops at the last week that actually finished. The same rule
+    # the order plan applies to incomplete months, for the same reason.
+    last = week_of(now, zone) - WEEK
+    if last < first:
+        # A shop whose entire trading record is this week. Nothing to trim, and
+        # an empty panel would be a worse answer than a short one.
+        last = week_of(now, zone)
 
     ledger: dict[str, list[StockLevel]] = defaultdict(list)
     for reading in await session.scalars(
