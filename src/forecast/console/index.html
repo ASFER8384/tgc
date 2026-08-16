@@ -220,15 +220,13 @@
       <tbody id="itemRows"><tr><td colspan="9" class="empty">loading</td></tr></tbody>
     </table></div>
     <div class="note" id="itemsCaveat"></div>
-    <div class="note"><b>These are not the numbers in the order plan above, and they
-      should not match.</b> This table is the model's next four weeks from today, counting
-      only customers it can name — a walk-in cash sale is real demand but belongs to no
-      person, and roughly a fifth of the trade arrives that way. The plan above covers a
-      whole calendar month, every channel and every buyer, named or not. Read this one for
-      <em>who</em> and the plan for <em>how much to buy</em>.
-      <br><br><b>Order</b> is the shortfall against this item's cover target. It becomes a
-      draft on the buying desk for someone to edit and approve — nothing here places an
-      order.</div>
+    <!-- Kept to two lines. The long version of this said the same thing three
+         times over and nobody reads a paragraph under a table; the detail that
+         was cut lives on the hover of the column and row it explains. -->
+    <div class="note">Read this for <em>who</em>, the plan above for <em>how much to
+      buy</em> — four weeks rolling over named customers here, a calendar month over
+      every buyer there, so the two are not meant to match.
+      <br><b>Order</b> only drafts a line on the buying desk; nothing here places one.</div>
   </div>
 
   <!-- The same predictions read one row at a time instead of summed. On the same
@@ -433,17 +431,21 @@
     const per = ((run || {}).per_item || {})[sku];
     if (!per || !per.model) return null;
     const wape = per.model.wape, bias = per.model.bias_pct, n = per.model.n;
-    const parts = ["judged on " + n + " test week(s): " + (wape * 100).toFixed(0) + "% error"];
-    if (Math.abs(bias) >= LEAN_BIAS) {
-      parts.push("and it leans " + (bias < 0 ? "low" : "high") + " by "
-        + Math.abs(bias * 100).toFixed(0) + "%");
-    }
     const weak = wape >= WEAK_WAPE || Math.abs(bias) >= LEAN_BIAS;
+    // Short enough to sit inline. The lean is the part that changes a decision —
+    // "39% light" tells a buyer which way to correct, where "62% error" only
+    // tells them to worry.
+    const lean = Math.abs(bias) >= LEAN_BIAS
+      ? Math.abs(bias * 100).toFixed(0) + "% " + (bias < 0 ? "light" : "heavy")
+      : (wape * 100).toFixed(0) + "% error";
     return {
       weak,
-      note: parts.join(" ") + (weak
-        ? ". Read this as a direction, not a quantity — buy from the order plan."
-        : "."),
+      brief: lean,
+      note: "Judged on " + n + " test week(s): " + (wape * 100).toFixed(0) + "% error"
+        + (Math.abs(bias) >= LEAN_BIAS
+          ? ", leaning " + (bias < 0 ? "low" : "high") + " by "
+            + Math.abs(bias * 100).toFixed(0) + "%." : ".")
+        + (weak ? " A direction, not a quantity." : ""),
     };
   }
 
@@ -523,8 +525,8 @@
     const shaky = items.map((i) => [i, reliability(i.sku, data.run)])
       .filter(([, r]) => r && r.weak);
     $("itemsCaveat").innerHTML = shaky.length
-      ? "<b>Marked <span class='flag'>rough</span>:</b> " + shaky.map(([i, r]) =>
-          escapeHtml(i.sku) + " — " + escapeHtml(r.note)).join("<br>")
+      ? "<span class='flag'>rough</span> " + shaky.map(([i, r]) =>
+          escapeHtml(i.sku) + " runs " + escapeHtml(r.brief)).join(" · ")
       : "";
 
     // Same page now, so this scrolls rather than navigates — and picks the item
