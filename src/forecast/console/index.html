@@ -181,11 +181,10 @@
     <div class="note" id="statusNote"></div>
   </div>
 
-  <nav class="jumps" aria-label="On this page">
+  <nav class="jumps" aria-label="On this page" id="jumps">
     <a href="#plan">What to order</a>
     <a href="#items">What will sell</a>
     <a href="#buyers">Who will buy</a>
-    <a href="#record">The track record</a>
   </nav>
 
   <div class="tiles" id="tiles"></div>
@@ -252,13 +251,17 @@
       never a customer.</div>
   </div>
 
-  <!-- Every run, won or lost. The accuracy of the forecast lives here rather than
-       on a page of its own, because it is a property of the number above. Folded
-       away by default: needed when a figure looks wrong, noise on every other day. -->
-  <div class="panel" id="record">
-    <details class="deep">
-      <summary><span><b>The track record</b> — every run, what it scored, what shipped.
-        Refused runs are kept; they are the evidence for what to fix.</span></summary>
+  <!-- Every run, won or lost — on its own address because it answers a different
+       question from the pages above. They say what to buy; this says whether the
+       thing saying it has been worth believing, which is asked on the day a
+       figure looks wrong rather than on the day somebody is ordering. -->
+  <div class="panel" id="record" hidden>
+    <div class="panel-head">
+      <h2>The track record</h2>
+      <span class="hint">every run, what it scored, what shipped</span>
+    </div>
+    <div class="note">Refused runs are kept. They are the evidence for what to fix,
+      and a log that only shows the wins is not a log.</div>
 
       <div class="table-wrap"><table>
         <thead><tr><th>When</th><th class="num">Weeks</th><th class="num">Rows</th>
@@ -286,7 +289,6 @@
         <span class="hint">the ceiling on how good any forecast here can be</span>
       </div>
       <div class="tiles" id="readyTiles" style="padding:1rem"></div>
-    </details>
   </div>
 
   <footer>
@@ -845,16 +847,21 @@
     }
   }
 
+  // Two destinations in one document, addressed by query the way the other
+  // consoles are: the forecast, and the log of how it has done. Split so that
+  // neither fetches the other's data — the log is three queries nobody buying
+  // stock needs, and the plan is a model run nobody auditing wants to wait for.
+  const isLog = () => new URLSearchParams(location.search).get("view") === "log";
+
   function loadAll() {
     if (!state.key) return;
+    if (isLog()) {
+      loadRuns();
+      return;
+    }
     loadPlan();
     loadSummary();
-    if (state.loadedRuns) loadRuns();
   }
-
-  document.querySelector("#record details").addEventListener("toggle", (e) => {
-    if (e.target.open && !state.loadedRuns && state.key) loadRuns();
-  });
 
   $("refresh").addEventListener("click", loadAll);
   $("buyerSku").addEventListener("change", () => {
@@ -878,10 +885,21 @@
     if (state.loadedRuns) await loadRuns();
   }));
 
-  // The rail still calls this on navigation; there is one destination now.
+  // Called by the rail on navigation, so it must show and hide rather than
+  // assume a fresh document: moving between the two views does not reload.
   window.applyView = function applyView() {
+    const log = isLog();
+    const want = log ? "forecast:log" : "forecast:forecast";
     document.querySelectorAll('.tgc-rail nav a[data-nav^="forecast:"]').forEach((a) =>
-      a.classList.toggle("on", a.dataset.nav === "forecast:forecast"));
+      a.classList.toggle("on", a.dataset.nav === want));
+    ["tiles", "jumps", "plan", "items", "buyers"].forEach((id) => {
+      const el = $(id);
+      if (el) el.hidden = log;
+    });
+    $("record").hidden = !log;
+    // Running a model is an act of the forecast, not of its log.
+    $("runNow").hidden = log;
+    if (state.key) loadAll();
   };
   applyView();
 

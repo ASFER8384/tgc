@@ -212,15 +212,24 @@ _NAV_GROUPS = (
     # different clock — the buying screens change when a buyer acts, these change
     # when a model runs — and because filing it under either half would claim it
     # belongs to that half.
-    # One entry, not three. What will sell, who will buy and how the run scored
-    # are one answer read at three depths — three addresses made them look like
-    # three separate findings, and invited the question of why they disagreed.
+    # What will sell and who will buy stay together — they are one answer read at
+    # two depths, and separate addresses made them look like two findings that
+    # disagreed. The log is genuinely a different question: not what the forecast
+    # says but whether it has been worth believing, which is asked on the days a
+    # figure looks wrong rather than on the days somebody is buying.
     ("Demand Forecast", (
     (
         "forecast:forecast",
         "/forecast-console",
         "Forecast",
         "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6",
+    ),
+    (
+        "forecast:log",
+        "/forecast-console?view=log",
+        "Log",
+        "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 "
+        "002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
     ),
     )),
     # A third module, and the first whose findings are made by people rather than
