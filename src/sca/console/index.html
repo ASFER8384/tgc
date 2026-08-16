@@ -547,7 +547,12 @@
           <div class="decided" id="decided" hidden></div>
           <div class="panel-body"><div class="bar">
             <button id="createOrders">Draft every line</button>
-            <button class="ghost" id="loadSample">Run one item low</button>
+            <!-- Hidden. It exists to make a line need buying so the table has
+                 something in it to demonstrate, and it does that by writing to
+                 real stock — which is fine on a demo and wrong on a desk
+                 somebody is buying from. The handler stays wired so unhiding it
+                 is this one attribute. -->
+            <button class="ghost" id="loadSample" hidden>Run one item low</button>
           </div><div class="readout" id="createOut" hidden></div></div>
         </div>
 
