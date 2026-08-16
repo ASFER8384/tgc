@@ -1034,7 +1034,7 @@
      to invoice, and on a short delivery the written record of what turned up. -->
 <dialog id="receiptDialog">
   <div class="panel-head">
-    <h2 id="receiptTitle">Tell the supplier</h2>
+    <h2 id="receiptTitle">Confirm receipt</h2>
     <span class="hint" id="receiptTo"></span>
   </div>
   <div class="panel-body">
@@ -2520,8 +2520,12 @@
         // Booking goods in no longer mails anybody. This is the half that does,
         // and it is a supplier's cue to invoice — so it is worth pressing on an
         // order that arrived short, and easy to skip on one that did not.
+        //
+        // Named for its effect rather than its medium. "Tell the supplier" was
+        // the only button on the row that did not say what it does, and every
+        // other button here tells the supplier something too.
         buttons.push(
-          `<button class="ghost small" data-receipt="${o.number}">Tell the supplier</button>`);
+          `<button class="ghost small" data-receipt="${o.number}">Confirm receipt</button>`);
       }
       // The whole exchange, both directions. First among the quiet buttons
       // because "what has actually been said to this supplier" is the question
@@ -2622,11 +2626,12 @@
             method: "POST", body: JSON.stringify({ received: {} }),
           });
           // Says that nothing was mailed, because it used to be and the page
-          // never said so. "Tell the supplier" is the button that does it.
+          // never said so. "Confirm receipt" is the button that does it.
           show($("createOut"), `${out.number} received and closed.` +
             (out.issues_raised && out.issues_raised.length
               ? "\n" + out.issues_raised.join("\n") : "") +
-            "\nNothing sent to the supplier — use Tell the supplier for that.");
+            "\nThe supplier has not been told. Use Confirm receipt to tell them " +
+            "the goods arrived and they may invoice.");
           await refreshAll();
         } catch (err) { show($("createOut"), "Failed: " + err.message); }
       })));
@@ -3026,7 +3031,7 @@
 
   async function openReceipt(number) {
     telling = number;
-    $("receiptTitle").textContent = `Tell the supplier about ${number}`;
+    $("receiptTitle").textContent = `Confirm receipt of ${number}`;
     $("receiptTo").textContent = "";
     $("receiptWhy").hidden = true;
     $("receiptOut").hidden = true;
