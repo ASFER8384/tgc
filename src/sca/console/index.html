@@ -268,6 +268,14 @@
      under each number into four lines. */
   .cost { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
           gap: 0.6rem; }
+  /* Its own space above. The tiles are a row of separate cards and this is a
+     single block: butted straight against them they read as one control, and
+     the panel looked like a sixth tile that had lost its border. The same
+     1.25rem the table below it sits on, so the page keeps one rhythm. */
+  .how-panel { margin-top: 1.25rem; }
+  /* Nothing in it yet is nothing to show. Its grey ground was drawing a bar
+     across the page while the page was still loading. */
+  .how-panel .how:empty { display: none; }
   .cost .tile { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
                 padding: 0.75rem 0.9rem; display: flex; flex-direction: column; gap: 0.25rem; }
   .cost .label { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em;
