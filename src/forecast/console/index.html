@@ -113,6 +113,14 @@
   /* The dates under a column heading: present, but never louder than the label. */
   th .span { letter-spacing: 0.02em; text-transform: none; font-weight: 400;
              color: var(--muted); font-size: 0.68rem; }
+  /* A figure the model did not earn. Muted rather than hidden: it is still the
+     best guess there is, and suppressing it would only send somebody looking
+     for it somewhere worse. */
+  .shaky { color: var(--muted); }
+  .flag { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em;
+          text-transform: uppercase; border: 1px solid var(--rule);
+          border-radius: 3px; padding: 0 0.25rem; margin-left: 0.25rem;
+          vertical-align: 1px; white-space: nowrap; }
   tbody tr.short td { background: color-mix(in srgb, var(--high) 7%, transparent); }
   td .sub { display: block; font-size: 0.74rem; color: var(--muted); }
 
@@ -211,6 +219,7 @@
       </tr></thead>
       <tbody id="itemRows"><tr><td colspan="9" class="empty">loading</td></tr></tbody>
     </table></div>
+    <div class="note" id="itemsCaveat"></div>
     <div class="note"><b>These are not the numbers in the order plan above, and they
       should not match.</b> This table is the model's next four weeks from today, counting
       only customers it can name — a walk-in cash sale is real demand but belongs to no
@@ -411,6 +420,33 @@
     };
   }
 
+  // A headline accuracy is an average, and an average hides the items it was
+  // not earned on. This run scores 40% overall, but that is carried by the one
+  // line with the volume to learn from: judged on its own history the box runs
+  // 39% light and the abaya 54% heavy, each on four test weeks. Printing those
+  // numbers in the same weight as the reliable one invites somebody to buy
+  // against them, so each row is marked with how well the model did on *it*.
+  const WEAK_WAPE = 0.45;   // beyond this the line is not worth buying against
+  const LEAN_BIAS = 0.20;   // beyond this it is wrong in a consistent direction
+
+  function reliability(sku, run) {
+    const per = ((run || {}).per_item || {})[sku];
+    if (!per || !per.model) return null;
+    const wape = per.model.wape, bias = per.model.bias_pct, n = per.model.n;
+    const parts = ["judged on " + n + " test week(s): " + (wape * 100).toFixed(0) + "% error"];
+    if (Math.abs(bias) >= LEAN_BIAS) {
+      parts.push("and it leans " + (bias < 0 ? "low" : "high") + " by "
+        + Math.abs(bias * 100).toFixed(0) + "%");
+    }
+    const weak = wape >= WEAK_WAPE || Math.abs(bias) >= LEAN_BIAS;
+    return {
+      weak,
+      note: parts.join(" ") + (weak
+        ? ". Read this as a direction, not a quantity — buy from the order plan."
+        : "."),
+    };
+  }
+
   function drawItems(data) {
     const items = data.items || [];
     const week = items.reduce((n, i) => n + i.next_week, 0);
@@ -456,13 +492,18 @@
       ? `${items.length} item(s) · ordered by what sells most over ${
           span.month || "the horizon"}` : "";
 
-    $("itemRows").innerHTML = items.length ? items.map((i) => `
+    $("itemRows").innerHTML = items.length ? items.map((i) => {
+      const rel = reliability(i.sku, data.run);
+      return `
       <tr class="${i.suggested_order > 0 ? "short" : ""}">
         <td><strong>${escapeHtml(i.sku)}</strong>
           <span class="sub">${escapeHtml(i.name || "")}</span></td>
         <td>${sparkline(i.weekly_path)}</td>
         <td class="num">${num(i.next_week)}</td>
-        <td class="num"><strong>${num(i.next_month)}</strong></td>
+        <td class="num">${rel && rel.weak
+          ? `<span class="shaky" title="${escapeHtml(rel.note)}">${num(i.next_month)}
+             <span class="flag">rough</span></span>`
+          : `<strong title="${escapeHtml(rel ? rel.note : "")}">${num(i.next_month)}</strong>`}</td>
         <td class="num">${num(i.buyers_next_month, 0)}</td>
         <td class="num">${i.unknown_to_procurement
           ? `<span style="color:var(--muted)">not stocked</span>`
@@ -474,7 +515,17 @@
               ? `<span class="sub">under their ${i.moq} minimum</span>` : ""}`
           : "—"}</td>
         <td><button class="ghost small" data-buyers="${escapeHtml(i.sku)}">Who</button></td>
-      </tr>`).join("") : `<tr><td colspan="9" class="empty">Nothing forecast yet</td></tr>`;
+      </tr>`;
+    }).join("") : `<tr><td colspan="9" class="empty">Nothing forecast yet</td></tr>`;
+
+    // Spelled out below the table as well as on hover, because a tooltip is not
+    // available to somebody reading this on a phone or printing it.
+    const shaky = items.map((i) => [i, reliability(i.sku, data.run)])
+      .filter(([, r]) => r && r.weak);
+    $("itemsCaveat").innerHTML = shaky.length
+      ? "<b>Marked <span class='flag'>rough</span>:</b> " + shaky.map(([i, r]) =>
+          escapeHtml(i.sku) + " — " + escapeHtml(r.note)).join("<br>")
+      : "";
 
     // Same page now, so this scrolls rather than navigates — and picks the item
     // on the way, because arriving at a list of somebody else's buyers was the
