@@ -449,12 +449,34 @@ async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dic
 
     entries.sort(key=lambda e: e["at"])
 
+    # What needs a person on this order, with the suggested move. The row used
+    # to carry a bare "issue" tag that said something was wrong and nothing
+    # about what, so answering it meant leaving the order and going to look —
+    # and an exception is nearly always about something in the correspondence
+    # sitting right underneath it.
+    issues = [
+        {
+            "id": issue.id,
+            "kind": issue.kind,
+            "severity": issue.severity,
+            "detail": issue.detail,
+            "suggested_action": issue.suggested_action,
+            "status": issue.status,
+        }
+        for issue in await session.scalars(
+            select(Issue)
+            .where(Issue.purchase_order_id == order.id, Issue.status == "open")
+            .order_by(Issue.created_at)
+        )
+    ]
+
     return {
         "number": order.number,
         "supplier": supplier.name if supplier else None,
         "supplier_email": supplier.email if supplier else None,
         "status": order.status,
         "revision": order.revision,
+        "issues": issues,
         "entries": entries,
         # Named plainly. "0 letters" and "we did not keep them" are different
         # things to read on a screen that claims to be a record.

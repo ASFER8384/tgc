@@ -157,7 +157,13 @@ async def test_orders_awaiting_a_reply_are_counted_but_not_timed(session):
 @pytest.mark.asyncio
 async def test_zones_are_ordered_with_the_least_overlap_first(session):
     """Where a removed round trip is worth most is where anyone should look
-    first, so it is not left to the reader to sort the table."""
+    first, so it is not left to the reader to sort the table.
+
+    Collected against FRIDAY rather than the wall clock. Overlap is measured on
+    the day it is asked about, and both of these suppliers keep Monday to Friday
+    hours — so run on a Saturday this compared nothing to nothing and failed on
+    an ordering the code had got right.
+    """
     near = _supplier(code="TR", name="Istanbul Packaging", timezone="Europe/Istanbul")
     far = _supplier(code="US", name="Chicago Components", timezone="America/Chicago")
     session.add_all([near, far])
@@ -165,7 +171,7 @@ async def test_zones_are_ordered_with_the_least_overlap_first(session):
     await _sent(session, near, number="PO-1", sent=FRIDAY)
     await _sent(session, far, number="PO-2", sent=FRIDAY)
 
-    out = await CoordinationService(session).collect()
+    out = await CoordinationService(session).collect(now=FRIDAY)
     assert [z.timezone for z in out.zones] == ["America/Chicago", "Europe/Istanbul"]
     assert out.zones[0].overlap_hours < out.zones[1].overlap_hours
 

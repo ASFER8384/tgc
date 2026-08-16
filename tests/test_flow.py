@@ -424,6 +424,29 @@ async def test_the_thread_holds_both_halves_of_the_exchange(
     assert thread["not_kept"] == 0
 
 
+async def test_what_needs_a_person_is_on_the_order_it_belongs_to(
+    client, supplier_payload
+):
+    """The row used to carry a bare "issue" tag: something is wrong, and nothing
+    about what. An exception is nearly always about the correspondence, so it
+    belongs beside it — with the move it suggests, not just the alarm."""
+    supplier, number, _ = await _sent_order(client, supplier_payload)
+    await client.post("/inbound/email", json={
+        "external_id": "msg-issue-1", "from_address": supplier["email"],
+        "subject": f"Re: {number}", "body": f"We confirm {number}.",
+    })
+    received = await client.post(f"/purchase-orders/{number}/receive",
+                                 json={"received": {"ALN-SILK-NVY": 450}})
+    assert received.json()["issues_raised"], "a short delivery raises one"
+
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    assert len(thread["issues"]) == 1
+    issue = thread["issues"][0]
+    assert issue["kind"] == "short_shipment"
+    assert "450 received of 500" in issue["detail"]
+    assert issue["suggested_action"], "an alarm with no move is where it started"
+
+
 async def test_a_revision_does_not_rewrite_the_letter_already_sent(
     client, supplier_payload, monkeypatch
 ):

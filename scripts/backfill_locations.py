@@ -130,6 +130,19 @@ async def main(apply: bool, online_percent: float | None, history_only: bool = F
         print("  orders by shelf:", dict(sorted(placed.items())))
         print("  units by shelf :", dict(sorted(units.items())))
 
+        # Two jobs, and a reason to want only the first. Stamping history is
+        # safe and repeatable; moving stock overwrites what is on the shelves
+        # now, and on a database where somebody has since counted a rail that is
+        # the shop's own work being thrown away. The flag existed and was
+        # ignored, so asking for the safe half quietly did both.
+        if history_only:
+            if not apply:
+                print("\ndry run — nothing written. Re-run with --apply.")
+                return
+            await session.commit()
+            print(f"\napplied to history only. {touched} order(s) stamped, stock untouched.")
+            return
+
         # Stock follows the demand it serves, per item — a shop that sells the
         # lipstick and not the abayas should not be given abayas because it is
         # busy overall.

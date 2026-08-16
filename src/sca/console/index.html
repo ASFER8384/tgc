@@ -103,6 +103,10 @@
   #threadWho { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   #threadClose { margin-left: auto; }
   #threadDialog .panel-body { max-height: calc(100vh - 4.2rem); }
+  /* Empty most of the time, and an empty box must not leave a gap that reads as
+     a missing thing. */
+  #threadIssues:empty { display: none; }
+  #threadIssues { display: flex; flex-direction: column; gap: 0.6rem; }
   .thread { display: flex; flex-direction: column; gap: 0.9rem; }
   /* Ours on the left against the panel, theirs indented and tinted. Side is
      carried by position and by a word, never by colour alone. */
@@ -245,6 +249,10 @@
 
   .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 1.25rem;
           align-items: start; }
+  /* A side column that is hidden should not still be paid for. Two explicit
+     columns reserve the 340px whether or not anything occupies it, which leaves
+     a blank gutter that reads as a panel that failed to load. */
+  .grid:has(> [hidden]) { grid-template-columns: minmax(0, 1fr); }
   @media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 
   .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; }
@@ -450,6 +458,13 @@
 
   table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
   .table-wrap { overflow-x: auto; }
+  /* With the side column gone this table has the whole width, and left to
+     itself the buttons column swallowed the slack and pushed every fact into
+     the left half. Sized to its own content and pinned right instead, so the
+     columns that carry information get the room. */
+  .orders td:last-child, .orders th.acts {
+    text-align: right; white-space: nowrap; width: 1%;
+  }
   th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule);
            white-space: nowrap; }
   th { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.11em;
@@ -638,21 +653,29 @@
             <h2>Purchase orders</h2>
             <span class="hint" id="orderHint"></span>
           </div>
-          <div class="table-wrap"><table>
-            <!-- No status column: the badge lives in the conversation drawer,
-                 beside the letters that produced the status. Two copies of the
-                 same fact is two places for it to be read from, and the row
-                 already says what can be done to the order — the buttons on a
-                 cancelled order and an acknowledged one are not the same. -->
-            <thead><tr><th>Order</th><th>Supplier</th><th class="num">Value</th>
-              <th>Promised</th><th></th></tr></thead>
-            <tbody id="orders"><tr><td colspan="5" class="empty">loading</td></tr></tbody>
+          <div class="table-wrap"><table class="orders">
+            <thead><tr><th>Order</th><th>Supplier</th><th>Status</th><th class="num">Value</th>
+              <th>Promised</th><th class="acts"></th></tr></thead>
+            <tbody id="orders"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
           </table></div>
         </div>
       </div>
 
-      <div style="display:flex; flex-direction:column; gap:1.25rem;">
-        <div class="panel">
+      <!-- Hidden with both its panels, not just emptied. The grid reserves a
+           340px column for this side whether or not anything is in it, and an
+           empty gutter beside a full-width table reads as something that failed
+           to load rather than something deliberately not there. -->
+      <div style="display:flex; flex-direction:column; gap:1.25rem;" hidden>
+        <!-- Hidden: every exception is now on the order it belongs to, in the
+             conversation drawer, next to the letters it came out of — which is
+             where the answer to it is. This panel listed them away from all of
+             that, so acting on one meant carrying a line of text back to a row
+             and finding it again.
+
+             Kept rather than deleted, and worth knowing what is lost: this was
+             the only view across every order at once. An exception now waits
+             until somebody opens the order it is on. Unhide to get it back. -->
+        <div class="panel" hidden>
           <div class="panel-head"><h2>Needs a human</h2>
             <span class="hint" id="issueHint"></span></div>
           <div id="issues"><div class="empty">loading</div></div>
@@ -984,6 +1007,7 @@
     <button type="button" class="ghost small" id="threadClose">Close</button>
   </div>
   <div class="panel-body">
+    <div id="threadIssues"></div>
     <div class="readout" id="threadGap" hidden></div>
     <div class="thread" id="threadTurns"></div>
   </div>
@@ -2451,24 +2475,28 @@
       }
       const action = buttons.join(" ");
       return `<tr>
+        <!-- No "issue" tag beside the number. It said something needed a person
+             and gave no way to find out what, so the next move was always to go
+             looking somewhere else. It is in the conversation drawer now, in
+             full, beside the letters the exception came out of. -->
         <td><strong>${o.number}</strong>${o.revision
-            ? `<span style="color:var(--muted);font-size:0.76rem"> Rev ${o.revision}</span>` : ""}${
-            o.has_open_issue ? ' <span class="tag sev-high">issue</span>' : ""}</td>
+            ? `<span style="color:var(--muted);font-size:0.76rem"> Rev ${o.revision}</span>` : ""}</td>
         <td>${o.supplier}<br><span style="color:var(--muted);font-size:0.78rem">${
             o.supplier_timezone || ""}</span></td>
-        <td class="num">${money(o.total_value)} ${o.currency}</td>
-        <td>${day(promised)}${o.confirmed_delivery_date ? "" : " (asked)"}${
-            // Kept even with the status column gone: an order waiting on a clock
-            // rather than on a person is the one case where "nothing is
-            // happening" is the correct state, and a buyer who cannot see that
-            // goes looking for a fault that is not there.
+        <td><span class="tag st-${o.status}">${o.status.replace(/_/g, " ")}</span>${
+            // An order waiting on a clock rather than on a person is the one
+            // case where "nothing is happening" is the correct state, and a
+            // buyer who cannot see that goes looking for a fault that is not
+            // there.
             o.scheduled_send_at && o.status === "approved"
               ? `<br><span style="color:var(--muted);font-size:0.76rem">queued to send ${
                   new Date(o.scheduled_send_at).toLocaleString("en-GB",
                     { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
                 }</span>` : ""}</td>
+        <td class="num">${money(o.total_value)} ${o.currency}</td>
+        <td>${day(promised)}${o.confirmed_delivery_date ? "" : " (asked)"}</td>
         <td>${action}</td></tr>`;
-    }).join("") : `<tr><td colspan="5" class="empty">No orders yet</td></tr>`;
+    }).join("") : `<tr><td colspan="6" class="empty">No orders yet</td></tr>`;
 
     $("orders").querySelectorAll("[data-approve]").forEach((b) =>
       b.addEventListener("click", () => busy(b, () => act(
@@ -2969,6 +2997,7 @@
   async function openThread(number) {
     $("threadTitle").textContent = `${number} conversation`;
     $("threadWho").textContent = "";
+    $("threadIssues").innerHTML = "";
     $("threadGap").hidden = true;
     $("threadTurns").innerHTML = `<div class="empty">Reading…</div>`;
     $("threadDialog").showModal();
@@ -2992,6 +3021,21 @@
       thread.revision ? `<span>Rev ${thread.revision}</span>` : "",
       escapeHtml([thread.supplier, thread.supplier_email].filter(Boolean).join(" · ")),
     ].filter(Boolean).join(" ");
+
+    // Above the letters, because it is the reason somebody opened this. Each
+    // one says what happened and what to do about it — a flag that only says
+    // "a person is needed" leaves the reader exactly where they started.
+    $("threadIssues").innerHTML = (thread.issues || []).map((i) => `
+      <div class="turn failed">
+        <div class="turn-head">
+          <b>Needs a human</b>
+          <span class="tag sev-${escapeHtml(i.severity)}">${
+            escapeHtml(i.kind.replace(/_/g, " "))}</span>
+        </div>
+        <div class="turn-note">${escapeHtml(i.detail)}</div>
+        ${i.suggested_action
+          ? `<pre class="turn-body">${escapeHtml(i.suggested_action)}</pre>` : ""}
+      </div>`).join("");
 
     // The gap is marked on the turns themselves now, in the place it happened.
     // This says once, at the top, why some of them have no text.
