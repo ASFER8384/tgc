@@ -9,7 +9,10 @@ it likes. That difference is the whole reason this file exists:
 - a push can arrive twice, so ingestion is keyed on Meta's message id and a
   repeat is recognised rather than applied again;
 - a push has no subject line, so the order a reply belongs to is worked out from
-  the number it came from and the last order sent to them.
+  the number it came from and the last order sent to them;
+- a push carries files as ids rather than as bytes, and the URL those ids resolve
+  to expires within minutes, so an invoice has to be downloaded while the
+  delivery is being handled or not at all.
 
 Meta retries anything that is not a 200 for up to several days, so this answers
 200 to a body it cannot use. A reply it could not parse is a row in the record
@@ -24,7 +27,9 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 
 from sca.api.deps import RuntimeSettingsDep, SessionDep
-from sca.inbound.service import InboundService
+from sca.config import Settings
+from sca.inbound.service import InboundService, IncomingFile
+from sca.whatsapp import WhatsAppError, download_media
 
 router = APIRouter(tags=["whatsapp"])
 
@@ -90,6 +95,7 @@ async def receive(
     service = InboundService(session, actor="whatsapp-agent")
     taken: list[dict] = []
     ignored = 0
+    files = 0
 
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
@@ -97,13 +103,15 @@ async def receive(
             # Delivery receipts and read marks arrive on the same webhook as
             # messages. They are not replies and there is nothing to file.
             for message in value.get("messages", []):
-                text = (message.get("text") or {}).get("body")
-                if not text:
-                    # A photograph of a packing list is worth having and is not
-                    # this change: media arrives as an id that has to be fetched
-                    # with a second call. Counted rather than dropped silently.
+                text = (message.get("text") or {}).get("body") or ""
+                attachments, notes = await _files_on(message, settings)
+                if not text and not attachments and not notes:
+                    # A reaction, a location pin, a contact card. Counted rather
+                    # than dropped silently, so a supplier saying something this
+                    # cannot read is visible as a number rather than as nothing.
                     ignored += 1
                     continue
+                files += len(attachments)
                 sender = message.get("from")
                 supplier = await service.match_supplier_by_phone(sender)
                 stamp = message.get("timestamp")
@@ -117,11 +125,57 @@ async def receive(
                     # WhatsApp has no subject. Passing the supplier's name would
                     # invent one and feed the parser a line they never wrote.
                     subject=None,
-                    body=text,
+                    body="\n".join(p for p in (text, *notes) if p),
                     received_at=received_at,
+                    attachments=attachments,
                     source="whatsapp",
                     supplier=supplier,
                 )
                 taken.append(result)
 
-    return {"accepted": True, "messages": len(taken), "ignored": ignored}
+    return {"accepted": True, "messages": len(taken), "files": files, "ignored": ignored}
+
+
+# What arrives as a file, and what each is called when it does. Audio and video
+# are here because a supplier answering a query with a voice note is common and
+# an unreadable message is still evidence that they answered.
+MEDIA_KINDS = ("document", "image", "audio", "video", "sticker")
+
+
+async def _files_on(
+    message: dict, settings: Settings
+) -> tuple[list[IncomingFile], list[str]]:
+    """Pull down whatever this message carried, now, while the id is still good.
+
+    A download that fails must not lose the message. The supplier sent an invoice
+    and the fact that they sent one is worth keeping even when the bytes could
+    not be fetched — so a failure becomes a line in the body a person can read
+    and chase, not a dropped delivery Meta will never repeat.
+    """
+    files: list[IncomingFile] = []
+    notes: list[str] = []
+    for kind in MEDIA_KINDS:
+        part = message.get(kind)
+        if not isinstance(part, dict) or not part.get("id"):
+            continue
+        caption = part.get("caption")
+        if caption:
+            notes.append(caption)
+        try:
+            media = await download_media(
+                part["id"], settings, filename=part.get("filename")
+            )
+        except WhatsAppError as exc:
+            notes.append(f"[{kind} could not be downloaded: {exc}]")
+            continue
+        files.append(IncomingFile(
+            filename=media.filename,
+            content_type=media.content_type,
+            content=media.content,
+        ))
+        if not caption:
+            # So the message reads as something rather than as empty. The parser
+            # sees this too, and "invoice" in the body is how a PDF sent with no
+            # words gets filed as one.
+            notes.append(f"[{kind}: {media.filename}]")
+    return files, notes

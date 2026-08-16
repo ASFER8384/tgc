@@ -1,5 +1,6 @@
 """Purchase order lifecycle, approval gates and timezone aware sending."""
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -10,6 +11,7 @@ from sca.config import Settings, get_settings
 from sca.mail import MailError, OutboundMessage, get_mailer, resolve_recipient
 from sca.models import (
     ALLOWED_TRANSITIONS,
+    Attachment,
     AuditLog,
     InboundMessage,
     Issue,
@@ -22,7 +24,15 @@ from sca.models import (
 )
 from sca.orders.compose import compose_order_email, compose_receipt_email
 from sca.scheduling.windows import WorkingHours, is_open, next_open, working_hours_between
-from sca.whatsapp import TemplateMessage, TextMessage, WhatsAppError, get_sender
+from sca.whatsapp import (
+    MAX_MEDIA_BYTES,
+    MediaMessage,
+    Sender,
+    TemplateMessage,
+    TextMessage,
+    WhatsAppError,
+    get_sender,
+)
 from sca.whatsapp import resolve_recipient as wa_recipient
 
 
@@ -488,14 +498,15 @@ class OrderService:
         closes = last + self.WA_WINDOW
         return closes > now, closes
 
-    async def send_whatsapp_text(
-        self, order: PurchaseOrder, text: str, *, now: datetime | None = None
-    ) -> dict:
-        """Write to the supplier in our own words, inside the open window."""
-        now = now or datetime.now(UTC)
-        body = (text or "").strip()
-        if not body:
-            raise OrderInputError("a message needs some words in it")
+    async def _open_window(
+        self, order: PurchaseOrder, now: datetime
+    ) -> tuple[Supplier, Sender, str]:
+        """Everything a free-form send needs, or the reason it cannot happen.
+
+        Shared by text and files because the rule is about the conversation and
+        not about what is being put into it: Meta allows either for the same
+        twenty-four hours and refuses either outside them.
+        """
         supplier = await self.session.get(Supplier, order.supplier_id)
         if supplier is None:
             raise OrderError(f"{order.number} has no supplier on file")
@@ -516,6 +527,20 @@ class OrderService:
             raise OrderError("whatsapp is not configured")
         try:
             recipient = wa_recipient(supplier.phone, self.settings)
+        except WhatsAppError as exc:
+            raise OrderError(f"{order.number} cannot be sent: {exc}") from exc
+        return supplier, sender, recipient
+
+    async def send_whatsapp_text(
+        self, order: PurchaseOrder, text: str, *, now: datetime | None = None
+    ) -> dict:
+        """Write to the supplier in our own words, inside the open window."""
+        now = now or datetime.now(UTC)
+        body = (text or "").strip()
+        if not body:
+            raise OrderInputError("a message needs some words in it")
+        supplier, sender, recipient = await self._open_window(order, now)
+        try:
             delivery = await sender.send_text(TextMessage(to=recipient, text=body))
         except WhatsAppError as exc:
             raise OrderError(f"{order.number} was not sent: {exc}") from exc
@@ -532,6 +557,63 @@ class OrderService:
         self._audit("order.whatsapp_text", order.id, {"delivery": delivery})
         await self.session.flush()
         return delivery
+
+    async def send_whatsapp_file(
+        self, order: PurchaseOrder, *, filename: str, content_type: str,
+        content: bytes, caption: str = "", now: datetime | None = None,
+    ) -> dict:
+        """Send a supplier a file, and keep our copy of exactly what they got.
+
+        The copy is the point. A specification or a revised size chart sent on
+        WhatsApp is what an argument about the wrong goods turns on months later,
+        and "we sent it" without the bytes is not an answer — the supplier's
+        phone is not a record this business controls.
+        """
+        now = now or datetime.now(UTC)
+        if not content:
+            raise OrderInputError("that file is empty")
+        if len(content) > MAX_MEDIA_BYTES:
+            raise OrderInputError(
+                f"{filename} is {len(content) / 1e6:.1f}MB. WhatsApp sends up to "
+                f"{MAX_MEDIA_BYTES / 1e6:.0f}MB here — send a link, or split it"
+            )
+        supplier, sender, recipient = await self._open_window(order, now)
+
+        note = (caption or "").strip()
+        try:
+            delivery = await sender.send_media(MediaMessage(
+                to=recipient, filename=filename or "attachment",
+                content_type=content_type or "application/octet-stream",
+                content=content, caption=note,
+            ))
+        except WhatsAppError as exc:
+            # Nothing filed, as with a failed letter. A file in the record beside
+            # a supplier who never received it is the same lie as an order marked
+            # sent that never left.
+            raise OrderError(f"{order.number}: {filename} was not sent: {exc}") from exc
+
+        message = self._file_sent(
+            order, supplier, now,
+            subject=f"WhatsApp about {order.number}",
+            body=note or f"[sent {filename}]", kind="message",
+            to_address=delivery.get("recipient") or supplier.phone,
+            delivered=bool(delivery.get("delivered")),
+            provider=f"whatsapp:{sender.name}", failure=delivery.get("reason"),
+        )
+        await self.session.flush()
+        self.session.add(Attachment(
+            sent_message_id=message.id,
+            filename=(filename or "attachment")[:300],
+            content_type=(content_type or "")[:120],
+            byte_size=len(content),
+            sha256=hashlib.sha256(content).hexdigest(),
+            content=content,
+        ))
+        self._audit("order.whatsapp_file", order.id, {
+            "filename": filename, "bytes": len(content), "delivery": delivery,
+        })
+        await self.session.flush()
+        return delivery | {"filename": filename, "bytes": len(content)}
 
     async def whatsapp_draft(self, order: PurchaseOrder) -> dict:
         """What the WhatsApp message would say, before it is sent.
@@ -681,7 +763,7 @@ class OrderService:
         self, order: PurchaseOrder, supplier: Supplier | None, now: datetime, *,
         subject: str, body: str, kind: str, to_address: str | None,
         delivered: bool, provider: str, failure: str | None = None,
-    ) -> None:
+    ) -> SentMessage:
         """Write down what went out, as it went out.
 
         Not recomposed on demand later: the composer renders an order as it
@@ -689,21 +771,21 @@ class OrderService:
         letter the supplier never saw, sitting in the record looking like the one
         they answered.
         """
-        self.session.add(
-            SentMessage(
-                purchase_order_id=order.id,
-                supplier_id=supplier.id if supplier else None,
-                to_address=to_address,
-                subject=(subject or "")[:500],
-                body=(body or "")[:20000],
-                kind=kind,
-                revision=order.revision or 0,
-                delivered=delivered,
-                provider=provider,
-                failure=(failure or None) and str(failure)[:300],
-                sent_at=now,
-            )
+        row = SentMessage(
+            purchase_order_id=order.id,
+            supplier_id=supplier.id if supplier else None,
+            to_address=to_address,
+            subject=(subject or "")[:500],
+            body=(body or "")[:20000],
+            kind=kind,
+            revision=order.revision or 0,
+            delivered=delivered,
+            provider=provider,
+            failure=(failure or None) and str(failure)[:300],
+            sent_at=now,
         )
+        self.session.add(row)
+        return row
 
     async def acknowledge(
         self, order: PurchaseOrder, *, confirmed_date: datetime | None, now: datetime | None = None

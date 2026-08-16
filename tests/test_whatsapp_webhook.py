@@ -144,6 +144,85 @@ async def test_the_same_push_twice_is_not_two_replies(
     assert len(same) == 1
 
 
+def _document(sender: str, *, message_id: str = "wamid.DOC") -> dict:
+    return {
+        "entry": [{"changes": [{"value": {"messages": [{
+            "id": message_id, "from": sender, "timestamp": "1786900000",
+            "type": "document", "document": {
+                "id": "media-1", "filename": "invoice-4471.pdf",
+                "mime_type": "application/pdf", "caption": "invoice for PO-1001",
+            },
+        }]}}]}]
+    }
+
+
+async def test_an_invoice_sent_as_a_pdf_is_downloaded_and_kept(
+    client, supplier_payload, wired, sessionmaker_fixture, monkeypatch
+):
+    """Media arrives as an id, not as bytes, and the URL it resolves to expires
+    within minutes. Before this the whole message was counted as ignored: a
+    supplier who answered with the invoice attached had, as far as the record
+    went, not answered at all."""
+    from sqlalchemy import select
+
+    from sca.models import Attachment
+    from sca.whatsapp.base import Media
+
+    async def _fake(media_id, settings, *, filename=None):
+        return Media(media_id=media_id, filename=filename or "x",
+                     content_type="application/pdf", content=b"%PDF-1.4 invoice")
+
+    monkeypatch.setattr("sca.api.whatsapp.download_media", _fake)
+    await client.post("/suppliers", json=supplier_payload | {
+        "phone": "+91 82209 58384", "country": "IN",
+    })
+
+    raw, signature = _signed(_document("918220958384"))
+    out = await client.post("/webhooks/whatsapp", content=raw,
+                            headers={"X-Hub-Signature-256": signature})
+    assert out.status_code == 200
+    assert out.json() == {"accepted": True, "messages": 1, "files": 1, "ignored": 0}
+
+    async with sessionmaker_fixture() as session:
+        stored = list(await session.scalars(select(Attachment)))
+    assert len(stored) == 1
+    assert stored[0].filename == "invoice-4471.pdf", "their name for it, not ours"
+    assert stored[0].content == b"%PDF-1.4 invoice"
+    assert stored[0].sent_message_id is None, "it came in"
+
+    rows = await _inbound(sessionmaker_fixture)
+    assert "invoice for PO-1001" in rows[-1].body, "the caption is what they wrote"
+
+
+async def test_a_file_that_will_not_download_still_leaves_the_message(
+    client, supplier_payload, wired, sessionmaker_fixture, monkeypatch
+):
+    """Meta will not deliver this push again. Dropping the message because its
+    attachment could not be fetched would lose the fact that the supplier sent an
+    invoice at all — which is the part somebody has to chase."""
+    from sca.whatsapp import WhatsAppError
+
+    async def _fails(media_id, settings, *, filename=None):
+        raise WhatsAppError("media 402 expired")
+
+    monkeypatch.setattr("sca.api.whatsapp.download_media", _fails)
+    await client.post("/suppliers", json=supplier_payload | {
+        "phone": "+91 82209 58384", "country": "IN",
+    })
+
+    raw, signature = _signed(_document("918220958384", message_id="wamid.LOST"))
+    out = await client.post("/webhooks/whatsapp", content=raw,
+                            headers={"X-Hub-Signature-256": signature})
+    assert out.status_code == 200
+    assert out.json()["messages"] == 1
+    assert out.json()["files"] == 0
+
+    rows = await _inbound(sessionmaker_fixture)
+    body = rows[-1].body
+    assert "invoice for PO-1001" in body, "their words survive"
+    assert "could not be downloaded" in body, "and the gap is stated, not hidden"
+
+
 async def test_a_delivery_receipt_is_not_a_reply(client, wired):
     """Status callbacks arrive on the same webhook. Filing them would fill the
     conversation with our own messages coming back at us."""

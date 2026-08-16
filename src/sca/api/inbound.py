@@ -76,11 +76,11 @@ async def inbound_email(body: EmailIn, session: SessionDep, actor: ActorDep) -> 
 async def download_attachment(
     attachment_id: str, session: SessionDep, actor: ActorDep
 ) -> Response:
-    """The file exactly as the supplier sent it.
+    """The file exactly as it crossed, in whichever direction it crossed.
 
-    Served as an octet stream and as a download rather than inline: these are
-    files from outside the building, and a browser rendering one in a page that
-    holds an API key is a decision nobody made deliberately.
+    Served as an octet stream and as a download rather than inline: half of these
+    are files from outside the building, and a browser rendering one in a page
+    that holds an API key is a decision nobody made deliberately.
     """
     row = await session.scalar(select(Attachment).where(Attachment.id == attachment_id))
     if row is None:

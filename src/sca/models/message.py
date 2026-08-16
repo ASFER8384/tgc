@@ -92,7 +92,7 @@ class SentMessage(Base, TimestampMixin):
 
 
 class Attachment(Base, TimestampMixin):
-    """The file a supplier actually sent, kept byte for byte.
+    """A file that crossed between here and a supplier, kept byte for byte.
 
     Stored before anything reads it, and never rewritten. An invoice is the
     evidence behind a payment and a packing list is the evidence behind a
@@ -103,6 +103,11 @@ class Attachment(Base, TimestampMixin):
     The bytes live in the database rather than on disk because the disk under
     this service is replaced on every deploy, and an artefact that disappears on
     a restart is not an artefact.
+
+    Exactly one of the two message columns is set. The file we sent a supplier is
+    the same kind of evidence as the one they sent us — a specification attached
+    to an order is what an argument about the wrong goods turns on — and keeping
+    ours somewhere else would leave the drawer showing one side's files only.
     """
 
     __tablename__ = "attachments"
@@ -110,11 +115,15 @@ class Attachment(Base, TimestampMixin):
     # thread. One row per distinct file per message.
     __table_args__ = (
         UniqueConstraint("inbound_message_id", "sha256", name="uq_attachments_message_sha"),
+        UniqueConstraint("sent_message_id", "sha256", name="uq_attachments_sent_sha"),
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
-    inbound_message_id: Mapped[str] = mapped_column(
-        String(32), ForeignKey("inbound_messages.id"), nullable=False, index=True
+    inbound_message_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("inbound_messages.id"), index=True
+    )
+    sent_message_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("sent_messages.id"), index=True
     )
     filename: Mapped[str] = mapped_column(String(300), nullable=False)
     content_type: Mapped[str] = mapped_column(String(120), nullable=False, default="")

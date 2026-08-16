@@ -126,9 +126,22 @@
                        border: 1px solid var(--rule); border-radius: 4px;
                        background: var(--panel); color: var(--ink); resize: vertical; }
   .composer textarea:disabled { background: var(--sunk); color: var(--muted); }
-  .composer .bar { display: flex; justify-content: flex-end; }
+  .composer .bar { display: flex; justify-content: flex-end; align-items: center;
+                   gap: 0.6rem; }
+  .composer .bar .pick { margin-right: auto; font-size: 0.78rem; cursor: pointer;
+                         padding: 0.3rem 0.6rem; border: 1px solid var(--rule);
+                         border-radius: 4px; color: var(--muted); }
+  .composer .bar .pick.off { opacity: 0.45; cursor: default; }
   .composer .hint { font-size: 0.76rem; color: var(--muted); }
   .composer .hint.shut { color: var(--high); }
+  /* One row per file, on the turn that carried it. A name and a size, because
+     "attachment" tells a reader nothing and the size is how somebody decides
+     whether the invoice or the scan of it is the one they want. */
+  .turn-files { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+  .turn-files a { font-size: 0.78rem; padding: 0.25rem 0.55rem; border-radius: 4px;
+                  border: 1px solid var(--rule); color: var(--ink);
+                  text-decoration: none; background: var(--panel); }
+  .turn-files a:hover { border-color: var(--accent); }
   .thread { display: flex; flex-direction: column; gap: 0.9rem; }
   /* Ours on the left against the panel, theirs indented and tinted. Side is
      carried by position and by a word, never by colour alone. */
@@ -1129,7 +1142,15 @@
     <div class="hint" id="composerWhy"></div>
     <textarea id="composerText" rows="2"
               placeholder="Write to the supplier on WhatsApp…"></textarea>
+    <!-- A file goes with whatever is typed above it, as one message: on WhatsApp
+         a caption belongs to the document, and sending the words separately
+         leaves the supplier a PDF with no covering note. -->
     <div class="bar">
+      <label class="pick" id="composerPick">
+        Attach a file
+        <input type="file" id="composerFile" hidden />
+      </label>
+      <span class="hint" id="composerFileName"></span>
       <button type="button" id="composerSend">Send</button>
     </div>
     <div class="readout" id="composerOut" hidden></div>
@@ -3341,6 +3362,8 @@
     const box = $("threadComposer");
     $("composerOut").hidden = true;
     $("composerText").value = "";
+    $("composerFile").value = "";
+    $("composerFileName").textContent = "";
 
     if (!wa.can_send) {
       // No number on file, or no supplier at all. Nothing to explain in the
@@ -3369,7 +3392,15 @@
     }
     $("composerText").disabled = !wa.open;
     $("composerSend").disabled = !wa.open;
+    $("composerFile").disabled = !wa.open;
+    $("composerPick").classList.toggle("off", !wa.open);
   }
+
+  $("composerFile").addEventListener("change", () => {
+    const chosen = $("composerFile").files[0];
+    $("composerFileName").textContent = chosen
+      ? `${chosen.name} · ${fileSize(chosen.size)}` : "";
+  });
 
   // Not wrapped in busy(): that hands the button back enabled when it finishes,
   // and a send can legitimately end with the composer shut — the reply that
@@ -3379,8 +3410,9 @@
     if (send.disabled) return;
     const number = writingTo;
     const text = $("composerText").value.trim();
+    const chosen = $("composerFile").files[0] || null;
     const out = $("composerOut");
-    if (!number || !text) {
+    if (!number || (!text && !chosen)) {
       out.hidden = false;
       out.textContent = "Nothing to send.";
       return;
@@ -3388,8 +3420,27 @@
     send.disabled = true;
     send.classList.add("busy");
     try {
-      await api(`/purchase-orders/${number}/whatsapp/message`,
-                { method: "POST", body: JSON.stringify({ text }) });
+      if (chosen) {
+        // One message, not two: on WhatsApp the words are the file's caption, so
+        // sending them separately leaves the supplier a PDF with no covering
+        // note and no way to tell which order it belongs to.
+        const form = new FormData();
+        form.append("file", chosen);
+        form.append("caption", text);
+        // Not through api(): that sets a JSON content type, and multipart needs
+        // the browser to write its own boundary into the header.
+        const res = await fetch(`${API}/purchase-orders/${number}/whatsapp/file`,
+                                { method: "POST", body: form,
+                                  headers: { "X-API-Key": state.key } });
+        if (!res.ok) {
+          let why = `${res.status} ${res.statusText}`;
+          try { why = (await res.json()).detail || why; } catch {}
+          throw new Error(why);
+        }
+      } else {
+        await api(`/purchase-orders/${number}/whatsapp/message`,
+                  { method: "POST", body: JSON.stringify({ text }) });
+      }
     } catch (err) {
       out.hidden = false;
       out.textContent = `Not sent: ${err.message}`;
@@ -3499,6 +3550,11 @@
         </div>
         ${e.subject ? `<div class="turn-head"><span>${escapeHtml(e.subject)}</span></div>` : ""}
         ${text}
+        ${(e.files || []).length ? `<div class="turn-files">${
+          e.files.map((f) => `<a href="#" data-file="${f.id}"
+            data-name="${escapeHtml(f.filename)}">${
+            escapeHtml(f.filename)} · ${fileSize(f.bytes)}</a>`).join("")
+        }</div>` : ""}
         ${e.as_template && e.delivered
           ? `<div class="turn-head"><span>WhatsApp carried the approved template —
                the order number, line count, value and date. This full text was
@@ -3507,7 +3563,28 @@
           ? `<div class="turn-note">${escapeHtml(e.failure)}</div>` : ""}
       </div>`;
     }).join("");
+
+    // Fetched rather than linked. The download needs the API key and a plain
+    // href cannot carry a header — putting the key in the URL instead would
+    // write it into browser history and every proxy log between here and there.
+    $("threadTurns").querySelectorAll("[data-file]").forEach((link) =>
+      link.addEventListener("click", async (ev) => {
+        ev.preventDefault();
+        const res = await fetch(`${API}/inbound/attachments/${link.dataset.file}`,
+                                { headers: { "X-API-Key": state.key } });
+        if (!res.ok) { alert(`Could not fetch that file (${res.status})`); return; }
+        const url = URL.createObjectURL(await res.blob());
+        const save = document.createElement("a");
+        save.href = url;
+        save.download = link.dataset.name || "attachment";
+        save.click();
+        URL.revokeObjectURL(url);
+      }));
   }
+
+  const fileSize = (bytes) => bytes >= 1e6
+    ? `${(bytes / 1e6).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1000))} KB`;
 
   $("threadClose").addEventListener("click", () => $("threadDialog").close());
 

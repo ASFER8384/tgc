@@ -1,23 +1,31 @@
 from sca.whatsapp.base import (
+    MAX_MEDIA_BYTES,
     CloudSender,
     ConsoleSender,
+    Media,
+    MediaMessage,
     NullSender,
     Sender,
     TemplateMessage,
     TextMessage,
     WhatsAppError,
+    download_media,
     get_sender,
     resolve_recipient,
 )
 
 __all__ = [
+    "MAX_MEDIA_BYTES",
     "CloudSender",
     "ConsoleSender",
+    "Media",
+    "MediaMessage",
     "NullSender",
     "Sender",
     "TemplateMessage",
     "TextMessage",
     "WhatsAppError",
+    "download_media",
     "get_sender",
     "resolve_recipient",
 ]

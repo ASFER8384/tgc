@@ -600,6 +600,78 @@ async def test_an_empty_message_is_not_a_message(
     assert empty.status_code == 422
 
 
+async def test_a_file_we_send_is_kept_as_well_as_sent(
+    client, supplier_payload, monkeypatch, sessionmaker_fixture
+):
+    """The copy is the point. A specification sent on WhatsApp is what an argument
+    about the wrong goods turns on months later, and the supplier's phone is not a
+    record this business controls."""
+    from sca.whatsapp.base import ConsoleSender
+
+    phone = ConsoleSender()
+    monkeypatch.setattr("sca.orders.service.get_sender", lambda settings: phone)
+    number = await _whatsapp_order(client, supplier_payload)
+    await _wrote_to_us(sessionmaker_fixture, "+91 82209 58384")
+
+    out = await client.post(
+        f"/purchase-orders/{number}/whatsapp/file",
+        files={"file": ("spec.pdf", b"%PDF-1.4 the curve", "application/pdf")},
+        data={"caption": "the curve, as agreed"},
+    )
+    assert out.status_code == 200
+    assert phone.sent[-1].filename == "spec.pdf"
+    assert phone.sent[-1].kind == "document", "a PDF keeps its name; an image would not"
+    assert phone.sent[-1].caption == "the curve, as agreed"
+
+    thread = (await client.get(f"/purchase-orders/{number}/thread")).json()
+    ours = [e for e in thread["entries"] if e["side"] == "ours"][-1]
+    assert ours["body"] == "the curve, as agreed", "the caption is the message"
+    assert [f["filename"] for f in ours["files"]] == ["spec.pdf"]
+
+    # And the bytes come back exactly, from the same route the supplier's own
+    # files are served on.
+    got = await client.get(f"/inbound/attachments/{ours['files'][0]['id']}")
+    assert got.status_code == 200
+    assert got.content == b"%PDF-1.4 the curve"
+
+
+async def test_a_file_cannot_be_sent_outside_the_window_either(
+    client, supplier_payload, monkeypatch, sessionmaker_fixture
+):
+    """The rule is about the conversation, not about what is put into it. A file
+    that skipped the check would fail at Meta after the upload had already
+    happened, leaving bytes in their store and nothing here to explain it."""
+    from sca.whatsapp.base import ConsoleSender
+
+    phone = ConsoleSender()
+    monkeypatch.setattr("sca.orders.service.get_sender", lambda settings: phone)
+    number = await _whatsapp_order(client, supplier_payload)
+
+    refused = await client.post(
+        f"/purchase-orders/{number}/whatsapp/file",
+        files={"file": ("spec.pdf", b"%PDF", "application/pdf")},
+    )
+    assert refused.status_code == 409
+    # The order's own template went out earlier and is in here; the file is not.
+    assert not [m for m in phone.sent if getattr(m, "filename", None)], "nothing uploaded"
+
+
+async def test_an_empty_file_is_refused_before_it_is_uploaded(
+    client, supplier_payload, monkeypatch, sessionmaker_fixture
+):
+    from sca.whatsapp.base import ConsoleSender
+
+    monkeypatch.setattr("sca.orders.service.get_sender", lambda settings: ConsoleSender())
+    number = await _whatsapp_order(client, supplier_payload)
+    await _wrote_to_us(sessionmaker_fixture, "+91 82209 58384")
+
+    empty = await client.post(
+        f"/purchase-orders/{number}/whatsapp/file",
+        files={"file": ("nothing.pdf", b"", "application/pdf")},
+    )
+    assert empty.status_code == 422
+
+
 async def test_the_thread_holds_both_halves_of_the_exchange(
     client, supplier_payload, monkeypatch
 ):

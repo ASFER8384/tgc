@@ -4,8 +4,9 @@ import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -406,11 +407,38 @@ async def order_thread(
     order = await _by_number(session, number)
     supplier = await session.get(Supplier, order.supplier_id)
 
+    # The files on this conversation, both directions, in one pass. Fetched
+    # without their bytes: the drawer needs a name, a size and a link, and
+    # loading a dozen invoices into memory to render a list of names is a page
+    # that gets slower every time a supplier answers.
+    carried: dict[str, list[dict]] = {}
+    for att_id, inbound_id, sent_id, name, mime, size in await session.execute(
+        select(
+            Attachment.id, Attachment.inbound_message_id, Attachment.sent_message_id,
+            Attachment.filename, Attachment.content_type, Attachment.byte_size,
+        ).where(
+            Attachment.inbound_message_id.in_(
+                select(InboundMessage.id).where(
+                    InboundMessage.purchase_order_id == order.id
+                )
+            )
+            | Attachment.sent_message_id.in_(
+                select(SentMessage.id).where(SentMessage.purchase_order_id == order.id)
+            )
+        )
+    ):
+        owner = inbound_id or sent_id
+        if owner:
+            carried.setdefault(owner, []).append({
+                "id": att_id, "filename": name, "content_type": mime, "bytes": size,
+            })
+
     entries: list[dict] = []
     for msg in await session.scalars(
         select(SentMessage).where(SentMessage.purchase_order_id == order.id)
     ):
         entries.append({
+            "files": carried.get(msg.id, []),
             "id": msg.id,
             "side": "ours",
             "at": msg.sent_at,
@@ -455,6 +483,7 @@ async def order_thread(
             # channel nothing is listening on — which the drawer says out loud
             # rather than leaving as an empty side of the conversation.
             "channel": msg.source if msg.source in ("email", "whatsapp") else "email",
+            "files": carried.get(msg.id, []),
         })
 
     # Letters sent before the text was kept still belong in the timeline. The
@@ -745,6 +774,40 @@ async def send_whatsapp_text(
     service = OrderService(session, actor=actor, settings=settings)
     try:
         delivery = await service.send_whatsapp_text(order, body.text)
+    except OrderInputError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except OrderError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return {"number": order.number, "delivery": delivery}
+
+
+@router.post("/purchase-orders/{number}/whatsapp/file")
+async def send_whatsapp_file(
+    number: str,
+    session: SessionDep,
+    actor: ActorDep,
+    settings: RuntimeSettingsDep,
+    file: Annotated[UploadFile, File()],
+    caption: Annotated[str, Form()] = "",
+) -> dict:
+    """Send the supplier a file on WhatsApp, inside the open window.
+
+    Multipart rather than base64 in a JSON body, which is what the inbound test
+    endpoint takes: this one is fed by a file picker in the browser, and encoding
+    a PDF into a string to post it would inflate it by a third for no reader's
+    benefit.
+    """
+    order = await _by_number(session, number)
+    service = OrderService(session, actor=actor, settings=settings)
+    content = await file.read()
+    try:
+        delivery = await service.send_whatsapp_file(
+            order,
+            filename=file.filename or "attachment",
+            content_type=file.content_type or "application/octet-stream",
+            content=content,
+            caption=caption,
+        )
     except OrderInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except OrderError as exc:
