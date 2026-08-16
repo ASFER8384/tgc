@@ -124,6 +124,19 @@
   tbody tr.short td { background: color-mix(in srgb, var(--high) 7%, transparent); }
   td .sub { display: block; font-size: 0.74rem; color: var(--muted); }
 
+  /* The log is two columns of prose among six of figures: why a run was refused,
+     and what the published number was made of. Both inherited the table's
+     nowrap, so the refusal sentence ran the table off the page and left the
+     column beside it squeezed to one word a line. They wrap; the figures still
+     do not, because a rate broken across two lines is unreadable. */
+  .runs td:first-child { white-space: normal; min-width: 10rem; }
+  .runs td:first-child .sub { max-width: 24rem; }
+  /* A floor as well as a ceiling. Without the floor this column collapses to
+     its longest word the moment the table runs out of room, which is exactly
+     when there is most to read. */
+  .runs td.reads { white-space: normal; min-width: 15rem; max-width: 24rem;
+                   line-height: 1.4; }
+
   .spark { display: block; }
   .note { padding: 0.7rem 1rem; border-bottom: 1px solid var(--rule);
           background: var(--sunk); font-size: 0.8rem; line-height: 1.5; color: var(--ink-soft); }
@@ -268,7 +281,7 @@
     <div class="note">Refused runs are kept. They are the evidence for what to fix,
       and a log that only shows the wins is not a log.</div>
 
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table class="runs">
         <thead><tr><th>When</th><th class="num">Weeks</th><th class="num">Rows</th>
           <th class="num">Model error</th><th class="num">Average's error</th>
           <th class="num">Direction</th><th>Made of</th><th>Outcome</th></tr></thead>
@@ -609,7 +622,7 @@
         <td class="num">${pct(b.wape)}</td>
         <td class="num">${m.bias_pct === null || m.bias_pct === undefined ? "—"
           : (m.bias_pct > 0 ? "+" : "") + pct(m.bias_pct)}</td>
-        <td style="white-space:normal;max-width:22rem">${r.calibration
+        <td class="reads">${r.calibration
           ? escapeHtml(r.calibration.reads_as) : "—"}</td>
         <td>${outcome}</td>
       </tr>`;
