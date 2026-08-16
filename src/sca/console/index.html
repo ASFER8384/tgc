@@ -358,7 +358,15 @@
   .sizes { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
   .sizes-label { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
                  color: var(--muted); }
-  .size-box { display: flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; }
+  /* The box and, under it, what the forecast asked for. A grid rather than a
+     row so the figure sits beneath its own input instead of drifting between
+     two of them. */
+  .size-box { display: grid; grid-template-columns: auto auto;
+              grid-template-rows: auto auto; column-gap: 0.35rem;
+              align-items: center; font-size: 0.78rem; }
+  .size-box > em { grid-column: 2; font-style: normal; font-size: 0.68rem;
+                   color: var(--muted); text-align: right; padding-right: 0.35rem;
+                   font-variant-numeric: tabular-nums; }
   .size-box span { color: var(--ink-soft); }
   .size-box input { width: 3.6rem; text-align: right; font: inherit;
                     font-variant-numeric: tabular-nums; padding: 0.15rem 0.35rem;
@@ -2052,6 +2060,11 @@
     // are different numbers whenever the mill's minimum rounds the order up —
     // and on a line with a 2,000 minimum against a 316 need they can never
     // agree, so every such row opened already refusing to draft.
+    // The forecast's own split, beside the one being ordered. They differ by
+    // whatever the pack size added, and a buyer typing over a box should be
+    // able to see how far they are moving from what was measured — otherwise
+    // the only honest number on the row is the one they just overwrote.
+    const needed = spread(curve, line.need_quantity || line.suggest_quantity);
     const boxes = Object.entries(spread(curve, line.suggest_quantity))
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([size, count]) => `
@@ -2061,6 +2074,8 @@
                  data-size-input="${escapeHtml(item.sku)}"
                  data-size="${escapeHtml(size)}"
                  aria-label="${escapeHtml(size)} of ${escapeHtml(item.sku)}">
+          <em data-size-need="${escapeHtml(item.sku)}|${escapeHtml(size)}"
+              title="what the forecast asked for">${needed[size] ?? 0}</em>
         </label>`).join("");
     return `<tr class="sizes-row" data-sizes-for="${escapeHtml(item.sku)}">
       <td colspan="8">
@@ -2240,10 +2255,16 @@
                  data-suggested="${line.suggest_quantity}"
                  aria-label="Quantity to buy of ${i.sku}">
           <span class="of" data-qty-note="${i.sku}"></span>${
-          // What the line needs is not what the mill will cut. Said here rather
-          // than folded into the quantity: a buyer who needs 316 should see 316
-          // and be told the minimum is 2,000, not be handed 2,000 and left to
-          // work out which number was the need.
+          // Both numbers, always. The need is the forecast's answer and the
+          // order is what can actually be bought; a buyer shown only the second
+          // cannot tell how much of it they are buying because of the carton,
+          // and on a line whose pack is a season's worth that difference is the
+          // whole decision.
+          line.need_quantity && line.suggest_quantity !== line.need_quantity
+            ? `<span class="of">needs ${line.need_quantity.toLocaleString("en-US")}
+                 &middot; ${line.suggest_quantity.toLocaleString("en-US")} in packs of ${
+                 line.pack_size}</span>`
+            : ""}${
           line.below_supplier_minimum
             ? `<span class="of" style="color:var(--medium)">under their ${
                 line.supplier_moq.toLocaleString("en-US")} minimum</span>`

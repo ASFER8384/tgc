@@ -59,6 +59,12 @@ class Suggestion:
     # mill wants 2,000, not be handed 2,000 and left to work out why.
     supplier_moq: int = 0
     below_supplier_minimum: bool = False
+    # What the cover target actually asked for, before the supplier's pack size
+    # rounded it. Both are shown: the need is the forecast's answer and the
+    # order is what can be bought, and a buyer who sees only the second cannot
+    # tell how much of it they are buying because of the carton.
+    need_quantity: int = 0
+    pack_size: int = 1
 
     @property
     def alternatives(self) -> int:
@@ -82,6 +88,8 @@ class Suggestion:
             "threshold_from": self.threshold_from,
             "supplier_moq": self.supplier_moq,
             "below_supplier_minimum": self.below_supplier_minimum,
+            "need_quantity": self.need_quantity,
+            "pack_size": self.pack_size,
             "weekly_demand": round(self.weekly_demand, 1),
             "minimum": self.minimum,
             "below_minimum": self.below_minimum,
@@ -277,6 +285,8 @@ class PlanningService:
                     threshold_from=threshold_from,
                     supplier_moq=moq,
                     below_supplier_minimum=bool(moq and quantity < moq),
+                    need_quantity=max(0, int(math.ceil(raw_quantity))),
+                    pack_size=max(int(pack or 1), 1),
                     weekly_demand=weekly,
                     minimum=floor,
                     below_minimum=below_floor,
