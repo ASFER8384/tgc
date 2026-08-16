@@ -2026,10 +2026,34 @@
   // but it is a suggestion like the quantity, so it is typed over rather than
   // read. Lines with no measured curve get no row: an even split nobody chose
   // is a worse instruction than no split at all.
+  /** A curve scaled to a total, in whole units that add to it exactly.
+   *
+   *  Largest remainder rather than rounding each share: rounding four shares
+   *  independently lands two or three units short of the total, and the row
+   *  would open with a mismatch it did not deserve. The shares keep their
+   *  measured order — the colour that sells most gets the spare unit.
+   */
+  function spread(curve, total) {
+    const names = Object.keys(curve);
+    const measured = names.reduce((n, k) => n + curve[k], 0);
+    if (!measured || !total) return Object.fromEntries(names.map((k) => [k, 0]));
+    const exact = names.map((k) => ({ k, want: total * curve[k] / measured }));
+    const out = Object.fromEntries(exact.map(({ k, want }) => [k, Math.floor(want)]));
+    let left = total - Object.values(out).reduce((n, c) => n + c, 0);
+    exact.sort((a, b) => (b.want % 1) - (a.want % 1) || curve[b.k] - curve[a.k]);
+    for (let i = 0; left > 0; i = (i + 1) % exact.length, left--) out[exact[i].k] += 1;
+    return out;
+  }
+
   function sizeRow(item, line) {
     const curve = (state.sizeCurve || {})[item.sku];
     if (!curve) return "";
-    const boxes = Object.entries(curve).sort(([a], [b]) => a.localeCompare(b))
+    // Seeded to the quantity on the line, not to the forecast's raw need. Those
+    // are different numbers whenever the mill's minimum rounds the order up —
+    // and on a line with a 2,000 minimum against a 316 need they can never
+    // agree, so every such row opened already refusing to draft.
+    const boxes = Object.entries(spread(curve, line.suggest_quantity))
+      .sort(([a], [b]) => a.localeCompare(b))
       .map(([size, count]) => `
         <label class="size-box">
           <span>${escapeHtml(size)}</span>
@@ -2248,8 +2272,21 @@
       syncRow(i.sku, state.unitCost[i.sku]);
     });
     $("suggestions").querySelectorAll("[data-qty-input]").forEach((box) =>
-      box.addEventListener("input", () => syncRow(box.dataset.qtyInput,
-                                                  state.unitCost[box.dataset.qtyInput])));
+      box.addEventListener("input", () => {
+        const sku = box.dataset.qtyInput;
+        // Re-cut the curve to the new total. The sizes have to add to the line
+        // whatever it becomes, and leaving a buyer to rebalance four boxes by
+        // hand after every edit is asking them to do arithmetic the measured
+        // curve already answers.
+        const curve = (state.sizeCurve || {})[sku];
+        const wanted = typedQuantity(sku);
+        if (curve && wanted !== null) {
+          const cut = spread(curve, wanted);
+          $("suggestions").querySelectorAll(`[data-size-input="${CSS.escape(sku)}"]`)
+            .forEach((size) => { size.value = cut[size.dataset.size] ?? 0; });
+        }
+        syncRow(sku, state.unitCost[sku]);
+      }));
     // A size box moves the line total with it — typing a curve *is* deciding the
     // quantity, and making somebody total it themselves and retype it is how the
     // two come to disagree.
