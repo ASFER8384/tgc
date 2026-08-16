@@ -461,9 +461,13 @@
   /* With the side column gone these tables have the whole width, and left to
      itself the buttons column swallowed the slack and pushed every fact into
      the left half. Sized to its own content and pinned right instead, so the
-     columns that carry information get the room. */
-  .orders td:last-child, .orders th.acts,
-  .tobuy td:last-child, .tobuy th.acts {
+     columns that carry information get the room.
+
+     Not the cells that span the whole table: "loading" and "nothing here" are
+     the row, not its last column, and pinning them right sent both messages to
+     hide in the far corner of an otherwise empty table. */
+  .orders td:last-child:not([colspan]), .orders th.acts,
+  .tobuy td:last-child:not([colspan]), .tobuy th.acts {
     text-align: right; white-space: nowrap; width: 1%;
   }
   /* Spare width belongs to the one column whose content varies — the item and
