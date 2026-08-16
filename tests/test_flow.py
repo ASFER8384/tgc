@@ -447,6 +447,36 @@ async def test_what_needs_a_person_is_on_the_order_it_belongs_to(
     assert issue["suggested_action"], "an alarm with no move is where it started"
 
 
+async def test_a_letter_we_did_not_keep_is_recovered_from_the_reply_that_quoted_it(
+    client, supplier_payload, monkeypatch
+):
+    """The supplier's own copy, quoted back. Not a reconstruction: recomposing
+    from today's rows would show figures that were never sent, but a reply
+    quoting our message is evidence of what they received — labelled as theirs,
+    because their mail client may have rewrapped it."""
+    from sca.api.orders import _letter_inside
+
+    recovered = _letter_inside(
+        "I accept this order.\n"
+        "\n"
+        "On Tue, 11 Aug, 2026, 3:46 pm Procurement, <buyer@example.com>\n"
+        "wrote:\n"
+        "\n"
+        "> Dear Asfer,\n"
+        ">\n"
+        ">   ALN-SILK-NVY   500 x 40.00 = 20,000.00\n"
+    )
+    assert recovered is not None
+    assert recovered.startswith("Dear Asfer,")
+    assert "500 x 40.00" in recovered
+    assert ">" not in recovered, "the quote marks are their client, not our words"
+    assert "I accept this order" not in recovered, "their words are not ours"
+
+    # A reply with nothing quoted recovers nothing rather than guessing.
+    assert _letter_inside("confirmed, thanks") is None
+    assert _letter_inside("") is None
+
+
 async def test_a_revision_does_not_rewrite_the_letter_already_sent(
     client, supplier_payload, monkeypatch
 ):

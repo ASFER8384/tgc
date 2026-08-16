@@ -3147,11 +3147,21 @@
     // The gap is marked on the turns themselves now, in the place it happened.
     // This says once, at the top, why some of them have no text.
     if (thread.not_kept) {
+      // Two different states, and they must not read as one. A letter the
+      // supplier quoted back has its words; one nobody answered has only a time.
+      const found = thread.entries.filter((e) => e.body_from).length;
       $("threadGap").textContent =
         `${thread.not_kept} of our letters went out before this system kept its ` +
-        `own half of the conversation. They are in the thread with their time ` +
-        `and address; the text was not stored, and writing it out from today's ` +
-        `figures would show the supplier something they were never sent.`;
+        `own half of the conversation. `
+        + (found
+          ? `${found} of them are here as the supplier quoted them back — their ` +
+            `copy of what we sent, not ours. `
+          : "")
+        + (thread.not_kept > found
+          ? `${thread.not_kept - found} have their time and address only: nothing ` +
+            `quoted them back, and writing them out from today's figures would ` +
+            `show the supplier something they were never sent.`
+          : "");
       $("threadGap").hidden = false;
     }
 
@@ -3179,6 +3189,11 @@
         marks.push(e.delivered
           ? `delivered to ${escapeHtml(e.to || "?")}`
           : "not delivered");
+        // Whose copy this is. Recovered text is what the supplier received and
+        // quoted back, which is close to but not the same as a record of what
+        // we sent — their client may have rewrapped it, and it is only here at
+        // all because they answered.
+        if (e.body_from) marks.push(`recovered from ${escapeHtml(e.body_from)}`);
       } else if (!e.acted_on) {
         // Filed for a person rather than acted on, which is a fact about the
         // order and not only about the extractor.

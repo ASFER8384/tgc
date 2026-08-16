@@ -1,5 +1,6 @@
 """Planning, purchase orders, shipments and exceptions."""
 
+import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
@@ -353,6 +354,40 @@ async def order_message(
     )
 
 
+_QUOTE_MARK = re.compile(r"^\s*>+ ?")
+_ATTRIBUTION = re.compile(r"^\s*On .*(wrote:|\d{4}(,| at) .*,)\s*$")
+
+
+def _letter_inside(reply: str) -> str | None:
+    """The letter a supplier quoted back, pulled out of their reply.
+
+    Not a reconstruction. Recomposing an old letter from today's rows would show
+    figures that were never sent, which is why history is otherwise left empty —
+    but a supplier quoting our own message back at us is evidence of what they
+    received, from their side of it. Their mail client may have rewrapped it;
+    the words and the numbers are the ones that went.
+
+    Returns None rather than a guess when nothing is quoted.
+    """
+    lines = str(reply or "").splitlines()
+    start = next(
+        (
+            i for i, line in enumerate(lines)
+            if _QUOTE_MARK.match(line) or _ATTRIBUTION.match(line)
+        ),
+        None,
+    )
+    if start is None:
+        return None
+    # Past the "On <date>, <someone> wrote:" line, which is their client talking
+    # rather than anything we said.
+    if _ATTRIBUTION.match(lines[start]):
+        start += 1
+    quoted = [_QUOTE_MARK.sub("", line) for line in lines[start:]]
+    text = "\n".join(quoted).strip()
+    return text or None
+
+
 @router.get("/purchase-orders/{number}/thread")
 async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dict:
     """Both halves of the exchange on one order, oldest first.
@@ -428,8 +463,19 @@ async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dic
     )
     kept = sum(1 for e in entries if e["side"] == "ours" and e["kind"] != "receipt")
     unkept = max(0, len(audited) - kept)
+    # Their replies, oldest first, so an unkept letter can be matched with the
+    # answer that quoted it back.
+    replies = sorted(
+        (e for e in entries if e["side"] == "theirs"), key=lambda e: e["at"]
+    )
     for row in audited[:unkept]:
         delivery = (row.meta or {}).get("delivery") or {}
+        # The first reply after this letter went out is the one that quoted it.
+        # A supplier quoting our own message back is the only honest source for
+        # text this system did not keep — it is what they received, not what the
+        # order would compose today.
+        answer = next((r for r in replies if r["at"] >= row.created_at), None)
+        recovered = _letter_inside(answer["body"]) if answer else None
         entries.append({
             "id": f"audit-{row.id}",
             "side": "ours",
@@ -437,10 +483,15 @@ async def order_thread(number: str, session: SessionDep, actor: ActorDep) -> dic
             "who": "Procurement",
             "to": delivery.get("recipient"),
             "subject": None,
-            # Null, not an empty string. The console says "the text was not
-            # kept" for this; an empty body would render as a letter we sent
-            # that said nothing.
-            "body": None,
+            # Null where nothing could be recovered. The console says "the text
+            # was not kept" for that; an empty string would render as a letter
+            # we sent that said nothing.
+            "body": recovered,
+            # Where the words came from, never left to be assumed. Ours is the
+            # copy we wrote down; theirs is the copy they quoted back, and only
+            # one of those is a record of what we sent rather than of what they
+            # received.
+            "body_from": "their reply" if recovered else None,
             "kind": "order",
             "revision": None,
             "delivered": bool(delivery.get("delivered")),
