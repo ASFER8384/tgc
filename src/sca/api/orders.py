@@ -554,6 +554,20 @@ async def order_thread(
     # about what, so answering it meant leaving the order and going to look —
     # and an exception is nearly always about something in the correspondence
     # sitting right underneath it.
+    #
+    # Each one carries the wire it came off, where it came off one at all, so a
+    # flag raised by a WhatsApp reply does not sit at the top of the email
+    # conversation looking like something that happened there. Read from the
+    # message it names rather than stored again on the issue: the source is the
+    # message's fact, and a copy would be a second place to get it wrong.
+    from_wire = {
+        mid: source
+        for mid, source in await session.execute(
+            select(InboundMessage.id, InboundMessage.source).where(
+                InboundMessage.purchase_order_id == order.id
+            )
+        )
+    }
     issues = [
         {
             "id": issue.id,
@@ -562,6 +576,9 @@ async def order_thread(
             "detail": issue.detail,
             "suggested_action": issue.suggested_action,
             "status": issue.status,
+            # None means "not about a message" — a late acknowledgement or a
+            # price mismatch belongs on both wires, because it is about the order.
+            "channel": from_wire.get((issue.context or {}).get("message_id")),
         }
         for issue in await session.scalars(
             select(Issue)
