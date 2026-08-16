@@ -458,13 +458,21 @@
 
   table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
   .table-wrap { overflow-x: auto; }
-  /* With the side column gone this table has the whole width, and left to
+  /* With the side column gone these tables have the whole width, and left to
      itself the buttons column swallowed the slack and pushed every fact into
      the left half. Sized to its own content and pinned right instead, so the
      columns that carry information get the room. */
-  .orders td:last-child, .orders th.acts {
+  .orders td:last-child, .orders th.acts,
+  .tobuy td:last-child, .tobuy th.acts {
     text-align: right; white-space: nowrap; width: 1%;
   }
+  /* Spare width belongs to the one column whose content varies — the item and
+     its description. Shared evenly instead, it opened a gap between the name
+     and the first figure that read as a missing column.
+
+     The size row and the empty state span every column, so they are excluded: a
+     full-width cell claiming to be the first column confuses the sizing. */
+  .tobuy th:first-child, .tobuy td:first-child:not([colspan]) { width: 100%; }
   th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule);
            white-space: nowrap; }
   th { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.11em;
@@ -626,10 +634,10 @@
             <h2>To buy</h2>
             <span class="hint" id="suggestHint">what has run low</span>
           </div>
-          <div class="table-wrap"><table>
+          <div class="table-wrap"><table class="tobuy">
             <thead><tr><th>Item</th><th class="num">Sold</th><th class="num">Stock</th>
               <th class="num">Weeks cover</th><th class="num">Buy</th>
-              <th class="num">Value</th><th>Supplier</th><th></th></tr></thead>
+              <th class="num">Value</th><th>Supplier</th><th class="acts"></th></tr></thead>
             <tbody id="suggestions"><tr><td colspan="8" class="empty">loading</td></tr></tbody>
           </table></div>
           <!-- What produced each line. A suggestion is a number until somebody
@@ -2434,6 +2442,12 @@
       })));
   }
 
+  // Superseded by the conversation drawer, which shows the letters that were
+  // actually sent rather than the one that would be composed now. Hidden rather
+  // than deleted: the dialog, the endpoint and the copy button all still work,
+  // and this is the switch that puts them back on the row.
+  const SHOW_VIEW_MESSAGE = false;
+
   async function loadOrders() {
     const rows = await api("/purchase-orders");
     $("orderHint").textContent = `${rows.length} orders`;
@@ -2463,12 +2477,16 @@
       // somebody's mailbox.
       buttons.push(
         `<button class="ghost small" data-thread="${o.number}">Conversation</button>`);
-      // "Email" read as an instruction to send one, which is what the Send
-      // button does. This opens the composed text to be read, and on an order
-      // already gone it is history rather than a draft — so the label says what
-      // pressing it does rather than naming the medium.
-      buttons.push(
-        `<button class="ghost small" data-message="${o.number}">View message</button>`);
+      // Off. On an order already sent the conversation drawer has the letter
+      // that actually went, which is the better answer to the same question.
+      //
+      // What goes with it, on an order not yet sent: this was the only way to
+      // read the letter before pressing Send. The revise dialog still shows and
+      // edits it, so the text is reachable — one press further away.
+      if (SHOW_VIEW_MESSAGE) {
+        buttons.push(
+          `<button class="ghost small" data-message="${o.number}">View message</button>`);
+      }
       if (REVISABLE.includes(o.status)) {
         buttons.push(`<button class="ghost small" data-revise="${o.number}">Revise</button>`);
         buttons.push(`<button class="ghost small" data-cancel="${o.number}">Cancel</button>`);
