@@ -97,15 +97,28 @@
   /* The thread is a side sheet rather than a centred box: it is read against
      the order list it was opened from, and a modal in the middle of the screen
      hides the row that raised the question. */
+  /* Three fixed bands and one scrolling one: the title, the wire you are
+     reading, the conversation, the box you write in. Only the conversation
+     moves, which is the only part that is longer than the screen. */
   #threadDialog { margin: 0 0 0 auto; height: 100vh; max-height: 100vh;
                   max-width: min(620px, 96vw); border-radius: 0;
-                  border-width: 0 0 0 1px; }
-  #threadDialog .panel-head { flex-wrap: wrap; gap: 0.5rem; }
+                  border-width: 0 0 0 1px;
+                  display: flex; flex-direction: column; }
+  #threadDialog .panel-head { flex-wrap: wrap; gap: 0.5rem; flex: 0 0 auto; }
+  #threadChannels:not(:empty) { flex: 0 0 auto; padding: 0.6rem 1.2rem;
+                                border-bottom: 1px solid var(--rule);
+                                background: var(--panel); }
+  #threadComposer { flex: 0 0 auto; }
   /* The badge sits on the baseline of the text beside it rather than stretching
      to the row, which is what a status tag does everywhere else on the page. */
   #threadWho { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   #threadClose { margin-left: auto; }
-  #threadDialog .panel-body { max-height: calc(100vh - 4.2rem); }
+  /* Takes whatever the three fixed bands leave, rather than a viewport fraction
+     worked out here: the composer changes height with what is typed into it and
+     a hardcoded max-height would either clip the thread or overshoot the screen.
+     min-height:0 is what lets a flex child actually scroll instead of growing. */
+  #threadDialog .panel-body { flex: 1 1 auto; min-height: 0; max-height: none;
+                              padding-top: 0.8rem; }
   /* Empty most of the time, and an empty box must not leave a gap that reads as
      a missing thing. */
   #threadIssues:empty { display: none; }
@@ -1131,13 +1144,13 @@
     <span class="hint" id="threadWho"></span>
     <button type="button" class="ghost small" id="threadClose">Close</button>
   </div>
+  <!-- Outside the scrolling body, like the composer below it. Which wire you are
+       reading is the frame around every line in the drawer, and a frame that
+       scrolls away leaves the reader working out from the turns themselves which
+       conversation they are three screens into. -->
+  <div class="chanpills" id="threadChannels"></div>
   <div class="panel-body">
     <div id="threadIssues"></div>
-    <!-- One order can be worked on two wires, and reading either alone gives the
-         wrong answer: a supplier who replied on email looks silent on WhatsApp.
-         Both toggles start on for that reason — the filter is for narrowing,
-         never the state somebody arrives in. -->
-    <div class="chanpills" id="threadChannels"></div>
     <div class="readout" id="threadGap" hidden></div>
     <div class="thread" id="threadTurns"></div>
   </div>
