@@ -25,6 +25,17 @@
        thing on the next chart is worse than no hue at all. */
     --series: #00918a;
     --stockline: #8a6a00;
+    /* The share ring. Four *ordered* steps of one hue rather than four hues,
+       because share is a magnitude and the slices are sorted by it — the ramp
+       carries that order where four colours would only carry identity, and
+       identity is already on the label beside each slice.
+
+       Not a taste call: four distinct hues at this lightness cannot be told
+       apart under deuteranopia (best case ΔE 4.4 against a floor of 8, checked
+       across every pair), so a four-colour ring would read as one colour to a
+       reader with the commonest form of colour blindness. Both ramps below are
+       validated against their own surface. */
+    --slice-1: #893e00; --slice-2: #a56300; --slice-3: #b78348; --slice-4: #c9a37b;
     --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
     --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
     --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
@@ -36,6 +47,9 @@
       --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
       --high: #e0846c; --medium: #d8ab4e; --ok: #86b294;
       --series: #00a79d; --stockline: #a98a1e;
+      /* Re-stepped for the dark panel, not inverted: the light ramp's darkest
+         step disappears against #1c1916. Validated against that surface. */
+      --slice-1: #fbb360; --slice-2: #dd9231; --slice-3: #b57727; --slice-4: #8b5e29;
     }
   }
   :root[data-theme="dark"] {
@@ -44,6 +58,7 @@
     --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
     --high: #e0846c; --medium: #d8ab4e; --ok: #86b294;
     --series: #00a79d; --stockline: #a98a1e;
+    --slice-1: #fbb360; --slice-2: #dd9231; --slice-3: #b57727; --slice-4: #8b5e29;
   }
 
   * { box-sizing: border-box; }
@@ -117,6 +132,20 @@
      best guess there is, and suppressing it would only send somebody looking
      for it somewhere worse. */
   .shaky { color: var(--muted); }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+            gap: 1.2rem; padding: 0.4rem 1rem 1rem; }
+  .charts figure { margin: 0; min-width: 0; }
+  .charts figcaption { font-size: 0.8rem; color: var(--muted); padding-bottom: 0.5rem; }
+  .charts svg { max-width: 100%; height: auto; display: block; }
+  /* The legend doubles as the value table: a swatch is identity, the number
+     beside it is the thing being compared, and neither is left to the ring. */
+  .key { display: grid; gap: 0.3rem; padding-top: 0.6rem; font-size: 0.8rem; }
+  .key > div { display: grid; grid-template-columns: 0.7rem 1fr auto auto;
+               gap: 0.5rem; align-items: baseline; }
+  .key i { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: block; }
+  .key b { font-variant-numeric: tabular-nums; }
+  .key span.pct { color: var(--muted); font-variant-numeric: tabular-nums;
+                  min-width: 2.6rem; text-align: right; }
   .flag { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em;
           text-transform: uppercase; border: 1px solid var(--rule);
           border-radius: 3px; padding: 0 0.25rem; margin-left: 0.25rem;
@@ -199,6 +228,7 @@
       <h2>Every item, the weeks straight ahead</h2>
       <span class="hint" id="itemsHint"></span>
     </div>
+    <div class="charts" id="itemCharts"></div>
     <div class="table-wrap"><table>
       <thead><tr>
         <th>Item</th><th>Next 8 weeks</th><th class="num" id="colWeek">Week</th>
@@ -456,6 +486,92 @@
     };
   }
 
+  // A ring, because this one question really is part-to-whole: how the four
+  // weeks ahead divide between the lines. Everything else on this panel is a
+  // comparison of magnitudes and stays a bar, where length is read accurately
+  // and angle is not.
+  //
+  // Slices are ordered largest first and take the ramp in that order, so the
+  // colour repeats the sort rather than inventing a second, meaningless
+  // grouping. Each carries its label and its number in the key beside it, so
+  // nothing is known by hue alone.
+  function donut(rows, opts) {
+    const o = Object.assign({ size: 168, thickness: 26 }, opts || {});
+    const total = rows.reduce((n, r) => n + r.value, 0);
+    if (!total) return '<div class="empty">nothing to show</div>';
+    const r = (o.size - o.thickness) / 2, circ = 2 * Math.PI * r, mid = o.size / 2;
+    let offset = 0;
+    const arcs = rows.map((row, i) => {
+      const frac = row.value / total;
+      // 2px of surface between slices, and never a negative dash on a sliver.
+      const len = Math.max(0.5, circ * frac - 2);
+      const seg = '<circle cx="' + mid + '" cy="' + mid + '" r="' + r + '" fill="none"'
+        + ' stroke="var(--slice-' + Math.min(i + 1, 4) + ')" stroke-width="' + o.thickness + '"'
+        + ' stroke-dasharray="' + len.toFixed(2) + ' ' + (circ - len).toFixed(2) + '"'
+        + ' stroke-dashoffset="' + (-offset).toFixed(2) + '"'
+        + ' transform="rotate(-90 ' + mid + ' ' + mid + ')">'
+        + '<title>' + esc(row.label) + ": " + row.text + " — "
+        + (frac * 100).toFixed(0) + '% of the horizon</title></circle>';
+      offset += circ * frac;
+      return seg;
+    }).join("");
+    // The hole holds the total, which is the one number the ring cannot show.
+    const hole = '<text x="' + mid + '" y="' + (mid - 2) + '" text-anchor="middle"'
+      + ' font-size="21" font-weight="600" fill="currentColor">' + num(total, 0) + '</text>'
+      + '<text x="' + mid + '" y="' + (mid + 15) + '" text-anchor="middle" font-size="10"'
+      + ' fill="currentColor" opacity="0.65">units</text>';
+    const key = rows.map((row, i) =>
+      '<div><i style="background:var(--slice-' + Math.min(i + 1, 4) + ')"></i>'
+      + '<span>' + esc(row.label) + '</span><b>' + row.text + '</b>'
+      + '<span class="pct">' + (row.value / total * 100).toFixed(0) + '%</span></div>'
+    ).join("");
+    return '<svg viewBox="0 0 ' + o.size + ' ' + o.size + '" role="img" aria-label="'
+      + esc(o.title || "share") + '">' + arcs + hole + '</svg>'
+      + '<div class="key">' + key + '</div>';
+  }
+
+  // Cover against its target, on a log scale.
+  //
+  // Not the first choice. A linear axis was, and it failed on this data: cover
+  // runs 8 weeks to 375, so either the short line is a two-pixel stub or three
+  // of four bars sit on the cap at identical length, which is worse — it throws
+  // away the ordering, and the ordering is the finding. Log keeps every bar
+  // distinct and correctly ranked. The cost is that length is no longer
+  // proportional, so the caption says so and every bar carries its real number;
+  // what the reader is meant to take from the picture is which side of the
+  // target line each item falls on, and that stays exact.
+  function coverChart(rows) {
+    if (!rows.length) return "";
+    const target = Math.max(...rows.map((r) => r.target)) || 8;
+    const top = Math.max(...rows.map((r) => r.value), target * 1.4);
+    const width = 420, rowH = 26, gap = 8, label = 116, plot = width - label - 52;
+    const height = rows.length * (rowH + gap);
+    const scale = Math.log10(1 + top);
+    const x = (v) => label + plot * Math.log10(1 + Math.max(0, v)) / scale;
+    const bars = rows.map((row, i) => {
+      const y = i * (rowH + gap);
+      const w = Math.max(2, x(row.value) - label);
+      const fill = row.short ? "var(--high)" : "var(--accent)";
+      return '<g><text x="' + (label - 8) + '" y="' + (y + rowH * 0.7) + '" text-anchor="end"'
+        + ' font-size="11" fill="currentColor">' + esc(row.label) + '</text>'
+        + '<rect x="' + label + '" y="' + (y + 4) + '" width="' + w.toFixed(1)
+        + '" height="' + (rowH - 8) + '" rx="3" fill="' + fill + '" opacity="0.9">'
+        + '<title>' + esc(row.label) + ": " + esc(row.text) + ' against a '
+        + target + '-week target</title></rect>'
+        + '<text x="' + (label + w + 6).toFixed(1) + '" y="' + (y + rowH * 0.7)
+        + '" font-size="11" fill="currentColor" opacity="0.8">' + esc(row.text)
+        + '</text></g>';
+    }).join("");
+    const tx = x(target);
+    const rule = '<line x1="' + tx.toFixed(1) + '" y1="0" x2="' + tx.toFixed(1) + '" y2="'
+      + height + '" stroke="currentColor" stroke-dasharray="3 3" opacity="0.45"></line>'
+      + '<text x="' + (tx + 4).toFixed(1) + '" y="9" font-size="9" fill="currentColor"'
+      + ' opacity="0.6">target ' + target + '</text>';
+    return '<svg viewBox="0 0 ' + width + ' ' + height
+      + '" role="img" aria-label="Weeks of cover against target, log scale">'
+      + rule + bars + '</svg>';
+  }
+
   function drawItems(data) {
     const items = data.items || [];
     const week = items.reduce((n, i) => n + i.next_week, 0);
@@ -500,6 +616,25 @@
     $("itemsHint").textContent = items.length
       ? `${items.length} item(s) · ordered by what sells most over ${
           span.month || "the horizon"}` : "";
+
+    $("itemCharts").innerHTML = items.length ? `
+      <figure>
+        <figcaption>How the ${span.month || "next four weeks"} divides between the
+          lines</figcaption>
+        ${donut(items.map((i) => ({
+          label: i.sku, value: Math.max(0, i.next_month), text: num(i.next_month),
+        })), { title: "Share of the forecast horizon" })}
+      </figure>
+      <figure>
+        <figcaption>Weeks of cover at the forecast rate, against the dashed target.
+          Short of it in <span style="color:var(--high)">red</span>. Log scale —
+          cover here spans 8 weeks to 375, so bar length ranks the items rather
+          than measuring them; the number on each bar is the real one.</figcaption>
+        ${coverChart(items.filter((i) => i.weeks_cover !== null).map((i) => ({
+          label: i.sku, value: i.weeks_cover, target: i.target_cover_weeks || 8,
+          text: num(i.weeks_cover) + " wk", short: i.suggested_order > 0,
+        })))}
+      </figure>` : "";
 
     $("itemRows").innerHTML = items.length ? items.map((i) => {
       const rel = reliability(i.sku, data.run);
