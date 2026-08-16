@@ -375,15 +375,37 @@
   .how .step { display: flex; gap: 0.4rem; align-items: baseline; }
   .how .step em { font-family: var(--mono); font-size: 0.7rem; font-style: normal;
                   color: var(--muted); min-width: 6.5rem; }
-  .how-group + .how-group { margin-top: 0.85rem; padding-top: 0.75rem;
-                            border-top: 1px solid var(--rule); }
+  /* Closed, each group is one line; the rule between them is what keeps a
+     stack of three from reading as one paragraph with bold bits. */
+  .how-group + .how-group { border-top: 1px solid var(--rule); }
+  .how-group > summary { cursor: pointer; padding: 0.45rem 0; font-weight: 600;
+                         color: var(--ink); list-style: none;
+                         display: flex; align-items: center; gap: 0.5rem; }
+  .how-group > summary::-webkit-details-marker { display: none; }
+  /* The marker is drawn rather than inherited so it turns with the fold and
+     sits at a size that belongs to this type, not to the browser's. */
+  .how-group > summary::before {
+    content: ""; width: 0; height: 0; flex: none;
+    border-left: 5px solid currentColor;
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+    color: var(--muted); transition: transform 0.15s ease;
+  }
+  .how-group[open] > summary::before { transform: rotate(90deg); }
+  .how-group > summary:hover { color: var(--accent); }
+  .how-group > summary:focus-visible { outline: 2px solid var(--accent);
+                                       outline-offset: 2px; border-radius: 4px; }
+  .how-group[open] { padding-bottom: 0.7rem; }
+  @media (prefers-reduced-motion: reduce) {
+    .how-group > summary::before { transition: none; }
+  }
   /* What deliberately does not count. Stated because a buyer who assumes the
      ranking already weighed something will not weigh it themselves. */
   .how .aside { margin-top: 0.4rem; font-size: 0.76rem; color: var(--muted); }
-  /* The worked example opens its own group, so it brings no rule of its own. */
-  .how .worked { margin-top: 0; padding-top: 0; border-top: 0;
-                 font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
-  .how .worked b { font-family: var(--sans); }
+  /* Above the folds, because it is two lines about a row already on screen and
+     nobody should have to open anything to read it. */
+  .how-worked { padding-bottom: 0.6rem; }
+  .how .worked { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
+  .how .worked b { font-family: var(--sans); color: var(--ink); }
 
   table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
   .table-wrap { overflow-x: auto; }
@@ -524,6 +546,20 @@
          these are the numbers the system is answerable for. -->
     <div class="cost" id="cost"></div>
 
+    <!-- Where every number on this page comes from, in the buyer's own terms.
+         Directly under the tiles, because the question it answers — "why is it
+         telling me to buy this" — is asked while looking at them, and folded
+         shut because it is read once and then skipped. Buried below the table
+         it was found by nobody; open above the table it pushed the rows a
+         buyer came for off the screen. A closed row of headings is neither. -->
+    <div class="panel how-panel">
+      <div class="panel-head">
+        <h2>How this works</h2>
+        <span class="hint">what to buy, who from, and when it lands</span>
+      </div>
+      <div class="how" id="how"></div>
+    </div>
+
     <div class="grid" style="margin-top:1.25rem">
       <div style="display:flex; flex-direction:column; gap:1.25rem;">
         <!-- Only the lines that need a decision. The full catalogue is one rail
@@ -554,20 +590,6 @@
                  is this one attribute. -->
             <button class="ghost" id="loadSample" hidden>Run one item low</button>
           </div><div class="readout" id="createOut" hidden></div></div>
-        </div>
-
-        <!-- Where every number on this page comes from, in the buyer's own
-             terms. Its own section rather than a preamble to the table: a
-             suggestion nobody can retrace is a suggestion nobody overrules,
-             which is how a wrong one becomes an order — but it is read once
-             and then skipped, so it must not sit between a buyer and the rows
-             they came for. -->
-        <div class="panel">
-          <div class="panel-head">
-            <h2>How this works</h2>
-            <span class="hint">what to buy, who from, and when it lands</span>
-          </div>
-          <div class="how" id="how"></div>
         </div>
 
         <div class="panel">
@@ -1493,16 +1515,25 @@
         + `until enough of your own receipts exist to measure it`],
     ];
 
+    // Three questions, folded. Open, this is most of a screen of prose above
+    // the rows somebody came to read; a closed heading is an answer they can
+    // reach in one click and skip in none. Independent rather than exclusive:
+    // "why this quantity" and "why this supplier" get asked together when a
+    // suggestion looks wrong, and a set where opening one shuts the other makes
+    // comparing them a fight.
     const group = (title, rows, aside) =>
-      `<section class="how-group"><b>${title}</b>`
+      `<details class="how-group"><summary>${title}</summary>`
       + `<div class="steps">${rows.map(([k, v]) =>
           `<span class="step"><em>${k}</em>${v}</span>`).join("")}</div>`
       + (aside ? `<div class="aside">${aside}</div>` : "")
-      + `</section>`;
+      + `</details>`;
 
     $("how").innerHTML =
-      group("How the Buy column is worked out", steps)
-      + (worked ? `<section class="how-group">${worked}</section>` : "")
+      // The worked example stays outside the folds and above them: it is two
+      // lines, it is about a row on screen, and it answers the question often
+      // enough that nobody should have to open anything to see it.
+      (worked ? `<div class="how-worked">${worked}</div>` : "")
+      + group("How the Buy column is worked out", steps)
       + group("How the supplier is chosen", chosen,
           "Whether they are open right now is shown but does not rank — it decides "
           + "when a message gets read, not what the line costs. Prices are not "
