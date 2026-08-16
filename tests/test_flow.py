@@ -547,3 +547,33 @@ async def test_no_curve_stays_absent_rather_than_becoming_an_even_split(
     number = created["orders"][0]["number"]
     order = (await client.get(f"/purchase-orders/{number}")).json()
     assert order["lines"][0]["sizes"] is None
+
+
+async def test_a_supplier_minimum_is_shown_not_ordered(client, supplier_payload):
+    """The mill's minimum is a fact about them, not about the demand.
+
+    Folding it into the suggestion turned "you need 316" into "buy 2,000" with
+    nothing on screen saying which was the need — a year of stock proposed as
+    though the forecast had asked for it. It still decides who is cheapest,
+    which is the comparison it belongs in; it no longer becomes the order.
+    """
+    await _setup(client, supplier_payload, moq=2000, pack_size=500,
+                 unit_cost="3.20")
+    await client.post("/stock", json={
+        "sku": "ALN-SILK-NVY", "on_hand": 180, "on_order": 0, "weekly_forecast": "39",
+    })
+    line = (await client.post("/planning/suggest")).json()["by_supplier"][0]["lines"][0]
+
+    # Enough for the cover target on its pack size, not the mill's 2,000.
+    assert line["suggest_quantity"] < 2000
+    assert line["suggest_quantity"] % 500 == 0
+    assert line["supplier_moq"] == 2000
+    assert line["below_supplier_minimum"] is True
+
+    # And the order raised carries the need, so the mill is asked for what is
+    # wanted rather than sent a number nobody chose.
+    created = (await client.post("/planning/create-orders", json={
+        "skus": ["ALN-SILK-NVY"],
+    })).json()
+    order = (await client.get(f"/purchase-orders/{created['orders'][0]['number']}")).json()
+    assert order["lines"][0]["quantity"] == line["suggest_quantity"]

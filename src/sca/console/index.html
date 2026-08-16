@@ -2239,7 +2239,15 @@
                  data-qty-input="${i.sku}"
                  data-suggested="${line.suggest_quantity}"
                  aria-label="Quantity to buy of ${i.sku}">
-          <span class="of" data-qty-note="${i.sku}"></span></td>
+          <span class="of" data-qty-note="${i.sku}"></span>${
+          // What the line needs is not what the mill will cut. Said here rather
+          // than folded into the quantity: a buyer who needs 316 should see 316
+          // and be told the minimum is 2,000, not be handed 2,000 and left to
+          // work out which number was the need.
+          line.below_supplier_minimum
+            ? `<span class="of" style="color:var(--medium)">under their ${
+                line.supplier_moq.toLocaleString("en-US")} minimum</span>`
+            : ""}</td>
         <td class="num" data-val="${i.sku}">${money(line.line_total)}</td>
         <td>${supplierCell(i, line)}</td>
         <td><button class="small" data-draft="${i.sku}">Draft</button></td></tr>

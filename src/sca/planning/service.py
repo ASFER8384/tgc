@@ -54,6 +54,11 @@ class Suggestion:
     reorder_weeks: float = 0.0
     target_weeks: float = 0.0
     threshold_from: str = ""
+    # The chosen supplier's minimum, and whether this order is under it. Shown
+    # rather than obeyed: a buyer who needs 316 should see 316 and be told the
+    # mill wants 2,000, not be handed 2,000 and left to work out why.
+    supplier_moq: int = 0
+    below_supplier_minimum: bool = False
 
     @property
     def alternatives(self) -> int:
@@ -75,6 +80,8 @@ class Suggestion:
             "reorder_weeks": round(self.reorder_weeks, 1),
             "target_weeks": round(self.target_weeks, 1),
             "threshold_from": self.threshold_from,
+            "supplier_moq": self.supplier_moq,
+            "below_supplier_minimum": self.below_supplier_minimum,
             "weekly_demand": round(self.weekly_demand, 1),
             "minimum": self.minimum,
             "below_minimum": self.below_minimum,
@@ -214,14 +221,21 @@ class PlanningService:
             if ranked:
                 best = ranked[0]
                 supplier = suppliers[best["supplier_id"]]
-                quantity = best["quantity"]
+                # Their price and their clock, but the quantity the line needs.
+                # The ranking above is priced at each candidate's own minimum,
+                # because that is what decides who is actually cheaper — but
+                # winning that comparison is not a reason to order their minimum.
+                pack = best.get("pack_size") or 1
+                moq = best.get("moq") or 0
+                quantity = self._round_need(raw_quantity, pack)
                 unit_cost = Decimal(best["unit_cost"])
                 # Their lead time for this SKU where they have quoted one: a mill
                 # that turns packaging in ten days may take six weeks over a
                 # woven abaya, and one figure for both orders the wrong one late.
                 lead_days = best["lead_time_days"]
             else:
-                quantity = self._round_up(raw_quantity, item.moq, item.pack_size)
+                pack, moq = item.pack_size, item.moq or 0
+                quantity = self._round_need(raw_quantity, pack)
                 unit_cost = Decimal(str(item.unit_cost))
                 lead_days = supplier.lead_time_days
             if quantity <= 0:
@@ -261,6 +275,8 @@ class PlanningService:
                     reorder_weeks=reorder_weeks,
                     target_weeks=target_weeks,
                     threshold_from=threshold_from,
+                    supplier_moq=moq,
+                    below_supplier_minimum=bool(moq and quantity < moq),
                     weekly_demand=weekly,
                     minimum=floor,
                     below_minimum=below_floor,
@@ -380,6 +396,11 @@ class PlanningService:
                     "lead_time_days": link.lead_time_days or supplier.lead_time_days,
                     "lead_time_is_theirs": link.lead_time_days is not None,
                     "moq": link.moq,
+                    "pack_size": link.pack_size,
+                    # What the line actually needs on their pack size, beside the
+                    # quantity priced at their minimum. The comparison above needs
+                    # the minimum; the order does not.
+                    "need_quantity": cls._round_need(raw_quantity, link.pack_size),
                     "open_now": is_open(hours, now),
                     "issues_raised": int(trouble.get(supplier.id, 0)),
                 }
@@ -396,6 +417,27 @@ class PlanningService:
             )
         )
         return priced
+
+    @staticmethod
+    def _round_need(raw: float, pack_size: int) -> int:
+        """What the line actually needs, in whole packs.
+
+        The supplier's minimum is deliberately not applied here. It is a fact
+        about them, not about the demand, and folding it into the suggestion
+        turned "you need 316" into "buy 2,000" with nothing on screen saying
+        which number was the need — a year of stock proposed as though the
+        forecast had asked for it.
+
+        The minimum still decides who is cheapest, in ``_rank``, where it
+        belongs: that comparison is about what the line costs from each of them.
+        And it is carried onto the suggestion so the desk can say the order is
+        under it. What it no longer does is silently become the order.
+        """
+        quantity = max(int(math.ceil(raw)), 0)
+        pack = max(pack_size, 1)
+        if pack > 1 and quantity > 0:
+            quantity = int(math.ceil(quantity / pack) * pack)
+        return quantity
 
     @staticmethod
     def _round_up(raw: float, moq: int, pack_size: int) -> int:
