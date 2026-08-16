@@ -3370,9 +3370,18 @@
   // suggestion is a number until somebody can see whether it came from the
   // forecast or from a figure they typed themselves — and those are argued with
   // in different ways.
+  // Hidden for now. It restated the forecast for every line under a table whose
+  // whole job is the handful of lines that need buying today, so the section
+  // grew a second list as long as the first and the rows that needed a decision
+  // stopped being the thing you saw. The reasoning it carries is worth keeping —
+  // a suggestion nobody can retrace is a suggestion nobody overrules — so the
+  // code stays and only the rendering stops; drop this line to bring it back.
+  const SHOW_WHAT_DECIDED = false;
+
   function drawWhatDecided() {
     const host = $("decided");
     if (!host) return;
+    if (!SHOW_WHAT_DECIDED) { host.hidden = true; host.innerHTML = ""; return; }
     const guide = state.guidance || {};
     const rows = (state.items || []).filter((i) => guide[i.sku]);
     if (!rows.length) { host.hidden = true; return; }
