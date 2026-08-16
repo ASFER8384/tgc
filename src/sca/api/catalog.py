@@ -313,9 +313,13 @@ async def list_items(
     out = []
     for item in items:
         snapshot = stock.get(item.sku)
-        manual = float(snapshot.weekly_forecast) if snapshot else 0.0
+        stated = float(snapshot.weekly_forecast) if snapshot else 0.0
+        # Who stated it. A figure the forecast wrote and a figure a person typed
+        # are argued with in completely different ways, and the desk cannot tell
+        # a buyer which one they are looking at unless the writer said.
+        stated_by = (snapshot.weekly_forecast_source if snapshot else None) or None
         measured = observed.get(item.sku)
-        weekly = manual if manual > 0 else (measured.weekly if measured else 0.0)
+        weekly = stated if stated > 0 else (measured.weekly if measured else 0.0)
         available = (snapshot.on_hand + snapshot.on_order) if snapshot else 0
         # The floor in force for this line, and whether stock is under it. The
         # item's own figure wins where it has one, including a deliberate zero.
@@ -371,8 +375,12 @@ async def list_items(
             # The effective figure above can be either source, so the typed one
             # is reported separately. Collapsing them would make a row driven by
             # sales look like it had a forecast entered that happened to agree.
-            "entered_weekly": manual if manual > 0 else None,
-            "forecast_source": "manual" if manual > 0 else ("sales" if weekly else "none"),
+            # Only a figure a person actually typed. A model rate reported here
+            # sent a buyer looking for whoever entered it.
+            "entered_weekly": stated if stated > 0 and stated_by == "manual" else None,
+            "forecast_source": (
+                (stated_by or "stated") if stated > 0 else ("sales" if weekly else "none")
+            ),
             "observed_weekly": round(measured.weekly, 1) if measured else None,
             # Whether the sold-per-week figure had stockouts taken out of it.
             # An uncorrected one is an under-estimate by an unknown amount, and
@@ -515,6 +523,12 @@ async def upsert_stock(body: StockIn, session: SessionDep, actor: ActorDep) -> d
     moved = not known or snapshot.on_hand != on_hand or snapshot.on_order != body.on_order
     snapshot.on_hand = on_hand
     snapshot.on_order = body.on_order
+    # A rate arriving through this endpoint is somebody's own figure, and it is
+    # marked as such so the next forecast run overwriting it is visible as a
+    # change of hands rather than as a number that quietly moved. A zero is
+    # nobody's statement — it is the field at rest — so it claims nothing.
+    if snapshot.weekly_forecast != body.weekly_forecast:
+        snapshot.weekly_forecast_source = "manual" if body.weekly_forecast > 0 else None
     snapshot.weekly_forecast = body.weekly_forecast
     if moved:
         session.add(

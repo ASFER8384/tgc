@@ -1464,9 +1464,17 @@
     if (!p) { $("how").hidden = true; return; }
     $("how").hidden = false;
 
+    // Three sources, in the order they win. Written out because the column used
+    // to claim it was a trailing average and it has not been one since the
+    // forecast started writing this field every morning — a description that is
+    // wrong about where a number came from is worse than none, because it is
+    // believed.
     const steps = [
-      ["Sold", `average week over the last ${p.demand_window_weeks} weeks of real customer orders`],
-      ["Weeks cover", "(stock + already on order) ÷ sold"],
+      ["Rate", "the demand forecast's weekly figure for this line, rewritten each "
+        + "time the model publishes. A figure typed against the item holds over it; "
+        + `where there is neither, the average week over the last ${
+            p.demand_window_weeks} weeks of real orders. Each row says which it is.`],
+      ["Weeks cover", "(stock + already on order) ÷ that rate"],
       ["Order when", `cover drops under ${p.reorder_cover_weeks} weeks, or under the supplier's `
         + `lead time if that is longer`],
       ["Buy", `enough for ${p.target_cover_weeks} weeks, rounded up to their minimum and pack size`],
@@ -1474,13 +1482,16 @@
 
     // A worked example beats the rule. Taken from a row on screen, so a buyer
     // can follow it down the table rather than take it on trust.
-    const example = items.find((i) => buy[i.sku] && i.observed_weekly);
+    // Worked from the rate that actually produced the cover figure. It used to
+    // quote the trailing average against a cover the forecast had worked out, so
+    // the one example on the page was the one sum that did not come out.
+    const example = items.find((i) => buy[i.sku] && i.weekly_forecast);
     let worked = "";
     if (example) {
       const line = buy[example.sku];
       const lead = (line.reason.match(/(\d+) day lead time/) || [])[1];
       worked = `<div class="worked"><b>${example.sku}:</b> `
-        + `${example.on_hand} in stock ÷ ${example.observed_weekly} a week `
+        + `${example.on_hand} in stock ÷ ${example.weekly_forecast} a week `
         + `= ${example.weeks_cover} weeks left`
         + (lead ? `, and it takes ${lead} days to arrive` : "")
         + ` — buy ${line.suggest_quantity.toLocaleString("en-US")}.</div>`;
@@ -2142,17 +2153,37 @@
 
     $("suggestions").innerHTML = rows.length ? rows.map((i) => {
       const line = buy[i.sku];
-      const sold = i.observed_weekly === null
+      // The rate that actually drives the cover figure beside it, not the
+      // trailing average. Those are two different numbers — the model's rate
+      // knows Ramadan is coming and an average of the last eight weeks does not
+      // — and printing the average next to a cover worked out from the model
+      // made the row fail its own arithmetic when anybody checked it.
+      const rate = i.weekly_forecast;
+      const sold = !rate
         ? `<span style="color:var(--muted)" title="Nobody has bought this yet">—</span>`
-        : `${i.observed_weekly}<span style="color:var(--muted)">/wk</span>`;
-      // A typed forecast is called out only where one exists. Silence means the
-      // number beside it came from real orders, which is the normal case now.
-      const typed = i.forecast_source === "manual"
-        ? `<br><span style="color:var(--muted);font-size:0.75em">${i.entered_weekly}/wk typed, used instead</span>`
-        : "";
+        : `${rate}<span style="color:var(--muted)">/wk</span>`;
+      // Where it came from, in a buyer's terms. A model rate is argued with by
+      // looking at the forecast; a typed one is argued with by finding whoever
+      // typed it. Saying "typed" for both, which this did, sent people looking
+      // for a person who did not exist.
+      const WHERE_FROM = {
+        model: "the forecast",
+        manual: "typed here, holds over the forecast",
+        sales: "measured from orders",
+        stated: "on the item, source unrecorded",
+      };
+      const provenance = WHERE_FROM[i.forecast_source];
+      const typed = provenance
+        ? `<br><span style="color:var(--muted);font-size:0.75em">${provenance}</span>` : "";
+      // The trailing average, only when it disagrees enough to be worth a
+      // second look. Same number twice is noise.
+      const drift = i.observed_weekly !== null && rate
+        && Math.abs(i.observed_weekly - rate) / rate > 0.15
+        ? `<br><span style="color:var(--muted);font-size:0.75em">sold ${
+            i.observed_weekly}/wk recently</span>` : "";
       return `<tr>
         <td><strong>${i.sku}</strong><br><span style="color:var(--muted)">${i.name}</span></td>
-        <td class="num">${sold}${typed}</td>
+        <td class="num">${sold}${typed}${drift}</td>
         <td class="num">${i.on_hand}</td>
         <td class="num">${i.weeks_cover === null ? "—" : i.weeks_cover}${
           // A line under a hard floor is not the same suggestion as one that ran

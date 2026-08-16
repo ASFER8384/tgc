@@ -139,7 +139,11 @@ class PlanningService:
             # the past is exactly how a buyer stops trusting the tool. Measured
             # demand fills the silence instead of arguing with the statement.
             weekly = float(snapshot.weekly_forecast or 0)
-            source = "manual"
+            # Whoever wrote the rate says so. It used to be reported as "manual"
+            # whatever wrote it, which made the forecast's own figure — the one
+            # this desk runs on every morning — read as something a person had
+            # entered by hand and could be found and asked about.
+            source = snapshot.weekly_forecast_source or "stated"
             measured = observed.get(sku)
             if weekly <= 0 and measured and measured.weekly > 0:
                 weekly, source = measured.weekly, "sales"

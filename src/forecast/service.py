@@ -225,6 +225,9 @@ async def _publish(
             continue
         before = float(snapshot.weekly_forecast or 0)
         snapshot.weekly_forecast = Decimal(str(round(weekly, 2)))
+        # Signed, so the desk can say where the rate came from. Without this the
+        # figure written here was read back as something a person had typed.
+        snapshot.weekly_forecast_source = "model"
         changed.append({"sku": str(sku), "from": before, "to": round(weekly, 2)})
 
     session.add(AuditLog(

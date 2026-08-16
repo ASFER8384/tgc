@@ -289,6 +289,16 @@ class StockSnapshot(Base, TimestampMixin):
     on_hand: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     on_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     weekly_forecast: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    # Who put that number there. The field is written by two very different
+    # things — a person who knows about a launch, and the forecast run every
+    # morning — and until this existed the desk could not tell them apart, so it
+    # reported a model figure as "typed here, so it holds over the forecast".
+    # That is not a cosmetic slip: it invited a buyer to go looking for whoever
+    # typed a number nobody typed.
+    #
+    # Null means neither has claimed it: a row written before this was recorded,
+    # or one still at zero. Not "manual", which is the answer that was wrong.
+    weekly_forecast_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class StockLevel(Base):
