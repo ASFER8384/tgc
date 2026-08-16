@@ -5,7 +5,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="SCA_", env_file=".env", extra="ignore")
+    # populate_by_name so a field carrying a validation_alias can still be set by
+    # its own name. Without it the aliased fields — the WhatsApp credentials —
+    # silently ignore a value passed in code and fall back to None, which reads
+    # as "not configured" rather than as a mistake.
+    model_config = SettingsConfigDict(
+        env_prefix="SCA_", env_file=".env", extra="ignore", populate_by_name=True,
+    )
 
     env: str = "local"
     database_url: str = "postgresql+asyncpg://app:app@localhost:5434/tgc_sca"
@@ -127,6 +133,21 @@ class Settings(BaseSettings):
     # production, because the cost of a mistake here is a message to a stranger.
     wa_redirect_to: str | None = None
     wa_allowed_numbers: tuple[str, ...] = ()
+
+    # Inbound. Meta pushes replies to a public HTTPS endpoint rather than
+    # offering a mailbox to poll, so both of these are needed before a supplier's
+    # answer can reach this system at all.
+    #
+    # A string this side invents, echoed back during Meta's one-time handshake.
+    # It proves the endpoint is ours; it does not authenticate anything after.
+    wa_verify_token: str | None = None
+    # What authenticates every delivery afterwards. Meta signs each body with the
+    # app secret, and without checking that signature the webhook is a public URL
+    # anybody can post supplier confirmations to.
+    wa_app_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SCA_WA_APP_SECRET", "Meta_App_Secret"),
+    )
 
     # Inbound. The other half of the loop: replies are read out of a real mailbox
     # rather than pasted into the console. IMAP because it works against whatever

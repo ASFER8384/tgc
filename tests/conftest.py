@@ -55,6 +55,11 @@ async def client(sessionmaker_fixture):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         client.headers["X-API-Key"] = API_KEY
+        # Carried on the client so a test can override a dependency the app
+        # resolves by reference — runtime settings, for one, which cannot be
+        # monkeypatched on the module because Annotated captured the callable
+        # at import.
+        client.app = app
         yield client
 
 

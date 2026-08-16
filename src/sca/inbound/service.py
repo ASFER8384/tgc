@@ -66,6 +66,8 @@ class InboundService:
         body: str,
         received_at: datetime | None = None,
         attachments: list[IncomingFile] | None = None,
+        source: str = "email",
+        supplier: Supplier | None = None,
     ) -> dict:
         received_at = received_at or datetime.now(UTC)
 
@@ -78,11 +80,23 @@ class InboundService:
             return {"accepted": True, "duplicate": True, "message_id": existing.id}
 
         found = parser.parse(subject, body, received_at=received_at)
-        supplier = await self._match_supplier(from_address)
+        # Already matched by the caller when the address is not an email one: a
+        # WhatsApp reply arrives from a phone number, and looking that up against
+        # the email column would find nobody and file every reply as unknown.
+        if supplier is None:
+            supplier = await self._match_supplier(from_address)
         order = await self._match_order(found.po_number)
+        if order is None and supplier is not None:
+            # A WhatsApp reply has no subject line to carry the order number, and
+            # people answer with "confirmed" and nothing else. The order they mean
+            # is the one we last sent them — which is a guess, so it only stands
+            # in for the number and never raises the confidence that decides
+            # whether it is acted on.
+            order = await self._latest_open_order(supplier)
 
         message = InboundMessage(
             external_id=external_id,
+            source=source,
             from_address=from_address,
             supplier_id=supplier.id if supplier else None,
             purchase_order_id=order.id if order else None,
@@ -357,6 +371,41 @@ class InboundService:
             if candidate.email and candidate.email.lower().split("@")[-1] == domain:
                 return candidate
         return None
+
+    async def match_supplier_by_phone(self, number: str | None) -> Supplier | None:
+        """The supplier a phone number belongs to, compared as digits.
+
+        Digits on both sides because the two never agree on presentation: Meta
+        returns "918220958384", a buyer may have typed "+91 82209 58384", and a
+        string comparison would call those different suppliers.
+        """
+        if not number:
+            return None
+        digits = "".join(ch for ch in number if ch.isdigit())
+        if not digits:
+            return None
+        for candidate in await self.session.scalars(select(Supplier)):
+            if not candidate.phone:
+                continue
+            if "".join(ch for ch in candidate.phone if ch.isdigit()) == digits:
+                return candidate
+        return None
+
+    async def _latest_open_order(self, supplier: Supplier) -> PurchaseOrder | None:
+        """The last order sent to this supplier that is still in play.
+
+        Only orders they have actually been told about: a draft they have never
+        seen cannot be what they are replying to.
+        """
+        return await self.session.scalar(
+            select(PurchaseOrder)
+            .where(
+                PurchaseOrder.supplier_id == supplier.id,
+                PurchaseOrder.status.in_(("sent", "acknowledged", "in_transit")),
+            )
+            .order_by(PurchaseOrder.sent_at.desc())
+            .limit(1)
+        )
 
     async def _match_order(self, number: str | None) -> PurchaseOrder | None:
         if not number:

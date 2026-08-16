@@ -15,6 +15,7 @@ import forecast.api as forecast_api
 from cdp.api import automations, ingest, persons, proof, segments
 from sca.api import catalog, coordination, demo, inbound, inventory, orders, sales
 from sca.api import settings as settings_api
+from sca.api import whatsapp as whatsapp_api
 from sca.config import get_settings
 
 # Injected rather than pasted into both consoles, which were built as standalone
@@ -485,6 +486,7 @@ def create_app() -> FastAPI:
     app.include_router(orders.router)
     app.include_router(sales.router)
     app.include_router(inbound.router)
+    app.include_router(whatsapp_api.router)
     app.include_router(coordination.router)
     app.include_router(demo.router)
 
