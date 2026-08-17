@@ -128,7 +128,11 @@ _NAV_STYLE = """<style>
     padding-left: var(--tgc-rail); box-sizing: border-box;
     min-height: 100vh; display: flex; flex-direction: column;
   }
-  .app { flex: 1 0 auto; }
+  /* width:100% is not redundant. The page column centres itself with
+     `margin: 0 auto`, and auto side margins on a flex child beat the default
+     stretch — so without a width of its own it shrank to fit its contents and
+     the whole console collapsed into a narrow strip down the middle. */
+  .app { flex: 1 0 auto; width: 100%; }
 
   @media (max-width: 768px) {
     .tgc-rail { transform: translateX(-100%); transition: transform 0.3s ease; }

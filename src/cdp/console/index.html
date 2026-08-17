@@ -479,7 +479,6 @@
 
   /* smart segments */
   .smartseg { display: flex; flex-direction: column; gap: 16px; }
-  .sg-sub { font-size: 15px; color: var(--bc-soft); }
   .sg-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 12px; align-items: start; }
   @media (max-width: 980px) { .sg-grid { grid-template-columns: minmax(0, 1fr); } }
   .sg-col { display: flex; flex-direction: column; gap: 12px; }
@@ -981,8 +980,6 @@
   <!-- Smart Segments. Builder on the left, live count and saved list on the
        right, the same shape as the client's other console. -->
   <div class="broadcast smartseg" data-view="segments">
-    <div class="sg-sub">Build customer segments from what they have actually done. No code.</div>
-
     <div class="sg-grid">
       <div class="sg-col">
         <section class="au-card">
