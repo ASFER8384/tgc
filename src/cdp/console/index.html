@@ -731,6 +731,17 @@
      something the reader did not aim at. */
   .pager button:disabled { color: var(--muted); cursor: default; opacity: 0.55; }
 
+  /* One action, on every row, doing what the row already did on click. Kept
+     quiet: it is a shortcut, not a second decision, so it lifts to the accent
+     under the cursor and otherwise stays out of the reading. */
+  td.acts, th.acts { width: 1%; white-space: nowrap; text-align: right; }
+  .row-view { background: none; border: none; padding: 0.2rem; cursor: pointer;
+              color: var(--accent); display: inline-flex; align-items: center; }
+  .row-view:hover { opacity: 0.65; }
+  .row-view:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px;
+                            border-radius: 3px; }
+  .row-view svg { display: block; }
+
   .empty { padding: 1.4rem 1rem; color: var(--muted); font-size: 0.87rem; text-align: center; }
   /* Outside the page column, like the header. Sized by the nav sheet against
      the rail's own footer. */
@@ -1194,11 +1205,12 @@
             <thead>
               <tr>
                 <th>Customer</th><th>Brands</th><th class="num">Orders</th>
-                <th class="num">Lifetime SAR</th><th>WhatsApp</th>
+                <th class="num">Lifetime SAR</th><th>Marketing</th>
+                <th class="acts"></th>
               </tr>
             </thead>
             <tbody id="customers">
-              <tr><td colspan="5" class="empty">Connect to load customers.</td></tr>
+              <tr><td colspan="6" class="empty">Connect to load customers.</td></tr>
             </tbody>
           </table>
         </div>
@@ -2183,7 +2195,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
 
   async function loadCustomers() {
     const tbody = $("customers");
-    tbody.innerHTML = skeletonRows(6, 5);
+    tbody.innerHTML = skeletonRows(6, 6);
     try {
       const term = $("custSearch").value.trim();
       // Cut in the database, not here. The old version fetched two hundred and
@@ -2198,7 +2210,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
         ? `${page.total} match${page.total === 1 ? "" : "es"}`
         : `${page.total} people`;
       if (!page.total) {
-        tbody.innerHTML = `<tr><td colspan='5' class='empty'>${term ? "Nobody by that name or number." : "No customers yet."}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan='6' class='empty'>${term ? "Nobody by that name or number." : "No customers yet."}</td></tr>`;
         $("custPager").hidden = true;
         return;
       }
@@ -2232,12 +2244,17 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
           // the only honest summary when the answer differs per brand.
           `<td>${r.consent_whatsapp_brands.length
             ? r.consent_whatsapp_brands.map((b) => `<span class="pill ${b}">${b}</span>`).join("")
-            : "<span class='cross'>no consent</span>"}</td>`;
+            : "<span class='cross'>no consent</span>"}</td>` +
+          // The row has always opened the profile on click. The button says
+          // so — a row that does something and does not look like it can is
+          // only discoverable by trying it.
+          `<td class="acts"><button class="row-view" type="button"
+             title="View this customer" aria-label="View ${escapeHtml(r.display_name || 'this customer')}"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 12S5.4 5.4 12 5.4 22.2 12 22.2 12 18.6 18.6 12 18.6 1.8 12 1.8 12Z"/><circle cx="12" cy="12" r="3.1"/></svg></button></td>`;
         tr.addEventListener("click", () => openProfile(r.person_id));
         tbody.appendChild(tr);
       });
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan='5' class='empty'>Could not load customers: ${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan='6' class='empty'>Could not load customers: ${err.message}</td></tr>`;
     }
   }
 
