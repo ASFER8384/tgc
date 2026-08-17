@@ -18,6 +18,10 @@
     --accent-ink: #ffffff;
     --accent-soft: #e2efec;
     --alert: #9d3826;
+    /* What is legible sitting on --alert. The alert colour is dark in this
+       theme and light in the other, so a fixed white label is readable in
+       one and not the other. */
+    --alert-ink: #ffffff;
     --alert-soft: #f7e8e4;
     --ok: #16736a;
     --aleena: #7b4b8f;
@@ -32,7 +36,7 @@
       --ground: #0d1413; --panel: #151e1d; --sunk: #1b2624;
       --ink: #e7efec; --ink-soft: #c2d0cc; --muted: #8fa39e; --rule: #2a3735;
       --accent: #52bfaf; --accent-ink: #08211e; --accent-soft: #17302d;
-      --alert: #e29076; --alert-soft: #2e211c; --ok: #52bfaf;
+      --alert: #e29076; --alert-ink: #22120d; --alert-soft: #2e211c; --ok: #52bfaf;
       --aleena: #c39ad4; --rawash: #e9927f; --aynola: #8fc3d8;
     }
   }
@@ -40,7 +44,7 @@
     --ground: #0d1413; --panel: #151e1d; --sunk: #1b2624;
     --ink: #e7efec; --ink-soft: #c2d0cc; --muted: #8fa39e; --rule: #2a3735;
     --accent: #52bfaf; --accent-ink: #08211e; --accent-soft: #17302d;
-    --alert: #e29076; --alert-soft: #2e211c; --ok: #52bfaf;
+    --alert: #e29076; --alert-ink: #22120d; --alert-soft: #2e211c; --ok: #52bfaf;
     --aleena: #c39ad4; --rawash: #e9927f; --aynola: #8fc3d8;
   }
 
@@ -151,6 +155,29 @@
     position: sticky; top: 0; background: var(--panel); z-index: 1;
   }
   .close { border: none; font-size: 1.4rem; line-height: 1; padding: 0 0.2rem; }
+
+  /* The same guard the capture dialog needs: a plain id rule outranks the
+     user-agent sheet's dialog:not([open]) { display: none }, so without this
+     the box is permanently visible and closing it appears to do nothing. */
+  dialog#askDialog:not([open]) { display: none; }
+  dialog#askDialog {
+    width: min(420px, calc(100vw - 2rem)); padding: 0;
+    border: 1px solid var(--rule); border-radius: 6px;
+    background: var(--panel); color: var(--ink);
+  }
+  dialog#askDialog::backdrop { background: rgba(0, 0, 0, 0.42); }
+  #askDialog .ask-body { padding: 1.1rem 1.2rem 0.4rem; }
+  #askDialog h3 { margin: 0 0 0.4rem; font-size: 1rem; font-weight: 650; }
+  #askDialog p { margin: 0; font-size: 0.86rem; color: var(--muted); line-height: 1.5; }
+  #askDialog .ask-acts { display: flex; justify-content: flex-end; gap: 0.5rem;
+                         padding: 1rem 1.2rem 1.1rem; }
+  /* The destructive choice wears this console's own alert colour — --high is
+     the other consoles' token and does not exist here, and an undefined var()
+     computes to transparent, which put white text on a white dialog and made
+     the button vanish. It is not the default focus either; the safe one is, so
+     a stray Enter cancels. */
+  #askDialog .danger { background: var(--alert); border-color: var(--alert);
+                       color: var(--alert-ink); }
 
   /* source picker */
   .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 0.4rem; }
@@ -787,6 +814,19 @@
        every view. -->
   <div class="toast" id="toast"></div>
 
+  <dialog id="askDialog">
+    <form method="dialog">
+      <div class="ask-body">
+        <h3 id="askTitle"></h3>
+        <p id="askBody"></p>
+      </div>
+      <div class="ask-acts">
+        <button class="ghost" value="no" id="askNo">Cancel</button>
+        <button class="danger" value="yes" id="askYes">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog class="panel" id="captureDialog">
         <div class="panel-head">
           <h2>Record a store sale</h2>
@@ -1186,6 +1226,31 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
 <script>
   const API = "";
   const $ = (id) => document.getElementById(id);
+  // The count is known by the time it is drawn, so the page can say "1 step"
+  // rather than "1 step(s)".
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
+
+  // Asked in the page, not by the browser. The native confirm() renders as
+  // "localhost:8101 says", which is the least reassuring thing a person can
+  // be shown at the moment they are deciding whether to delete their work,
+  // and it cannot say what is about to be deleted.
+  function ask(title, body, confirmLabel = "Delete") {
+    const box = $("askDialog");
+    $("askTitle").textContent = title;
+    $("askBody").textContent = body;
+    $("askYes").textContent = confirmLabel;
+    return new Promise((resolve) => {
+      const done = () => {
+        box.removeEventListener("close", done);
+        resolve(box.returnValue === "yes");
+      };
+      box.addEventListener("close", done);
+      box.returnValue = "no";
+      box.showModal();
+      // The safe choice takes focus, so Escape and a stray Enter both cancel.
+      $("askNo").focus();
+    });
+  }
   const state = {
     key: "", source: "pos", selected: null, custPage: 0,
     view: new URLSearchParams(location.search).get("view") || "dashboard",
@@ -2769,7 +2834,12 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
       drawSegBuilder(); sgCount();
     }));
     $("sgList").querySelectorAll("[data-drop]").forEach((b) => b.addEventListener("click", async () => {
-      if (!confirm("Delete this segment?")) return;
+      // Read off state rather than carried on the button: the name is a
+      // person's own words and putting it in an attribute means escaping it.
+      const seg = (state.segments || []).find((x) => x.key === b.dataset.drop);
+      if (!await ask("Delete this segment?",
+        `${seg ? `“${seg.name}” is` : "It is"} removed for good. Any broadcast `
+        + `already sent to it is untouched.`)) return;
       try {
         await api(`/segments/${b.dataset.drop}`, { method: "DELETE" });
         await loadSegments();
@@ -3033,7 +3103,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
           <div class="auto-row">
             <div>
               <span class="nm">${a.name}</span>
-              <span class="sub">${TRIGGER_LABELS[a.trigger.type] || a.trigger.type}${segBrandOf(a.trigger)} · ${a.steps.length} step(s)</span>
+              <span class="sub">${TRIGGER_LABELS[a.trigger.type] || a.trigger.type}${segBrandOf(a.trigger)} · ${plural(a.steps.length, "step")}</span>
             </div>
             <div class="au-step-acts">
               <span class="auto-state ${a.active ? "on" : ""}">${a.active ? "Live" : "Paused"}</span>
@@ -3057,7 +3127,8 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
         $("autoBuilder").hidden = false;
       }));
       host.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
-        if (!confirm("Delete this automation?")) return;
+        if (!await ask("Delete this automation?",
+          "It stops immediately and is removed for good. Messages it has already sent are untouched.")) return;
         await api(`/automations/${b.dataset.del}`, { method: "DELETE" });
         $("autoBuilder").hidden = true;
         loadAutomations();
