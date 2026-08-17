@@ -714,8 +714,12 @@
   .more button { background: transparent; color: var(--accent); border: none; font-size: 0.82rem; padding: 0; }
   .pager { padding: 0.6rem 1rem; border-top: 1px solid var(--rule);
            display: flex; align-items: center; justify-content: flex-end; gap: 0.9rem; }
+  /* The whole control sits together at the right end. The count used to push
+     itself and Previous over to the left with an auto margin, so the three
+     parts of one control were spread across the width of the table with
+     nothing between them. */
   .pager .range { font-size: 0.8rem; color: var(--muted);
-                  font-variant-numeric: tabular-nums; margin-right: auto; }
+                  font-variant-numeric: tabular-nums; }
   .pager button { background: transparent; color: var(--accent); border: 1px solid var(--rule);
                   border-radius: 3px; font-size: 0.8rem; padding: 0.25rem 0.7rem; }
   /* Greyed rather than removed. A control that disappears at the first and last
