@@ -357,6 +357,14 @@
   .panel-head .hint { font-size: 0.78rem; color: var(--muted); }
   .panel-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem; }
 
+  /* The fact on the left, what you can do about it on the right. They were on
+     one line with the buttons wedged between the count and the timestamp, so
+     the sentence read as a caption for the first button. */
+  .shop-row { display: flex; align-items: center; justify-content: space-between;
+              gap: 0.75rem 1rem; flex-wrap: wrap; }
+  .shop-row .acts { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .shop-row .when { color: var(--muted); font-size: 0.8rem; margin-top: 0.15rem; }
+
   /* What the coordination cost. One card per claim, sized so five sit on a wide
      screen and wrap to two rows on a laptop rather than squeezing the sentence
      under each number into four lines. */
@@ -1364,6 +1372,51 @@ person rather than guessed.
   const money = (v) => Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 });
   const day = (v) => (v ? new Date(v).toLocaleDateString("en-GB",
       { day: "2-digit", month: "short" }) : "—");
+  // The count is known by the time it is drawn, so the page can say "1 item"
+  // rather than "1 item(s)". Irregular plurals pass their own second word.
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
+  // When it was read, to the minute. Seconds on a sync stamp are noise nobody
+  // has ever acted on.
+  const stamp = (v) => (v ? new Date(v).toLocaleString("en-GB",
+      { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "never read");
+
+  // Weeks of cover, at the precision the figure actually carries. A line with
+  // seven years of stock is not "366.9 weeks" — that decimal is arithmetic, not
+  // knowledge, and it makes the one line at 4.6 read like the rest.
+  const cover = (n) => {
+    if (n === null || n === undefined) return "—";
+    if (n >= 52) return "1y+";
+    return n >= 10 ? String(Math.round(n)) : n.toFixed(1);
+  };
+
+  // The threshold this line is actually judged against — its own override where
+  // it set one, the group's figure where it did not. Flagging every line against
+  // the group default would put a red mark on an item that set a lower floor on
+  // purpose.
+  const inForce = (item, field, fallback) => {
+    const p = (item.policy || {})[field];
+    const v = p && p.in_force;
+    return Number.isFinite(Number(v)) ? Number(v) : fallback;
+  };
+
+  // The two thresholds the buying desk already runs on: below the reorder line
+  // it needs an order, below target it is thinning. Above target is not news,
+  // so it stays in plain ink and lets the other two carry the eye.
+  // The state is written as well as coloured. Red and amber are one hue apart
+  // for a good share of readers, and a printed copy of this table has no colour
+  // in it at all.
+  const coverCell = (n, thin, target) => {
+    if (n === null || n === undefined) return `<span style="color:var(--muted)">—</span>`;
+    const due = n <= thin;
+    const under = !due && n <= target;
+    const tone = due ? "var(--high)" : (under ? "var(--medium)" : "");
+    const note = due ? `reorder — at or below ${thin} weeks`
+      : (under ? `below the ${target} week target` : "");
+    return `<span title="${n} weeks of cover${note ? ` — ${note}` : ""}"${
+        tone ? ` style="color:${tone};font-weight:600"` : ""}>${cover(n)}</span>`
+      + (note ? `<br><span style="font-size:0.72rem;color:${tone}">${
+          due ? "reorder" : "below target"}</span>` : "");
+  };
 
   // Hours below one read as "0.0", which is true and useless. A reply that came
   // back in twenty minutes came back in twenty minutes.
@@ -1387,7 +1440,7 @@ person rather than guessed.
       label: "Round trips",
       big: r.per_order === null ? "—" : `${r.per_order}<small> per order</small>`,
       says: r.orders
-        ? `${r.replies} repl${r.replies === 1 ? "y" : "ies"} across ${r.orders} sent order(s)`
+        ? `${r.replies} repl${r.replies === 1 ? "y" : "ies"} across ${plural(r.orders, "sent order")}`
         : "Nothing sent yet.",
     });
     tiles.push({
@@ -1573,13 +1626,13 @@ person rather than guessed.
          <span class="why">${ex.only_source_skus.join(", ")} — nobody else is attached,
            so these stop if they do</span>`
       : ex.items
-        ? `${ex.items} item(s), all second-sourced
+        ? `${plural(ex.items, "item")}, all second-sourced
            <span class="why">every one of them can be bought elsewhere</span>`
         : `<span class="none">nothing attached yet</span>
            <span class="why">nothing can be sourced from them until an item is</span>`]);
 
     lines.push(["Committed", c.orders
-      ? `${money(c.value)} ${c.currency} across ${c.orders} order(s)
+      ? `${money(c.value)} ${c.currency} across ${plural(c.orders, "order")}
          <span class="why">${c.received} received · ${c.live} still live · ${
            c.cancelled} cancelled${c.share_of_spend !== null
              ? ` · ${pct(c.share_of_spend)} of all ${c.currency} spend` : ""}</span>`
@@ -1746,7 +1799,7 @@ person rather than guessed.
     const others = ((line && line.options) || []).filter((o) => o.code !== option.code);
     const bits = [`${option.lead_time_days}d`];
     if (option.moq > 1) bits.push(`min ${option.moq.toLocaleString("en-US")}`);
-    if (option.issues_raised) bits.push(`${option.issues_raised} past issue(s)`);
+    if (option.issues_raised) bits.push(`${plural(option.issues_raised, "past issue")}`);
     if (!option.open_now) bits.push("closed now");
     const cheaper = others.filter((o) => Number(o.line_total) < Number(option.line_total));
     if (cheaper.length) {
@@ -1903,6 +1956,9 @@ person rather than guessed.
     (items || []).forEach((i) => { byItem[i.sku] = i; });
     const places = shelfOrder(inv.locations);
     state.shelves = places;
+    // The same line the size curve below calls a size thin, so a flag here and
+    // a flag there mean the same thing.
+    const thin = Number(inv.thin_below_weeks) || 4;
 
     $("itemHead").innerHTML = `<th>Item</th>`
       + places.map((p) => `<th class="num">${escape(p.name)}</th>`).join("")
@@ -1940,7 +1996,8 @@ person rather than guessed.
           <br><span style="color:var(--muted)">${escape(row.name)}</span></td>
         ${cells}
         <td class="num"><strong>${row.total}</strong>${row.on_order
-          ? `<span style="color:var(--muted)"> +${row.on_order}</span>` : ""}${
+          ? `<span style="color:var(--muted)" title="${plural(row.on_order, "unit")
+              } on order, not yet arrived"> +${row.on_order}</span>` : ""}${
           disagrees
             ? `<br><span style="font-size:0.76rem;color:var(--high)">shelves say ${
                 row.shelf_total}</span>`
@@ -1953,7 +2010,8 @@ person rather than guessed.
         <td class="num">${i.observed_weekly == null
           ? `<span style="color:var(--muted)">—</span>`
           : `${i.observed_weekly}<span style="color:var(--muted)">/wk</span>`}</td>
-        <td class="num">${i.weeks_cover == null ? "—" : i.weeks_cover}</td>
+        <td class="num">${coverCell(i.weeks_cover, inForce(i, "reorder_cover_weeks", thin),
+          inForce(i, "target_cover_weeks", thin * 2))}</td>
         <td><button class="ghost small" data-edititem="${escape(row.sku)}">Edit</button></td>
       </tr>
       <tr data-detail="${escape(row.sku)}" hidden><td colspan="${span}"
@@ -1962,8 +2020,8 @@ person rather than guessed.
 
     const counted = rows.filter((r) => r.split).length;
     $("itemsHint").textContent =
-      `${rows.length} item(s) · ${counted} split across shelves · `
-      + `${rows.reduce((n, r) => n + r.total, 0)} units in the group`;
+      `${plural(rows.length, "item")} · ${counted} split across shelves · `
+      + `${plural(rows.reduce((n, r) => n + r.total, 0), "unit")} in the group`;
 
     $("itemRows").querySelectorAll("[data-edititem]").forEach((b) =>
       b.addEventListener("click", () => openItem(b.dataset.edititem)));
@@ -2179,7 +2237,7 @@ person rather than guessed.
       </div>
       ${worst ? `<div style="color:var(--high);font-size:0.84rem;padding:0.3rem 0">
         ${escape(worst.size)} runs out first — ${worst.held} left, ${worst.weekly}/wk,
-        about ${worst.weeks_cover} week(s).</div>` : ""}
+        about ${plural(worst.weeks_cover, "week")}.</div>` : ""}
       <table style="width:100%"><thead><tr>
         <th>Size</th><th class="num">Held</th><th class="num">Sold</th>
         <th class="num">Cover</th>
@@ -2218,8 +2276,8 @@ person rather than guessed.
           : `<span style="color:var(--muted)">live</span>`}</td></tr>`;
     }).join("");
     return `<div style="padding:0.5rem 0 0.25rem;color:var(--muted);font-size:0.82rem">
-        On Shopify as ${escape(row.variants[0].product)} — ${row.variants.length} variant(s),
-        ${row.online} unit(s) counted
+        On Shopify as ${escape(row.variants[0].product)} — ${plural(row.variants.length, "variant")},
+        ${plural(row.online, "unit")} counted
       </div>
       <table style="width:100%"><thead><tr>
         <th>Variant</th><th class="num">Price</th><th class="num">On Shopify</th><th>Status</th>
@@ -2229,7 +2287,10 @@ person rather than guessed.
   function drawStorefront(shop) {
     // Out of its loading shape before anything is written into it, or the
     // skeleton's padding and column stay wrapped around the real content.
-    $("shopBody").className = "";
+    // Back to the panel's own padding, not to no class at all — an empty
+    // className left the storefront line sitting flat against the panel edge
+    // while every other panel on the page was inset.
+    $("shopBody").className = "panel-body";
     if (!shop.connected) {
       $("shopHint").textContent = "not connected";
       $("shopBody").innerHTML = `<div class="none">
@@ -2241,15 +2302,18 @@ person rather than guessed.
       </div>`;
       return;
     }
-    const when = shop.last_synced
-      ? new Date(shop.last_synced).toLocaleString()
-      : "never read";
+    const when = stamp(shop.last_synced);
     $("shopHint").textContent = shop.domain || "";
-    $("shopBody").innerHTML = `<div class="setrow"><div class="entry">
-        <span>${shop.variants} variant(s) mirrored · last read ${escape(when)}</span>
-        <button class="ghost small" id="shopCheck">See what would change</button>
-        <button class="small" id="shopPull">Read Shopify now</button>
-      </div><div id="shopOut" hidden class="hint"></div></div>`;
+    $("shopBody").innerHTML = `<div class="shop-row">
+        <div>
+          <div>${plural(shop.variants, "variant")} mirrored</div>
+          <div class="when">last read ${escape(when)}</div>
+        </div>
+        <div class="acts">
+          <button class="ghost small" id="shopCheck">See what would change</button>
+          <button class="small" id="shopPull">Read Shopify now</button>
+        </div>
+      </div><div id="shopOut" hidden class="hint"></div>`;
     $("shopCheck").addEventListener("click", () => runPull(false));
     $("shopPull").addEventListener("click", () => runPull(true));
   }
@@ -2267,9 +2331,9 @@ person rather than guessed.
         ? r.changes.map((c) => `${c.sku} ${c.was} → ${c.now}`).join(" · ")
         : "nothing to move — the online shelf already matches";
       const notes = [
-        r.without_sku.length ? `${r.without_sku.length} variant(s) with no SKU` : "",
-        r.unknown_skus.length ? `${r.unknown_skus.length} SKU(s) not in the catalogue` : "",
-        r.not_on_shopify.length ? `${r.not_on_shopify.length} item(s) not on Shopify` : "",
+        r.without_sku.length ? `${plural(r.without_sku.length, "variant")} with no SKU` : "",
+        r.unknown_skus.length ? `${plural(r.unknown_skus.length, "SKU")} not in the catalogue` : "",
+        r.not_on_shopify.length ? `${plural(r.not_on_shopify.length, "item")} not on Shopify` : "",
         // Named individually. This one is a customer's spend filed under the
         // wrong brand, and a count would not say whose.
         (r.brand_mismatch || []).length
@@ -2279,8 +2343,8 @@ person rather than guessed.
           : "",
         r.truncated.length ? `truncated: ${r.truncated.join(", ")}` : "",
       ].filter(Boolean).join(" · ");
-      show(out, `${r.shop || "Shopify"}: ${r.variants} variant(s) across ${r.products}`
-        + ` product(s). ${apply ? "Applied" : "Would change"}: ${moved}.`
+      show(out, `${r.shop || "Shopify"}: ${plural(r.variants, "variant")} across ${plural(r.products, "product")}`
+        + `. ${apply ? "Applied" : "Would change"}: ${moved}.`
         + (notes ? ` (${notes})` : ""));
       if (apply) await loadInventory();
     } catch (e) {
@@ -2292,7 +2356,7 @@ person rather than guessed.
     $("orphanPanel").hidden = !unmatched.length;
     if (!unmatched.length) return;
     $("orphanHint").textContent =
-      `${unmatched.length} variant(s) · ${unmatched.reduce((n, v) => n + v.on_hand, 0)} units`;
+      `${plural(unmatched.length, "variant")} · ${unmatched.reduce((n, v) => n + v.on_hand, 0)} units`;
     $("orphanRows").innerHTML = unmatched.map((v) => `<tr>
       <td>${escape(v.product)}</td>
       <td>${escape(v.title || "")}</td>
@@ -3043,7 +3107,7 @@ person rather than guessed.
     if (!lines.length) { $("orderTotal").hidden = true; return; }
     const maker = lines[0].maker;
     const total = lines.reduce((sum, line) => sum + line.total, 0);
-    const notes = [`${maker.name} · ${lines.length} line(s) · ${money(total)} ${maker.currency}`];
+    const notes = [`${maker.name} · ${plural(lines.length, "line")} · ${money(total)} ${maker.currency}`];
     notes.push(...lines.map((line) =>
       `  ${line.sku}  ${line.quantity} × ${line.price}  = ${money(line.total)}`));
 
@@ -3300,7 +3364,7 @@ person rather than guessed.
       // the written record that has to exist before their invoice does.
       if (note.short_lines && note.short_lines.length) {
         $("receiptWhy").textContent =
-          `${note.short_lines.length} line(s) arrived short. This is what puts `
+          `${plural(note.short_lines.length, "line")} arrived short. This is what puts `
           + `that on the record before their invoice arrives.`;
         $("receiptWhy").hidden = false;
       }
@@ -3840,7 +3904,7 @@ person rather than guessed.
         // size curve on Tuesday and none on Wednesday with nothing marking the
         // change.
         (recut
-          ? ` · ${recut} line(s) lose their size split — the new quantity has to be cut again`
+          ? ` · ${plural(recut, "line")} lose their size split — the new quantity has to be cut again`
           : "");
     };
 
@@ -4304,7 +4368,7 @@ person rather than guessed.
           method: "PUT", body: JSON.stringify({ items: skus }),
         });
         attached = skus.length
-          ? ` Can deliver ${skus.length} item(s).`
+          ? ` Can deliver ${plural(skus.length, "item")}.`
           : " No items attached, so nothing will be sourced from them yet.";
       } catch (err) {
         attached = ` Saved, but the item list failed: ${err.message}`;
@@ -4397,12 +4461,12 @@ person rather than guessed.
     try {
       const out = await api("/inbound/poll", { method: "POST" });
       show($("createOut"), out.from_suppliers
-        ? `read ${out.read} message(s), ${out.from_suppliers} from suppliers, ` +
+        ? `read ${plural(out.read, "message")}, ${out.from_suppliers} from suppliers, ` +
           `applied ${out.applied}\n\n` +
           out.messages.map((m) =>
             `${m.from}  ${m.subject}\n  read as ${m.kind} (confidence ${m.confidence})\n` +
             (m.actions || []).map((a) => "  - " + a).join("\n")).join("\n\n")
-        : `read ${out.read} message(s), none from a supplier. ` +
+        : `read ${plural(out.read, "message")}, none from a supplier. ` +
           `${out.skipped_not_a_supplier} left untouched.`);
       await refreshAll();
     } catch (err) { show($("createOut"), "Failed: " + err.message); }
@@ -4412,8 +4476,8 @@ person rather than guessed.
     try {
       const out = await api("/agent/sweep", { method: "POST" });
       show($("createOut"),
-        `released ${out.released.length} queued order(s), ` +
-        `chased ${out.chased.length} supplier(s)`);
+        `released ${plural(out.released.length, "queued order")}, ` +
+        `chased ${plural(out.chased.length, "supplier")}`);
       await refreshAll();
     } catch (err) { show($("createOut"), "Failed: " + err.message); }
   }));
@@ -4456,7 +4520,7 @@ person rather than guessed.
       [loadSuggestions(), loadOrders(), loadIssues(), loadCoordination()]);
     const broke = panels.filter((p) => p.status === "rejected");
     if (broke.length) {
-      connectionProblem(`${broke.length} panel(s) failed to load: `
+      connectionProblem(`${plural(broke.length, "panel")} failed to load: `
         + broke.map((p) => p.reason && p.reason.message).filter(Boolean).join("; "));
     }
     // Once more with everything landed: the supplier pane names the items it
@@ -4594,7 +4658,7 @@ person rather than guessed.
       const changed = g.fields.filter((f) => f.source === "set here").length;
       return `<button type="button" data-group="${escapeHtml(g.name)}"
         class="${g.name === settingsState.group ? "on" : ""}">${escapeHtml(g.name)}
-        <span>${g.fields.length} setting(s)${changed ? ` · ${changed} changed` : ""}</span>
+        <span>${plural(g.fields.length, "setting")}${changed ? ` · ${changed} changed` : ""}</span>
       </button>`;
     }).join("")
       // The per item floors, filed with the policy they override rather than
@@ -4607,7 +4671,7 @@ person rather than guessed.
              class="${settingsState.group === PER_ITEM ? "on" : ""}">${PER_ITEM}
              <span>${(state.items || []).filter((i) => i.policy
                && Object.values(i.policy).some((p) => p.own !== null)).length} of ${
-               (state.items || []).length} item(s) overridden</span>
+               plural((state.items || []).length, "item")} overridden</span>
            </button>`
         : "");
     $("setGroups").querySelectorAll("[data-group]").forEach((b) =>
@@ -4653,7 +4717,7 @@ person rather than guessed.
       // tuning it deserves to know. Only the link to go and add another goes.
       const reach = ITEM_FIELD_FOR[f.key]
         ? `<span>${overriding
-            ? `${overriding} item(s) set their own instead`
+            ? `${plural(overriding, "item")} set their own instead`
             : "every item follows this"}${SHOW_PER_ITEM
               ? ` · <a href="/procure?view=settings"
                   data-goto-peritem="1">per item</a>`
