@@ -51,10 +51,21 @@
   .app { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1.25rem 5rem;
          display: flex; flex-direction: column; gap: 1.25rem; }
 
-  .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
-         gap: 1rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
-  .top h1 { font-family: var(--display); font-size: 1.6rem; font-weight: 600; margin: 0;
-            letter-spacing: -0.01em; }
+  /* Outside the page column so its rule meets the rail's own edge instead of
+     stopping short of it. Its height is not set here — the injected nav sheet
+     sizes this and the rail's head from one variable, because they are two
+     halves of the same band. */
+  .top {
+    display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  /* Sized to fit the rail head's 30px rather than to a scale of its own:
+     the page title and the platform name are the top line of the screen
+     together, and one of them setting the height makes the other's rule
+     land somewhere else. */
+  .top h1 { font-family: var(--display); font-size: 1.35rem;
+                 font-weight: 600; margin: 0; line-height: 1.25;
+                 letter-spacing: -0.01em; }
   .top .eyebrow { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.15em;
                   text-transform: uppercase; color: var(--muted); }
   .conn { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono);
@@ -642,45 +653,47 @@
   .setbar { border-top: 1px solid var(--rule); padding: 0.8rem 1rem; display: flex;
             gap: 0.6rem; align-items: center; flex-wrap: wrap; }
 
-  footer { border-top: 1px solid var(--rule); padding-top: 0.9rem; color: var(--muted);
-           font-size: 0.78rem; }
+  /* Outside the page column, like the header. Sized by the nav sheet against
+     the rail's own footer. */
+  footer { border-top: 1px solid var(--rule); color: var(--muted); font-size: 11px; }
 </style>
 </head>
 <body>
-<div class="app">
-  <div class="top">
-    <!-- No eyebrow: the rail already names the platform and the three brands. -->
-    <div>
-      <h1 id="pageTitle">Buying desk</h1>
-      <span class="eyebrow" id="pageSub"></span>
-    </div>
-    <!-- The connection state is only worth a person's attention when it is bad,
-         so the dot and the label stay hidden until something fails. -->
-    <div class="conn"><span class="dot" id="dot" hidden></span><span id="connLabel" hidden></span>
-      <!-- Kept in the page, out of the way. The key is injected locally so the
-           button has nothing to do here, and the sweep runs on a schedule in
-           anything but a demo. Unhide either to get it back. -->
-      <button class="ghost small" id="changeKey" hidden>API key</button>
-      <!-- One button per section rather than a single Add with tabs inside it:
-           on the item list the only thing anyone wants to add is an item, and
-           making them pick again after arriving is a question already answered
-           by which page they are on. -->
-      <!-- Buying that did not come from the forecast. The desk exists to raise
-           orders the plan asked for, and there is always a reason it did not:
-           a sample run, a replacement for something damaged, a launch nobody
-           has sold anything against yet. Without this those went through the
-           API or not at all. -->
-      <button class="small" id="openNewOrder" hidden>New order</button>
-      <button class="small" id="openAddItem" hidden>New item</button>
-      <button class="small" id="openAddSupplier" hidden>New supplier</button>
-      <button class="ghost small" id="pollMail">Check mailbox</button>
-      <!-- Worth a button again now the service is deployed: the database is
-           shared, so the page can go stale because of something that happened
-           somewhere else entirely. -->
-      <button class="ghost small" id="refreshSuggest">Refresh</button>
-      <button class="ghost small" id="sweep" hidden>Run agent sweep</button>
-    </div>
+<div class="top">
+  <!-- No eyebrow: the rail already names the platform and the three brands. -->
+  <div>
+    <h1 id="pageTitle">Buying desk</h1>
+    <span class="eyebrow" id="pageSub"></span>
   </div>
+  <!-- The connection state is only worth a person's attention when it is bad,
+       so the dot and the label stay hidden until something fails. -->
+  <div class="conn"><span class="dot" id="dot" hidden></span><span id="connLabel" hidden></span>
+    <!-- Kept in the page, out of the way. The key is injected locally so the
+         button has nothing to do here, and the sweep runs on a schedule in
+         anything but a demo. Unhide either to get it back. -->
+    <button class="ghost small" id="changeKey" hidden>API key</button>
+    <!-- One button per section rather than a single Add with tabs inside it:
+         on the item list the only thing anyone wants to add is an item, and
+         making them pick again after arriving is a question already answered
+         by which page they are on. -->
+    <!-- Buying that did not come from the forecast. The desk exists to raise
+         orders the plan asked for, and there is always a reason it did not:
+         a sample run, a replacement for something damaged, a launch nobody
+         has sold anything against yet. Without this those went through the
+         API or not at all. -->
+    <button class="small" id="openNewOrder" hidden>New order</button>
+    <button class="small" id="openAddItem" hidden>New item</button>
+    <button class="small" id="openAddSupplier" hidden>New supplier</button>
+    <button class="ghost small" id="pollMail">Check mailbox</button>
+    <!-- Worth a button again now the service is deployed: the database is
+         shared, so the page can go stale because of something that happened
+         somewhere else entirely. -->
+    <button class="ghost small" id="refreshSuggest">Refresh</button>
+    <button class="ghost small" id="sweep" hidden>Run agent sweep</button>
+  </div>
+</div>
+
+<div class="app">
 
   <!-- What needs a person today: what to buy, what is in flight, what the rules
        could not settle. The item and supplier records live on their own pages,
@@ -885,12 +898,13 @@
     </div>
   </div>
 
-  <footer>
-    Demo environment with fabricated suppliers. Orders are queued against each supplier's own
-    working hours, replies are read by rule and anything the rules cannot settle is filed for a
-    person rather than guessed.
-  </footer>
 </div>
+
+<footer>
+Demo environment with fabricated suppliers. Orders are queued against each supplier's own
+working hours, replies are read by rule and anything the rules cannot settle is filed for a
+person rather than guessed.
+</footer>
 
 <!-- One dialog, reused. The counter offer and the message that carries it are
      the same decision, so they are edited in the same place: a buyer who revises

@@ -62,9 +62,22 @@
   .app { max-width: 1240px; margin: 0 auto; padding: 1.5rem 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
 
   /* header */
-  .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
+  /* Outside the page column so its rule meets the rail's own edge instead of
+     stopping short of it. Its height is not set here — the injected nav sheet
+     sizes this and the rail's head from one variable, because they are two
+     halves of the same band. */
+  .top {
+    display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem;
+    border-bottom: 1px solid var(--rule);
+  }
   .brandmark { display: flex; flex-direction: column; gap: 0.15rem; }
-  .brandmark h1 { font-family: var(--display); font-size: 1.6rem; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  /* Sized to fit the rail head's 30px rather than to a scale of its own:
+     the page title and the platform name are the top line of the screen
+     together, and one of them setting the height makes the other's rule
+     land somewhere else. */
+  .brandmark h1 { font-family: var(--display); font-size: 1.35rem;
+                 font-weight: 600; margin: 0; line-height: 1.25;
+                 letter-spacing: -0.01em; }
   .brandmark span { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
   .conn { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
@@ -628,7 +641,9 @@
   .more button { background: transparent; color: var(--accent); border: none; font-size: 0.82rem; padding: 0; }
 
   .empty { padding: 1.4rem 1rem; color: var(--muted); font-size: 0.87rem; text-align: center; }
-  footer { color: var(--muted); font-size: 0.78rem; border-top: 1px solid var(--rule); padding-top: 0.9rem; }
+  /* Outside the page column, like the header. Sized by the nav sheet against
+     the rail's own footer. */
+  footer { border-top: 1px solid var(--rule); color: var(--muted); font-size: 11px; }
   .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--rule); border-top-color: var(--accent); border-radius: 50%; animation: sp 0.7s linear infinite; vertical-align: -1px; }
   @keyframes sp { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
@@ -636,24 +651,25 @@
 </head>
 <body>
 
-<div class="app">
-  <div class="top">
-    <!-- No eyebrow: the rail already names the platform and the three brands,
-         and repeating it here made the page open with the same line twice. -->
-    <div class="brandmark">
-      <h1 id="pageTitle">Dashboard</h1>
-    </div>
-    <!-- The connection state is only worth a person's attention when it is bad.
-         Working is the expected case, and the rail already says which
-         environment this is. -->
-    <div class="conn">
-      <button id="openCapture" hidden>Record a sale</button>
-      <span class="dot" id="dot" hidden></span>
-      <span class="conn-label" id="connLabel" hidden></span>
-      <input class="key-field" id="apiKey" type="password" placeholder="API key" autocomplete="off" hidden />
-      <button id="connect" hidden>Connect</button>
-    </div>
+<div class="top">
+  <!-- No eyebrow: the rail already names the platform and the three brands,
+       and repeating it here made the page open with the same line twice. -->
+  <div class="brandmark">
+    <h1 id="pageTitle">Dashboard</h1>
   </div>
+  <!-- The connection state is only worth a person's attention when it is bad.
+       Working is the expected case, and the rail already says which
+       environment this is. -->
+  <div class="conn">
+    <button id="openCapture" hidden>Record a sale</button>
+    <span class="dot" id="dot" hidden></span>
+    <span class="conn-label" id="connLabel" hidden></span>
+    <input class="key-field" id="apiKey" type="password" placeholder="API key" autocomplete="off" hidden />
+    <button id="connect" hidden>Connect</button>
+  </div>
+</div>
+
+<div class="app">
 
   <!-- Charts, not a second copy of the customer list. What is being sold, to
        which brand, through which channel — the three questions the tiles above
@@ -1065,10 +1081,11 @@
     </div>
   </div>
 
-  <footer>
-    Demo environment with fabricated customers. Identity is resolved on phone, email and Shopify customer ID — never on name. Consent is enforced when an audience is built, not at send time.
-  </footer>
 </div>
+
+<footer>
+Demo environment with fabricated customers. Identity is resolved on phone, email and Shopify customer ID — never on name. Consent is enforced when an audience is built, not at send time.
+</footer>
 
 <!-- Recharts and the React it is built on, served from this origin. Vendored
      rather than pulled from a CDN: the console is opened on laptops that are not

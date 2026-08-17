@@ -48,10 +48,21 @@
   .app { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1.25rem 5rem;
          display: flex; flex-direction: column; gap: 1.25rem; }
 
-  .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
-         gap: 1rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
-  .top h1 { font-family: var(--display); font-size: 1.6rem; font-weight: 600; margin: 0;
-            letter-spacing: -0.01em; }
+  /* Outside the page column so its rule meets the rail's own edge instead of
+     stopping short of it. Its height is not set here — the injected nav sheet
+     sizes this and the rail's head from one variable, because they are two
+     halves of the same band. */
+  .top {
+    display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  /* Sized to fit the rail head's 30px rather than to a scale of its own:
+     the page title and the platform name are the top line of the screen
+     together, and one of them setting the height makes the other's rule
+     land somewhere else. */
+  .top h1 { font-family: var(--display); font-size: 1.35rem;
+                 font-weight: 600; margin: 0; line-height: 1.25;
+                 letter-spacing: -0.01em; }
   .top .eyebrow { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.15em;
                   text-transform: uppercase; color: var(--muted); }
   .conn { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono);
@@ -209,25 +220,27 @@
              white-space: pre-wrap; word-break: break-word; }
   .empty { padding: 1.3rem 1rem; text-align: center; color: var(--muted); font-size: 0.86rem; }
   .bar { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-  footer { border-top: 1px solid var(--rule); padding-top: 0.9rem; color: var(--muted);
-           font-size: 0.78rem; }
+  /* Outside the page column, like the header. Sized by the nav sheet against
+     the rail's own footer. */
+  footer { border-top: 1px solid var(--rule); color: var(--muted); font-size: 11px; }
 </style>
 </head>
 <body>
-<div class="app">
-  <div class="top">
-    <div>
-      <h1 id="pageTitle">Sites</h1>
-      <span class="eyebrow" id="pageSub"></span>
-    </div>
-    <div class="conn">
-      <span id="connLabel" hidden></span>
-      <button class="small" id="openSite" hidden>New site</button>
-      <button class="small" id="openStandard" hidden>New rule</button>
-      <button class="small" id="openCapture" hidden>Add observation</button>
-      <button class="ghost small" id="refresh">Refresh</button>
-    </div>
+<div class="top">
+  <div>
+    <h1 id="pageTitle">Sites</h1>
+    <span class="eyebrow" id="pageSub"></span>
   </div>
+  <div class="conn">
+    <span id="connLabel" hidden></span>
+    <button class="small" id="openSite" hidden>New site</button>
+    <button class="small" id="openStandard" hidden>New rule</button>
+    <button class="small" id="openCapture" hidden>Add observation</button>
+    <button class="ghost small" id="refresh">Refresh</button>
+  </div>
+</div>
+
+<div class="app">
 
   <!-- Sites -->
   <div data-view="sites">
@@ -315,12 +328,13 @@
     </div>
   </div>
 
-  <footer>
-    Judgements here are made by people. Nothing in this module inspects an image — it records
-    what was looked at, what was decided, and the photograph it was decided from, which is also
-    what a model would have to be trained on later.
-  </footer>
 </div>
+
+<footer>
+Judgements here are made by people. Nothing in this module inspects an image — it records
+what was looked at, what was decided, and the photograph it was decided from, which is also
+what a model would have to be trained on later.
+</footer>
 
 <dialog id="siteDialog">
   <div class="panel-head"><h2 id="siteTitle">New site</h2>

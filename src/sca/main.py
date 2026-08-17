@@ -29,7 +29,16 @@ from sca.config import get_settings
 # below 768px. Matching an interface the client already uses is worth more than
 # a better one they have to learn.
 _NAV_STYLE = """<style>
-  :root { --tgc-rail: 208px; }
+  /* The two bands that run across every console: the rail's head and the page
+     title beside it, then the rail's foot and the page footer beside that. They
+     read as one line each, so their heights come from here rather than from each
+     page's own stylesheet — four consoles each guessing at 62px is four chances
+     for one of them to sit a pixel proud of the rail.
+
+     Borders are inside these numbers (border-box), so the rule at the bottom of
+     the rail head and the rule at the bottom of the page title land on exactly
+     the same row. */
+  :root { --tgc-rail: 208px; --tgc-head: 56px; --tgc-foot: 38px; }
   .tgc-rail {
     position: fixed; left: 0; top: 0; width: var(--tgc-rail); height: 100vh; z-index: 1001;
     background: var(--sunk); color: var(--ink);
@@ -38,7 +47,8 @@ _NAV_STYLE = """<style>
     font-family: var(--sans);
   }
   .tgc-rail .head {
-    padding: 16px; border-bottom: 1px solid var(--rule);
+    height: var(--tgc-head); box-sizing: border-box;
+    padding: 0 16px; border-bottom: 1px solid var(--rule);
     display: flex; align-items: center; gap: 10px;
   }
   .tgc-rail .mark {
@@ -69,12 +79,22 @@ _NAV_STYLE = """<style>
   }
   .tgc-rail nav a svg { flex: none; width: 17px; height: 17px; }
   .tgc-rail .foot {
-    padding: 12px 16px; border-top: 1px solid var(--rule);
+    min-height: var(--tgc-foot); box-sizing: border-box;
+    padding: 0 16px; border-top: 1px solid var(--rule);
     font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 7px;
   }
   .tgc-rail .foot i {
     width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none;
   }
+
+  /* The page's half of each band. `min-height`, not `height`: the footer's
+     sentence wraps on a narrow window and a fixed height would cut it in half
+     rather than let the two sides disagree for a moment. */
+  .top, body > footer {
+    min-height: var(--tgc-head); box-sizing: border-box;
+    padding: 0 16px; display: flex; align-items: center;
+  }
+  body > footer { min-height: var(--tgc-foot); }
 
   .tgc-bar { display: none; }
   .tgc-scrim { display: none; }
