@@ -619,8 +619,14 @@
      from a CDN for the same reason the page is served whole: a script fetched
      from somebody else's server is one more thing to fail in front of a client,
      and the colours still come from this sheet's own tokens. */
-  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; }
+  /* Three named columns rather than auto-fit. auto-fit lays as many 260px
+     tracks as will fit — four on a wide window — so three cards sat in the
+     first three and left a quarter of the row empty beside them. Three columns
+     is what there are three of. */
+  .charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem; }
   .charts .wide { grid-column: 1 / -1; }
+  @media (max-width: 1080px) { .charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 720px) { .charts { grid-template-columns: minmax(0, 1fr); } }
 
   /* Recharts fills whatever box it is given, so the height lives here and the
      chart code carries none. A ResponsiveContainer inside a box with no height
@@ -699,6 +705,19 @@
         <span class="hint">touchpoints</span>
       </div>
       <div class="panel-body"><div id="channelBars" class="bars"></div></div>
+    </div>
+
+    <!-- The one thing three separate Shopify stores cannot say. Each of them
+         knows its own buyers; only something holding all three knows that the
+         woman in Aleena's list and the woman in Rawash's are the same woman.
+         Beside "By brand" because that chart raises the question this one
+         answers: those three totals are not three sets of customers. -->
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Brands per customer</h2>
+        <span class="hint" id="overlapHint"></span>
+      </div>
+      <div class="panel-body"><div id="overlapBars" class="bars"></div></div>
     </div>
   </div>
 
@@ -1105,8 +1124,14 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
   const state = {
     key: "", source: "pos", selected: null, showAllCustomers: false,
     view: new URLSearchParams(location.search).get("view") || "dashboard",
-    segments: [], segment: null, channel: "whatsapp", draft: null,
-    brand: "aleena", template: "custom", templateTouched: false,
+    // The broadcast the desk actually sends most often, ready to go: this
+    // brand's whole list, on email, with the recommendation copy loaded. Every
+    // one of them is still a click away from being changed — a default is where
+    // the cursor starts, not a decision made for anybody. Email rather than
+    // WhatsApp because it is the cheaper mistake: a marketing WhatsApp costs
+    // money per message and lands on a handset with a notification.
+    segments: [], segment: null, channel: "email", draft: null,
+    brand: "aleena", template: "product_recommendation", templateTouched: false,
     // The item list, as the procurement half holds it. Fetched once when the
     // connection is made: a sale has to name a SKU the shelf knows, and the only
     // place that knows which those are is the catalogue.
@@ -1203,6 +1228,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
       // produce almost no orders and a great deal of relationship, which is the
       // reason for holding them at all.
       ["channelBars", () => drawTouchpoints(p.channels)],
+      ["overlapBars", () => drawOverlap(p.cross_brand)],
     ];
     for (const [id, draw] of charts) {
       try {
@@ -1434,6 +1460,50 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
         // something other than the length of the bar.
         h(R.Bar, { dataKey: "count", fill: accent, radius: [0, 4, 4, 0], barSize: 16 }))),
       "Nothing yet.");
+  }
+
+  // How many of the three brands each buyer actually shops. Derived here rather
+  // than served as three counts, because the server already reports the two
+  // cumulative figures this page needs and a third would be the same fact
+  // written twice — two places to disagree about what "two or more" means.
+  function drawOverlap(cb) {
+    const host = $("overlapBars");
+    if (!cb || !cb.buyers) {
+      $("overlapHint").textContent = "";
+      mount(host, null, "No purchases recorded yet.");
+      return;
+    }
+    const two = cb.two_or_more - cb.all_three;
+    const one = cb.buyers - cb.two_or_more;
+    // One hue, light to dark, because this is one quantity measured at three
+    // depths and not three unrelated categories. A colour per bar would say
+    // these are different things being compared.
+    const data = [
+      { label: "One brand", people: one, fill: "#d8c3aa" },
+      { label: "Two brands", people: two, fill: "#b08650" },
+      { label: "All three", people: cb.all_three, fill: "#7d4f24" },
+    ];
+
+    mount(host, h(R.ResponsiveContainer, { width: "100%", height: "100%" },
+      h(R.BarChart, { data, layout: "vertical",
+                      margin: { top: 4, right: 16, left: 0, bottom: 0 } },
+        h(R.CartesianGrid, { stroke: RULE, strokeDasharray: "2 4", horizontal: false }),
+        h(R.XAxis, { type: "number", tickLine: false, axisLine: false,
+                     tick: { fill: INK, fontSize: 11 }, allowDecimals: false }),
+        h(R.YAxis, { type: "category", dataKey: "label", width: 88, tickLine: false,
+                     axisLine: false, tick: { fill: INK, fontSize: 11 } }),
+        tip((value) => [
+          `${value.toLocaleString("en-US")} of ${cb.buyers} buyers `
+          + `(${Math.round((value / cb.buyers) * 100)}%)`, "Shoppers"]),
+        h(R.Bar, { dataKey: "people", radius: [0, 4, 4, 0], barSize: 16 },
+          data.map((d) => h(R.Cell, { key: d.label, fill: d.fill }))))),
+      "No purchases recorded yet.");
+
+    // The number the chart exists to make: counted per store rather than per
+    // person, these buyers would be billed, mailed and reported as more people
+    // than there are.
+    $("overlapHint").textContent =
+      `${cb.buyers} people · ${cb.counted_separately} if counted per store`;
   }
 
   // Distinct from the table's `money`, which formats a bare number: this one
@@ -2254,6 +2324,10 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
     const host = $("segments");
     drawChannels();
     drawTemplates();
+    // The default template's words, in the box. A template shown as chosen with
+    // an empty draft under it reads as a broken page rather than a starting
+    // point, and Send stays disabled until there is text.
+    applyTemplate(false);
     try {
       const all = await api("/segments");
       state.segments = all;
@@ -2263,6 +2337,13 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
       // compiler will refuse.
       const segs = all.filter((s) => !s.brand || s.brand === state.brand);
       if (state.segment && !segs.some((s) => s.key === state.segment)) state.segment = null;
+      // The whole list, selected for them. Found by name rather than by a key
+      // like "aleena_all", because the key carries the brand and this has to
+      // land on the right one again when the brand sending it changes.
+      if (!state.segment) {
+        const everyone = segs.find((s) => s.name === "All Customers");
+        if (everyone) state.segment = everyone.key;
+      }
       if (!segs.length) { host.innerHTML = "<div class='empty'>No audiences yet.</div>"; return; }
       host.innerHTML = "";
       segs.forEach((s) => {
