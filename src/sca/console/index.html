@@ -1430,51 +1430,83 @@ person rather than guessed.
     : h < 1 ? `${Math.max(1, Math.round(h * 60))}m` : h < 48 ? `${h.toFixed(1)}h`
     : `${(h / 24).toFixed(1)}d`);
 
+  // Five tiles in the shape they will land in, so the row keeps its height and
+  // the panels below it do not jump down the page when the numbers arrive.
+  const COST_SKELETON = Array.from({ length: 5 }, (_, n) => `
+    <div class="tile">
+      <span class="sk sk-line" style="display:block;width:${[62, 70, 48, 56, 78][n]}%"></span>
+      <span class="sk sk-line" style="display:block;width:38%;height:30px"></span>
+      <span class="sk sk-line" style="display:block;width:${[88, 74, 92, 66, 80][n]}%"></span>
+    </div>`).join("");
+
   async function loadCoordination() {
     let c;
-    try { c = await api("/coordination"); } catch { return; }
-    const r = c.round_trips, cy = c.cycle, a = c.autonomy, ap = c.approval;
+    if (!$("cost").children.length) $("cost").innerHTML = COST_SKELETON;
+    try { c = await api("/coordination"); } catch { $("cost").innerHTML = ""; return; }
+    const cy = c.cycle, b = c.book || {};
 
+    // The state of the order book, read left to right in the order a buyer
+    // moves through it: what is theirs to do, what is out with a mill, what
+    // landed, what did not. The tiles that used to sit here measured the
+    // argument for the platform — round trips, avoidable replies, how much ran
+    // without a human — which is a case to be made once, not the thing anybody
+    // opens this page to find out.
     const tiles = [];
     tiles.push({
-      label: "Round trips",
-      big: r.per_order === null ? "—" : `${r.per_order}<small> per order</small>`,
-      says: r.orders
-        ? `${r.replies} repl${r.replies === 1 ? "y" : "ies"} across ${plural(r.orders, "sent order")}`
-        : "Nothing sent yet.",
+      label: "On our desk",
+      big: `${b.with_us || 0}<small> order${b.with_us === 1 ? "" : "s"}</small>`,
+      says: b.with_us
+        ? [b.to_approve ? `${b.to_approve} to approve` : "",
+           b.to_send ? `${b.to_send} approved, not sent` : "",
+           b.by_status && b.by_status.draft ? `${b.by_status.draft} still a draft` : ""]
+          .filter(Boolean).join(" · ")
+        : "Nothing waiting on us.",
     });
     tiles.push({
-      label: "Avoidable",
-      big: r.avoidable_share === null ? "—" : `${Math.round(r.avoidable_share * 100)}%`,
-      // The headroom, stated as headroom. Each of these is a full wait caused by
-      // something the outbound message could have said first.
-      says: r.clarifications
-        ? `${r.clarifications} repl${r.clarifications === 1 ? "y" : "ies"} asked us something`
-        : "No supplier had to ask us anything.",
+      label: "With a supplier",
+      big: `${b.with_supplier || 0}<small> order${b.with_supplier === 1 ? "" : "s"}</small>`,
+      says: b.with_supplier
+        ? (b.unacknowledged
+            ? `${b.unacknowledged} not acknowledged yet`
+            : "all acknowledged, none arrived")
+        : "Nothing out with a mill.",
+    });
+    tiles.push({
+      label: "Received",
+      big: `${b.received || 0}<small> order${b.received === 1 ? "" : "s"}</small>`,
+      // Per currency. Two mills invoicing in different money do not add up, and
+      // one total would be a number that is true of neither.
+      says: Object.keys(b.received_value || {}).length
+        ? Object.entries(b.received_value)
+            .map(([ccy, v]) => `${money(v)} ${ccy}`).join(" · ") + " booked in"
+        : "Nothing has arrived yet.",
+    });
+    tiles.push({
+      label: "Cancelled",
+      big: `${b.cancelled || 0}<small> order${b.cancelled === 1 ? "" : "s"}</small>`,
+      says: b.total
+        ? `of ${plural(b.total, "order")} ever placed`
+        : "No orders yet.",
     });
     tiles.push({
       label: "Time to acknowledge",
       big: wait(cy.median_hours),
-      says: cy.median_working_hours === null
-        ? (cy.awaiting ? `${cy.awaiting} still waiting.` : "Nothing acknowledged yet.")
-        : `${plain(cy.median_working_hours)} of it inside their working day`
-          + (cy.awaiting ? ` · ${cy.awaiting} still waiting` : ""),
-    });
-    tiles.push({
-      label: "Read without asking",
-      big: a.acted_share === null ? "—" : `${Math.round(a.acted_share * 100)}%`,
-      says: a.read
-        ? `${a.acted} of ${a.read} applied automatically, ${a.filed_for_a_human} sent to a person`
-        : "No replies read yet.",
-    });
-    tiles.push({
-      label: "Approved unchanged",
-      big: ap.granted ? `${ap.without_amendment}<small> of ${ap.granted}</small>` : "—",
-      // Not a score. A gate that is always passed unamended is either preparing
-      // well or being waved through, and the two look the same from inside.
-      says: ap.granted
-        ? `${ap.revised} amended before approval · ${ap.needed - ap.granted} still waiting`
-        : "Nothing has needed approval yet.",
+      // The working-day figure only when it is actually a different number.
+      // Saying "1m of it inside their working day" under a headline of 1 min is
+      // two ways of writing the same thing and reads as a mistake.
+      says: (() => {
+        const bits = [];
+        if (cy.median_working_hours !== null && cy.median_hours !== null
+            && Math.round(cy.median_working_hours * 60) < Math.round(cy.median_hours * 60)) {
+          bits.push(`${plain(cy.median_working_hours)} of it inside their working day`);
+        }
+        if (cy.awaiting) bits.push(`${cy.awaiting} still waiting`);
+        if (!bits.length) {
+          return cy.acknowledged ? "Answered inside their working day."
+            : "Nothing acknowledged yet.";
+        }
+        return bits.join(" · ");
+      })(),
     });
 
     $("cost").innerHTML = tiles.map((t) => `

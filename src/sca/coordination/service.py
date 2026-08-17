@@ -38,6 +38,12 @@ from sca.scheduling.windows import WorkingHours, overlap_hours, working_hours_be
 # of reply rather than folded into a total.
 CLARIFYING_KINDS = ("question", "unknown")
 
+# Who has to move next. The statuses themselves are a single line through the
+# process; these are the two halves of it that mean different things to a person
+# looking at the desk in the morning.
+OURS = ("draft", "pending_approval", "approved")
+THEIRS = ("sent", "acknowledged", "in_transit")
+
 
 def _median(values: list[float]) -> float | None:
     """Median rather than mean: one supplier who took three weeks would otherwise
@@ -120,12 +126,41 @@ class Approval:
 
 
 @dataclass
+class Book:
+    """The order book by state: what is on our desk, what is with a supplier,
+    and what has closed.
+
+    Split by who has to move next rather than listed by status. "Approved" and
+    "sent" are one step apart in the model and a world apart on a Tuesday
+    morning — one of them is work nobody has done yet, the other is a wait.
+    """
+
+    total: int = 0
+    by_status: dict[str, int] = field(default_factory=dict)
+    # On our side of the line: drafted, waiting for approval, or approved and
+    # not yet gone out.
+    with_us: int = 0
+    to_approve: int = 0
+    to_send: int = 0
+    # Gone, and not yet closed.
+    with_supplier: int = 0
+    unacknowledged: int = 0
+    received: int = 0
+    cancelled: int = 0
+    # Keyed by currency rather than summed. Two mills invoicing in different
+    # money do not add up, and a single total would be a number that is true of
+    # nothing.
+    received_value: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
 class Coordination:
     round_trips: RoundTrips = field(default_factory=RoundTrips)
     cycle: Cycle = field(default_factory=Cycle)
     zones: list[Zone] = field(default_factory=list)
     autonomy: Autonomy = field(default_factory=Autonomy)
     approval: Approval = field(default_factory=Approval)
+    book: Book = field(default_factory=Book)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -150,7 +185,39 @@ class CoordinationService:
             zones=self._zones(sent, suppliers, now),
             autonomy=await self._autonomy(),
             approval=await self._approval(),
+            book=await self._book(),
         )
+
+    async def _book(self) -> Book:
+        """Counted in the database rather than by loading the order table. This
+        runs on every desk refresh and the count is the whole answer."""
+        out = Book()
+        rows = (
+            await self.session.execute(
+                select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(
+                    PurchaseOrder.status
+                )
+            )
+        ).all()
+        out.by_status = {status: count for status, count in rows}
+        out.total = sum(out.by_status.values())
+        out.with_us = sum(out.by_status.get(s, 0) for s in OURS)
+        out.to_approve = out.by_status.get("pending_approval", 0)
+        out.to_send = out.by_status.get("approved", 0)
+        out.with_supplier = sum(out.by_status.get(s, 0) for s in THEIRS)
+        out.unacknowledged = out.by_status.get("sent", 0)
+        out.received = out.by_status.get("received", 0)
+        out.cancelled = out.by_status.get("cancelled", 0)
+
+        values = (
+            await self.session.execute(
+                select(PurchaseOrder.currency, func.sum(PurchaseOrder.total_value))
+                .where(PurchaseOrder.status == "received")
+                .group_by(PurchaseOrder.currency)
+            )
+        ).all()
+        out.received_value = {c: round(float(v or 0), 2) for c, v in values}
+        return out
 
     async def _round_trips(self, sent: list[PurchaseOrder]) -> RoundTrips:
         """One reply is one completed exchange, so replies per order is the

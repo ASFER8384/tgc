@@ -234,3 +234,63 @@ async def test_the_endpoint_answers_on_an_empty_database(client):
     result = await client.get("/coordination")
     assert result.status_code == 200
     assert result.json()["round_trips"]["orders"] == 0
+
+
+@pytest.mark.asyncio
+async def test_the_book_splits_open_orders_by_who_has_to_move_next(session):
+    """"Approved" and "sent" are one step apart in the model and a world apart
+    on a Tuesday morning: one is work nobody has done, the other is a wait."""
+    supplier = _supplier()
+    session.add(supplier)
+    await session.flush()
+    for number, state in (
+        ("PO-1", "draft"), ("PO-2", "pending_approval"), ("PO-3", "approved"),
+        ("PO-4", "sent"), ("PO-5", "acknowledged"), ("PO-6", "in_transit"),
+    ):
+        session.add(PurchaseOrder(
+            number=number, supplier_id=supplier.id, status=state, total_value=100,
+        ))
+    await session.flush()
+
+    book = (await CoordinationService(session).collect()).book
+    assert book.with_us == 3
+    assert book.to_approve == 1
+    assert book.to_send == 1
+    assert book.with_supplier == 3
+    assert book.unacknowledged == 1
+    assert book.total == 6
+
+
+@pytest.mark.asyncio
+async def test_received_value_is_kept_per_currency_rather_than_summed(session):
+    """Two mills invoicing in different money do not add up, and one total
+    would be a figure that is true of neither."""
+    cny = _supplier()
+    sar = _supplier(code="RUH-BOX", name="Riyadh Cartons", email="s@rc.sa",
+                    timezone="Asia/Riyadh", currency="SAR")
+    session.add_all([cny, sar])
+    await session.flush()
+    session.add_all([
+        PurchaseOrder(number="PO-1", supplier_id=cny.id, status="received",
+                      currency="CNY", total_value=1000),
+        PurchaseOrder(number="PO-2", supplier_id=cny.id, status="received",
+                      currency="CNY", total_value=500),
+        PurchaseOrder(number="PO-3", supplier_id=sar.id, status="received",
+                      currency="SAR", total_value=200),
+        PurchaseOrder(number="PO-4", supplier_id=sar.id, status="cancelled",
+                      currency="SAR", total_value=900),
+    ])
+    await session.flush()
+
+    book = (await CoordinationService(session).collect()).book
+    assert book.received == 3
+    assert book.cancelled == 1
+    assert book.received_value == {"CNY": 1500.0, "SAR": 200.0}
+
+
+@pytest.mark.asyncio
+async def test_an_empty_book_reports_zero_rather_than_nothing(session):
+    book = (await CoordinationService(session).collect()).book
+    assert book.total == 0
+    assert book.with_us == 0
+    assert book.received_value == {}
