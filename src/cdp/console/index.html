@@ -660,6 +660,10 @@
              gap: 0.9rem; height: 100%; padding: 0.4rem 0; }
   .sk-rows .sk { height: 16px; }
   .sk-fill { height: 100%; }
+  /* Pill-shaped and pill-sized, so the skeleton reads as the control it stands
+     in for rather than as a bar that happens to be nearby. */
+  .sk-pill { display: inline-block; height: 38px; border-radius: 999px; }
+  .sk-num { display: inline-block; height: 9px; width: 18px; vertical-align: -1px; }
   .sk-row td { padding-top: 0.85rem; padding-bottom: 0.85rem; }
   .sk-row:hover { background: none; cursor: default; }
   @media (prefers-reduced-motion: reduce) { .sk::after { animation: none; } }
@@ -2478,8 +2482,18 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
     $("bcSend").disabled = !(seg && text) || needsSubject;
   }
 
+  // Widths taken from the audience names this actually holds — All Customers,
+  // Champions, Potential Loyalists — so the row is about the size it will be
+  // and the panel under it does not jump when the real pills land.
+  const SEG_SKELETON = [124, 96, 150, 108, 88, 132]
+    .map((w) => `<span class="sk sk-pill" style="width:${w}px"></span>`).join("");
+
   async function loadSegments() {
     const host = $("segments");
+    // Pills the shape of the audiences, put up when the request starts rather
+    // than sitting in the markup: a console that was never connected should keep
+    // saying so instead of shimmering at somebody who has not given it a key.
+    host.innerHTML = SEG_SKELETON;
     drawChannels();
     drawTemplates();
     // The default template's words, in the box. A template shown as chosen with
@@ -2520,7 +2534,10 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
             ? "and Use across brands, because it reads another brand's history"
             : "",
         ].filter(Boolean).join(" ");
-        pill.innerHTML = `${s.name}<span class="seg-size">–</span>`;
+        // The count arrives after the pill, once its rule has been evaluated.
+        // A shimmer says so; the dash that was here read as an audience of none.
+        pill.innerHTML =
+          `${s.name}<span class="seg-size"><span class="sk sk-num"></span></span>`;
         pill.addEventListener("click", () => {
           state.segment = s.key;
           host.querySelectorAll(".seg").forEach((r) => r.setAttribute("aria-pressed", "false"));

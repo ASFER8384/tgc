@@ -329,6 +329,27 @@
   @media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 
   .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; }
+  /* Views hold several panels stacked and had no space between them, so the
+     storefront count and the stock table met at a shared edge and read as one
+     card with two headings in it. The [hidden] rule above still wins, so a view
+     that is not the current one stays hidden rather than being laid out. */
+  [data-view] { display: flex; flex-direction: column; gap: 1.25rem; }
+
+  /* A shape while the figures are on their way, rather than the word "loading"
+     in three places. The panel is already the size it will be, so nothing jumps
+     when the numbers land. */
+  .sk { position: relative; overflow: hidden; border-radius: 4px; background: var(--sunk); }
+  .sk::after {
+    content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+    animation: sk 1.4s ease-in-out infinite;
+  }
+  @keyframes sk { to { transform: translateX(100%); } }
+  .sk-line { display: inline-block; height: 12px; vertical-align: -1px; }
+  .sk-row td { padding-top: 0.85rem; padding-bottom: 0.85rem; }
+  .sk-row:hover { background: none; }
+  .sk-stack { display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; }
+  @media (prefers-reduced-motion: reduce) { .sk::after { animation: none; } }
   .panel-head { padding: 0.8rem 1rem; border-bottom: 1px solid var(--rule); display: flex;
                 align-items: baseline; justify-content: space-between; gap: 0.75rem;
                 flex-wrap: wrap; }
@@ -821,19 +842,22 @@
     <div class="panel" id="storefrontPanel">
       <div class="panel-head">
         <h2>Storefront</h2>
-        <span class="hint" id="shopHint">loading</span>
+        <span class="hint" id="shopHint"></span>
       </div>
-      <div id="shopBody" class="empty">loading</div>
+      <div id="shopBody" class="sk-stack">
+        <span class="sk sk-line" style="width:46%"></span>
+        <span class="sk sk-line" style="width:28%"></span>
+      </div>
     </div>
 
     <div class="panel">
       <div class="panel-head">
         <h2>Stock</h2>
-        <span class="hint" id="itemsHint">loading</span>
+        <span class="hint" id="itemsHint"></span>
       </div>
       <div class="table-wrap"><table>
         <thead><tr id="itemHead"><th>Item</th><th class="num">Total</th><th></th></tr></thead>
-        <tbody id="itemRows"><tr><td colspan="8" class="empty">loading</td></tr></tbody>
+        <tbody id="itemRows"></tbody>
       </table></div>
     </div>
 
@@ -2203,6 +2227,9 @@ person rather than guessed.
   }
 
   function drawStorefront(shop) {
+    // Out of its loading shape before anything is written into it, or the
+    // skeleton's padding and column stay wrapped around the real content.
+    $("shopBody").className = "";
     if (!shop.connected) {
       $("shopHint").textContent = "not connected";
       $("shopBody").innerHTML = `<div class="none">
@@ -2279,7 +2306,21 @@ person rather than guessed.
   // Fetched when the page is opened rather than with the buying desk: shelves
   // move when somebody sells something, and refreshing a queue of orders is no
   // reason to ask a storefront for its catalogue.
+  // Rows the shape of the stock table, at widths that vary down each column so
+  // it reads as something arriving rather than a table of blank data.
+  const SK_W = ["68%", "40%", "26%", "52%"];
+  function skeletonRows(rows, cols) {
+    return Array.from({ length: rows }, (_, r) =>
+      `<tr class="sk-row">${Array.from({ length: cols }, (_, c) =>
+        `<td><span class="sk sk-line" style="display:block;width:${
+          SK_W[(c + r) % SK_W.length]}"></span></td>`).join("")}</tr>`).join("");
+  }
+
   async function loadInventory() {
+    // Read off the header, so the skeleton keeps its columns when a shop's
+    // sizes add more of them.
+    const cols = $("itemHead").children.length || 3;
+    $("itemRows").innerHTML = skeletonRows(6, cols);
     try {
       const [inv, items] = await Promise.all([
         api("/inventory"),
@@ -2291,6 +2332,11 @@ person rather than guessed.
       drawCatalogue(inv, items);
       drawOrphans(inv.shopify.unmatched || []);
     } catch (e) {
+      // The storefront panel is still shimmering at this point and has to come
+      // down with it: a half-failed page that keeps promising one of its numbers
+      // is worse than one that says plainly it could not read either.
+      $("shopBody").className = "empty";
+      $("shopBody").textContent = "Could not read the storefront.";
       $("itemRows").innerHTML =
         `<tr><td colspan="8" class="empty">Could not load stock: ${escape(e.message || e)}</td></tr>`;
     }
