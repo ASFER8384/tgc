@@ -25,6 +25,11 @@
        thing on the next chart is worse than no hue at all. */
     --series: #00918a;
     --stockline: #8a6a00;
+    /* The eight-week average the model is judged against. A second category
+       rather than a shade of the first — "the model" and "the thing it has to
+       beat" are two entities, and every chart that shows both uses this pair.
+       Checked against #00918a: 14.2 deutan, 24.3 normal, both above the floor. */
+    --baseline: #a8480f;
     --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
     --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
     --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
@@ -35,7 +40,7 @@
       --ink: #efeae2; --ink-soft: #cdc6ba; --muted: #9b9284; --rule: #332e28;
       --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
       --high: #e0846c; --medium: #d8ab4e; --ok: #86b294;
-      --series: #00a79d; --stockline: #a98a1e;
+      --series: #00a79d; --stockline: #a98a1e; --baseline: #cf6f34;
     }
   }
   :root[data-theme="dark"] {
@@ -43,7 +48,7 @@
     --ink: #efeae2; --ink-soft: #cdc6ba; --muted: #9b9284; --rule: #332e28;
     --accent: #d79a55; --accent-ink: #1c1408; --accent-soft: #2c2318;
     --high: #e0846c; --medium: #d8ab4e; --ok: #86b294;
-    --series: #00a79d; --stockline: #a98a1e;
+    --series: #00a79d; --stockline: #a98a1e; --baseline: #cf6f34;
   }
 
   * { box-sizing: border-box; }
@@ -180,6 +185,49 @@
   details.deep[open] > summary { border-bottom: 1px solid var(--rule); }
 
   .empty { padding: 1.3rem 1rem; text-align: center; color: var(--muted); font-size: 0.86rem; }
+
+  /* A whole customer list is a scroll nobody finishes. The count stays on
+     screen so the page never hides how many there are. */
+  .pager { display: flex; align-items: center; justify-content: flex-end; gap: 0.6rem;
+           padding: 0.6rem 1rem; border-top: 1px solid var(--rule);
+           font-size: 0.8rem; color: var(--muted); }
+  .pager button:disabled { opacity: 0.4; }
+  /* The position in the ranking, carried on the row. Without it a customer
+     on page three reads as the third most likely rather than the 23rd. */
+  .rank { display: inline-block; min-width: 1.9rem; color: var(--muted);
+          font-variant-numeric: tabular-nums; font-size: 0.78rem; }
+
+  /* A shape while the figures are on their way, rather than the word "loading"
+     in a cell that collapses the table to one row and expands it again. */
+  .sk { position: relative; overflow: hidden; border-radius: 4px; background: var(--sunk); }
+  .sk::after {
+    content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent,
+      color-mix(in srgb, var(--panel) 70%, transparent), transparent);
+    animation: sweep 1.25s infinite;
+  }
+  @keyframes sweep { 100% { transform: translateX(100%); } }
+  .sk-line { display: inline-block; height: 12px; vertical-align: -1px; }
+  .sk-row td { padding-top: 0.8rem; padding-bottom: 0.8rem; }
+  /* Bounded, because a width is a share of the cell and these cells are not
+     alike: the same share draws a bar most of the table wide in the item column
+     and a chip too small to read as a word in a number column. */
+  .sk-row .sk-line { max-width: 170px; min-width: 30px; }
+  .sk-stack { display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; }
+  @media (prefers-reduced-motion: reduce) { .sk::after { animation: none; } }
+
+  /* Charts sit in the panel body like any other block. A fixed height rather
+     than an aspect ratio: these are read against the table beside them and a
+     plot that grows with the window puts the two out of step. */
+  .chart { width: 100%; height: 220px; }
+  .chart-sk { width: 100%; height: 220px; }
+  .chart-wrap { padding: 0.9rem 1rem 0.4rem; border-bottom: 1px solid var(--rule); }
+  .chart-wrap:last-child { border-bottom: none; }
+  .chart-cap { font-size: 0.78rem; color: var(--muted); padding-bottom: 0.5rem;
+               line-height: 1.4; }
+  .chart-cap b { color: var(--ink-soft); font-weight: 600; }
+  .recharts-cartesian-axis-tick text { font-size: 11px; fill: var(--muted); }
+  .recharts-default-legend { font-size: 12px; }
   /* Outside the page column, like the header. Sized by the nav sheet against
      the rail's own footer. */
   footer { border-top: 1px solid var(--rule); color: var(--muted); font-size: 11px; }
@@ -213,7 +261,12 @@
     <a href="#buyers">Who will buy</a>
   </nav>
 
-  <div class="tiles" id="tiles"></div>
+  <div class="tiles" id="tiles">
+    <div class="tile"><span class="sk sk-line" style="display:block;width:62%"></span><span class="sk sk-line" style="display:block;width:38%;height:30px"></span><span class="sk sk-line" style="display:block;width:88%"></span></div>
+    <div class="tile"><span class="sk sk-line" style="display:block;width:70%"></span><span class="sk sk-line" style="display:block;width:38%;height:30px"></span><span class="sk sk-line" style="display:block;width:74%"></span></div>
+    <div class="tile"><span class="sk sk-line" style="display:block;width:48%"></span><span class="sk sk-line" style="display:block;width:38%;height:30px"></span><span class="sk sk-line" style="display:block;width:92%"></span></div>
+    <div class="tile"><span class="sk sk-line" style="display:block;width:56%"></span><span class="sk sk-line" style="display:block;width:38%;height:30px"></span><span class="sk sk-line" style="display:block;width:66%"></span></div>
+  </div>
 
   <!-- The short horizon first: what is moving, at a glance, one row an item. The
        plan under it is the longer and heavier read, and putting it first meant
@@ -225,6 +278,10 @@
       <h2>Every item, the weeks straight ahead</h2>
       <span class="hint" id="itemsHint"></span>
     </div>
+    <div class="chart-wrap">
+      <div class="sk chart-sk" data-skfor="horizonChart"></div>
+      <div class="chart" id="horizonChart" hidden></div>
+    </div>
     <div class="table-wrap"><table>
       <thead><tr>
         <th>Item</th><th>Next 8 weeks</th><th class="num" id="colWeek">Week</th>
@@ -232,7 +289,12 @@
         <th class="num">Stock</th><th class="num">Cover</th>
         <th class="num">Order</th><th></th>
       </tr></thead>
-      <tbody id="itemRows"><tr><td colspan="9" class="empty">loading</td></tr></tbody>
+      <tbody id="itemRows">
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+      </tbody>
     </table></div>
     <div class="note" id="itemsCaveat"></div>
     <!-- Kept to two lines. The long version of this said the same thing three
@@ -252,10 +314,15 @@
   <div class="panel" id="plan">
     <div class="panel-head">
       <h2>What to order, shop by shop and size by size</h2>
-      <span class="hint" id="planHint">loading</span>
+      <span class="hint" id="planHint"><span class="sk sk-line" style="width:22rem"></span></span>
     </div>
-    <div class="panel-body" id="planCalendar"></div>
-    <div id="planItems"><div class="empty">loading</div></div>
+    <div class="panel-body" id="planCalendar"><div class="sk-stack"><span class="sk sk-line" style="width:44%"></span><span class="sk sk-line" style="width:72%"></span></div></div>
+    <div class="chart-wrap">
+      <div class="chart-cap">What the month is expected to take against what is on the shelf now. The gap is the order.</div>
+      <div class="sk chart-sk" data-skfor="planChart"></div>
+      <div class="chart" id="planChart" hidden></div>
+    </div>
+    <div id="planItems"><div class="sk-stack"><span class="sk sk-line" style="width:38%"></span><span class="sk sk-line" style="width:86%"></span><span class="sk sk-line" style="width:64%"></span><span class="sk sk-line" style="width:78%"></span></div></div>
     <div class="note" id="planNote"></div>
   </div>
 
@@ -270,14 +337,23 @@
     <div class="panel-body">
       <div class="controls">
         <label class="field">Item
-          <select id="buyerSku"></select></label>
+          <select id="buyerSku" hidden></select></label>
+        <span class="sk sk-line" id="buyerPickSk" style="width:15rem;height:34px"></span>
       </div>
     </div>
     <div class="table-wrap"><table>
       <thead><tr><th>Customer</th><th>Contact</th><th>Chance of buying</th>
         <th class="num">Expected units</th></tr></thead>
-      <tbody id="buyerRows"><tr><td colspan="4" class="empty">pick an item</td></tr></tbody>
+      <tbody id="buyerRows">
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+      </tbody>
     </table></div>
+    <div class="pager" id="buyerPager" hidden></div>
     <div class="note">Names stay on this side. Procurement receives item quantities and
       never a customer.</div>
   </div>
@@ -294,11 +370,24 @@
     <div class="note">Refused runs are kept. They are the evidence for what to fix,
       and a log that only shows the wins is not a log.</div>
 
+      <div class="chart-wrap">
+      <div class="chart-cap">Every scored run, oldest first. The model is published only on the runs where <b>its line sits below the average's</b> — that is the whole gate, drawn.</div>
+        <div class="sk chart-sk" data-skfor="recordChart"></div>
+        <div class="chart" id="recordChart" hidden></div>
+      </div>
+
       <div class="table-wrap"><table class="runs">
         <thead><tr><th>When</th><th class="num">Weeks</th><th class="num">Rows</th>
           <th class="num">Model error</th><th class="num">Average's error</th>
           <th class="num">Direction</th><th>Made of</th><th>Outcome</th></tr></thead>
-        <tbody id="runRows"><tr><td colspan="8" class="empty">loading</td></tr></tbody>
+        <tbody id="runRows">
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+        </tbody>
       </table></div>
       <div class="note"><b>Model error</b> and <b>average's error</b>: units missed over
         units demanded, on weeks the model never saw. Lower is better.
@@ -309,17 +398,32 @@
         <h2>Per item, last run</h2>
         <span class="hint">the model wins some lines and loses others</span>
       </div>
+      <div class="chart-wrap">
+      <div class="chart-cap">Error per item on the last scored run. Shorter is better, and the model earns the line only where its bar is shorter than the average's.</div>
+        <div class="sk chart-sk" data-skfor="perItemChart"></div>
+        <div class="chart" id="perItemChart" hidden></div>
+      </div>
       <div class="table-wrap"><table>
         <thead><tr><th>Item</th><th class="num">Sold in test weeks</th>
           <th class="num">Model</th><th class="num">Average</th><th>Better</th></tr></thead>
-        <tbody id="perItemRows"><tr><td colspan="5" class="empty">loading</td></tr></tbody>
+        <tbody id="perItemRows">
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+        <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+        </tbody>
       </table></div>
 
       <div class="panel-head" style="border-top:1px solid var(--rule)">
         <h2>What there is to learn from</h2>
         <span class="hint">the ceiling on how good any forecast here can be</span>
       </div>
-      <div class="tiles" id="readyTiles" style="padding:1rem"></div>
+      <div class="tiles" id="readyTiles" style="padding:1rem">
+    <div class="tile"><span class="sk sk-line" style="display:block;width:62%"></span><span class="sk sk-line" style="display:block;width:38%;height:30px"></span><span class="sk sk-line" style="display:block;width:88%"></span></div>
+    <div class="tile"><span class="sk sk-line" style="display:block;width:70%"></span><span class="sk sk-line" style="display:block;width:38%;height:30px"></span><span class="sk sk-line" style="display:block;width:74%"></span></div>
+    <div class="tile"><span class="sk sk-line" style="display:block;width:48%"></span><span class="sk sk-line" style="display:block;width:38%;height:30px"></span><span class="sk sk-line" style="display:block;width:92%"></span></div>
+    <div class="tile"><span class="sk sk-line" style="display:block;width:56%"></span><span class="sk sk-line" style="display:block;width:38%;height:30px"></span><span class="sk sk-line" style="display:block;width:66%"></span></div>
+  </div>
   </div>
 
 </div>
@@ -329,11 +433,17 @@ Built from this platform's own recorded orders. Where there is not enough histor
 say something, it is left blank.
 </footer>
 
+<script src="/static/vendor/react.js"></script>
+<script src="/static/vendor/react-dom.js"></script>
+<script src="/static/vendor/react-is.js"></script>
+<script src="/static/vendor/recharts.js"></script>
 <script>
   const API = "";
   const $ = (id) => document.getElementById(id);
   const KEY_STORAGE = "sca.apiKey";
-  const state = { key: "", summary: null, runs: [], sku: null, loadedRuns: false };
+  const BUYERS_PER_PAGE = 10;
+  const state = { key: "", summary: null, runs: [], sku: null, loadedRuns: false,
+                  buyers: [], buyerPage: 0 };
 
   async function api(path, options = {}) {
     const res = await fetch(API + path, {
@@ -356,6 +466,186 @@ say something, it is left blank.
   // "nothing to be wrong about" are different findings and only one is good news.
   const pct = (v) => (v === null || v === undefined) ? "—" : (v * 100).toFixed(1) + "%";
   const num = (v, d = 1) => (v === null || v === undefined) ? "—" : Number(v).toFixed(d);
+  // The count is known by the time it is drawn, so the page can say "1 item"
+  // rather than "1 item(s)".
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
+
+  // Recharts, vendored and served from this app rather than a CDN. The
+  // hand-rolled SVG below still draws the per-item detail — it is small, it is
+  // read inside a fold, and rewriting a chart that works buys nothing.
+  const h = React.createElement;
+  const R = window.Recharts || null;
+  const HUE = { model: "#00918a", baseline: "#a8480f" };
+  const DARK = { model: "#00a79d", baseline: "#cf6f34" };
+  const hue = (k) => (matchMedia("(prefers-color-scheme: dark)").matches
+    && document.documentElement.dataset.theme !== "light" ? DARK : HUE)[k];
+
+  const AXIS = { stroke: "var(--rule)", tick: { fill: "var(--muted)", fontSize: 11 } };
+  const TIP = {
+    contentStyle: {
+      background: "var(--panel)", border: "1px solid var(--rule)", borderRadius: 4,
+      fontSize: 12, color: "var(--ink)",
+    },
+    labelStyle: { color: "var(--muted)" },
+  };
+
+  // A chart that throws takes its own panel down and nothing else. Without this
+  // one bad row in one series blanks the page it is on.
+  class Boundary extends React.Component {
+    constructor(p) { super(p); this.state = { dead: false }; }
+    static getDerivedStateFromError() { return { dead: true }; }
+    render() {
+      return this.state.dead
+        ? h("div", { className: "empty" }, "This chart could not be drawn.")
+        : this.props.children;
+    }
+  }
+
+  function chartBusy(id, busy) {
+    const host = $(id);
+    const shape = document.querySelector(`[data-skfor="${id}"]`);
+    if (host) host.hidden = busy;
+    if (shape) shape.hidden = !busy;
+  }
+
+  function mount(host, element, empty) {
+    if (!host) return;
+    chartBusy(host.id, false);
+    if (!R || !element) { host.innerHTML = `<div class="empty">${esc(empty)}</div>`; return; }
+    try {
+      host._root = host._root || ReactDOM.createRoot(host);
+      host._root.render(h(Boundary, null, element));
+    } catch (e) {
+      host.innerHTML = `<div class="empty">This chart could not be drawn.</div>`;
+    }
+  }
+
+  // Units a week across every item. One series, so no legend — the caption
+  // names it, and a second hue here would be decoration pretending to be a
+  // category.
+  function horizonChart(items) {
+    const paths = items.map((i) => i.weekly_path || []).filter((p) => p.length);
+    if (!paths.length) return null;
+    const weeks = paths[0].map((_, n) => ({
+      week: MONTHS[new Date(paths[0][n].week + "T00:00:00Z").getUTCMonth()]
+        + " " + new Date(paths[0][n].week + "T00:00:00Z").getUTCDate(),
+      units: Number(paths.reduce((t, p) => t + ((p[n] || {}).units || 0), 0).toFixed(1)),
+    }));
+    return h(R.ResponsiveContainer, { width: "100%", height: "100%" },
+      h(R.AreaChart, { data: weeks, margin: { top: 6, right: 10, left: 0, bottom: 0 } },
+        h("defs", null, h("linearGradient", { id: "fcFill", x1: 0, y1: 0, x2: 0, y2: 1 },
+          h("stop", { offset: "0%", stopColor: hue("model"), stopOpacity: 0.32 }),
+          h("stop", { offset: "100%", stopColor: hue("model"), stopOpacity: 0.02 }))),
+        h(R.CartesianGrid, { stroke: "var(--rule)", strokeDasharray: "3 3", vertical: false }),
+        h(R.XAxis, Object.assign({ dataKey: "week" }, AXIS)),
+        h(R.YAxis, Object.assign({ width: 46 }, AXIS)),
+        h(R.Tooltip, Object.assign({ formatter: (v) => [v, "units"] }, TIP)),
+        h(R.Area, {
+          isAnimationActive: false,
+          type: "monotone", dataKey: "units", stroke: hue("model"), strokeWidth: 2,
+          fill: "url(#fcFill)", dot: { r: 3, fill: hue("model"), strokeWidth: 0 },
+        })));
+  }
+
+  // The month's demand against the shelf, item by item.
+  //
+  // Horizontal, and every bar carries its own figure. The spread here is real
+  // and large — 502 abayas held against 15 expected, beside a box holding 203
+  // against 57 — so on a shared axis the smaller pairs are a few pixels each.
+  // Splitting the axis would make four charts that cannot be compared, and a
+  // log scale would flatter the overstock into looking ordinary. The number on
+  // the bar is what makes a short bar readable without lying about its length.
+  function planChart(plan) {
+    const rows = (plan.items || []).map((i) => ({
+      sku: i.sku, expected: Number(i.expected), held: i.on_hand,
+    })).sort((a, b) => b.held - a.held);
+    if (!rows.length) return null;
+    const label = { fontSize: 11, fill: "var(--muted)" };
+    return h(R.ResponsiveContainer, { width: "100%", height: "100%" },
+      h(R.BarChart, { data: rows, layout: "vertical",
+                      margin: { top: 6, right: 46, left: 0, bottom: 0 } },
+        h(R.CartesianGrid, { stroke: "var(--rule)", strokeDasharray: "3 3", horizontal: false }),
+        h(R.XAxis, Object.assign({ type: "number" }, AXIS)),
+        h(R.YAxis, Object.assign({ type: "category", dataKey: "sku", width: 118 }, AXIS)),
+        h(R.Tooltip, TIP),
+        h(R.Legend, { iconType: "circle", iconSize: 9 }),
+        h(R.Bar, { isAnimationActive: false, dataKey: "held", name: "On the shelf now",
+                   fill: hue("model"), radius: [0, 3, 3, 0], maxBarSize: 15 },
+          h(R.LabelList, { dataKey: "held", position: "right", style: label })),
+        h(R.Bar, { isAnimationActive: false, dataKey: "expected", name: "Expected this month",
+                   fill: hue("baseline"), radius: [0, 3, 3, 0], maxBarSize: 15 },
+          h(R.LabelList, { dataKey: "expected", position: "right", style: label }))));
+  }
+
+  // The gate. Two lines, and the only question anybody has is which one is
+  // lower — so both are drawn on one axis, in the pair used everywhere else.
+  function recordChart(runs) {
+    const scored = runs.filter((r) => (r.model || {}).wape !== null
+        && (r.model || {}).wape !== undefined
+        && (r.baseline || {}).wape !== null && (r.baseline || {}).wape !== undefined)
+      .slice(0, 24).reverse();
+    if (scored.length < 2) return null;
+    // Runs are often minutes apart while somebody is tuning, and an axis of
+    // sixteen ticks all reading "15 Aug" looks like a broken chart. The label
+    // carries whichever part actually separates these runs from each other.
+    const days = new Set(scored.map((r) => r.ran_at.slice(0, 10)));
+    const rows = scored.map((r) => ({
+      when: new Date(r.ran_at).toLocaleString("en-GB", days.size > 2
+        ? { day: "2-digit", month: "short" }
+        : { hour: "2-digit", minute: "2-digit" }),
+      model: Number((r.model.wape * 100).toFixed(1)),
+      baseline: Number((r.baseline.wape * 100).toFixed(1)),
+    }));
+    return h(R.ResponsiveContainer, { width: "100%", height: "100%" },
+      h(R.LineChart, { data: rows, margin: { top: 6, right: 12, left: 0, bottom: 0 } },
+        h(R.CartesianGrid, { stroke: "var(--rule)", strokeDasharray: "3 3", vertical: false }),
+        h(R.XAxis, Object.assign({ dataKey: "when" }, AXIS)),
+        h(R.YAxis, Object.assign({ width: 46, unit: "%" }, AXIS)),
+        h(R.Tooltip, Object.assign({ formatter: (v, n) => [v + "%", n] }, TIP)),
+        h(R.Legend, { iconType: "circle", iconSize: 9 }),
+        h(R.Line, { isAnimationActive: false, type: "monotone", dataKey: "baseline", name: "The eight-week average",
+                    stroke: hue("baseline"), strokeWidth: 2, dot: { r: 3 } }),
+        h(R.Line, { isAnimationActive: false, type: "monotone", dataKey: "model", name: "The model",
+                    stroke: hue("model"), strokeWidth: 2, dot: { r: 3 } })));
+  }
+
+  // Per item on the last run, same pair and same meaning. Sorted worst first:
+  // the lines the model loses are the ones worth looking at.
+  function perItemChart(perItem) {
+    const rows = Object.keys(perItem || {})
+      .map((sku) => ({
+        sku,
+        model: perItem[sku].model.wape === null ? null
+          : Number((perItem[sku].model.wape * 100).toFixed(1)),
+        baseline: perItem[sku].baseline.wape === null ? null
+          : Number((perItem[sku].baseline.wape * 100).toFixed(1)),
+      }))
+      .filter((r) => r.model !== null && r.baseline !== null)
+      .sort((a, b) => (b.model - b.baseline) - (a.model - a.baseline));
+    if (!rows.length) return null;
+    return h(R.ResponsiveContainer, { width: "100%", height: "100%" },
+      h(R.BarChart, { data: rows, margin: { top: 6, right: 12, left: 0, bottom: 0 } },
+        h(R.CartesianGrid, { stroke: "var(--rule)", strokeDasharray: "3 3", vertical: false }),
+        h(R.XAxis, Object.assign({ dataKey: "sku" }, AXIS)),
+        h(R.YAxis, Object.assign({ width: 46, unit: "%" }, AXIS)),
+        h(R.Tooltip, Object.assign({ formatter: (v, n) => [v + "%", n] }, TIP)),
+        h(R.Legend, { iconType: "circle", iconSize: 9 }),
+        h(R.Bar, { isAnimationActive: false, dataKey: "baseline", name: "The eight-week average",
+                   fill: hue("baseline"), radius: [3, 3, 0, 0], maxBarSize: 40 }),
+        h(R.Bar, { isAnimationActive: false, dataKey: "model", name: "The model",
+                   fill: hue("model"), radius: [3, 3, 0, 0], maxBarSize: 40 })));
+  }
+
+  // The same loading shape the markup ships, rebuilt for a reload. Pressing
+  // Refresh used to leave the previous answer on screen while the calls were
+  // in flight, so a stale table looked like a settled one.
+  const SK_W = ["68%", "40%", "26%", "52%"];
+  function skeletonRows(rows, cols) {
+    return Array.from({ length: rows }, (_, r) =>
+      `<tr class="sk-row">${Array.from({ length: cols }, (_, c) =>
+        `<td><span class="sk sk-line" style="display:block;width:${
+          SK_W[(c + r) % SK_W.length]}"></span></td>`).join("")}</tr>`).join("");
+  }
 
   function busy(button, fn) {
     return async (...args) => {
@@ -406,7 +696,7 @@ say something, it is left blank.
     }
     note.className = "note good";
     const m = run.model || {}, b = run.baseline || {};
-    note.innerHTML = `<b>Published.</b> On ${(run.test_weeks || []).length} week(s) it was
+    note.innerHTML = `<b>Published.</b> On ${plural((run.test_weeks || []).length, "week")} it was
       never trained on, it was wrong by ${pct(m.wape)} of demand against the eight-week
       average's ${pct(b.wape)}, running ${m.bias_pct === null || m.bias_pct === undefined
         ? "—" : (m.bias_pct >= 0 ? "high" : "low") + " by " + pct(Math.abs(m.bias_pct))}.
@@ -417,6 +707,8 @@ say something, it is left blank.
   }
 
   async function loadSummary() {
+    $("itemRows").innerHTML = skeletonRows(4, 9);
+    chartBusy("horizonChart", true);
     let data;
     try { data = await api("/forecast/summary"); }
     catch (err) {
@@ -475,7 +767,7 @@ say something, it is left blank.
     return {
       weak,
       brief: lean,
-      note: "Judged on " + n + " test week(s): " + (wape * 100).toFixed(0) + "% error"
+      note: "Judged on " + plural(n, "test week") + ": " + (wape * 100).toFixed(0) + "% error"
         + (Math.abs(bias) >= LEAN_BIAS
           ? ", leaning " + (bias < 0 ? "low" : "high") + " by "
             + Math.abs(bias * 100).toFixed(0) + "%." : ".")
@@ -485,8 +777,6 @@ say something, it is left blank.
 
   function drawItems(data) {
     const items = data.items || [];
-    const week = items.reduce((n, i) => n + i.next_week, 0);
-    const month = items.reduce((n, i) => n + i.next_month, 0);
     const short = items.filter((i) => i.suggested_order > 0);
     const span = horizon(items);
     if (span.week) {
@@ -495,18 +785,20 @@ say something, it is left blank.
         + escapeHtml(span.month) + '</span>';
     }
 
+    // Four tiles, each answering a question somebody arrives with. The two that
+    // used to sit here — units next week and units over four weeks — are the
+    // area chart directly below, week by week, so they were the same answer
+    // written twice; and "best seller" was the first row of the table under it.
+    // What is missing from both is what to do and whether to believe it.
+    const units = items.reduce((n, i) => n + i.suggested_order, 0);
+    const soonest = items
+      .filter((i) => i.weeks_cover !== null && i.weeks_cover !== undefined)
+      .sort((a, b) => a.weeks_cover - b.weeks_cover)[0];
+    const m = ((data.run || {}).model || {}), b = ((data.run || {}).baseline || {});
+    const edge = (m.wape !== null && m.wape !== undefined
+      && b.wape !== null && b.wape !== undefined) ? (b.wape - m.wape) * 100 : null;
+
     $("tiles").innerHTML = `
-      <div class="tile">
-        <span class="label">Units, week of ${escapeHtml(span.week || "—")}</span>
-        <span class="big">${num(week, 0)}</span>
-        <span class="says">Across ${items.length} item(s), summed over every customer.</span>
-      </div>
-      <div class="tile">
-        <span class="label">Units, ${escapeHtml(span.month || "next 4 weeks")}</span>
-        <span class="big">${num(month, 0)}</span>
-        <span class="says">Four weeks rolling from today, not a calendar month —
-          buy against the order plan below.</span>
-      </div>
       <div class="tile${short.length ? " bad" : ""}">
         <span class="label">Items short of cover</span>
         <span class="big">${short.length}</span>
@@ -515,17 +807,41 @@ say something, it is left blank.
           : "Everything has enough cover at the forecast rate."}</span>
       </div>
       <div class="tile">
-        <span class="label">Best seller</span>
+        <span class="label">Units to order</span>
+        <span class="big">${num(units, 0)}</span>
+        <span class="says">${units
+          ? `What the desk would draft today across ${plural(short.length, "line")}.
+             Nothing here places it.`
+          : "Nothing needs ordering at the forecast rate."}</span>
+      </div>
+      <div class="tile${soonest && soonest.weeks_cover <= 4 ? " bad" : ""}">
+        <span class="label">Runs out first</span>
         <span class="big" style="font-size:1.1rem;padding-top:0.35rem">${
-          items.length ? escapeHtml(items[0].sku) : "—"}</span>
-        <span class="says">${items.length
-          ? `${num(items[0].next_month, 0)} units over those four weeks, to about ${
-              num(items[0].buyers_next_month, 0)} customer(s).`
-          : "Nothing forecast yet."}</span>
+          soonest ? escapeHtml(soonest.sku) : "—"}</span>
+        <span class="says">${soonest
+          ? `${num(soonest.weeks_cover)} weeks of cover left at the forecast rate,
+             against a target of ${num(soonest.target_cover_weeks, 0)}.`
+          : "Nothing has a cover figure yet."}</span>
+      </div>
+      <div class="tile${edge !== null && edge <= 0 ? " warn" : ""}">
+        <span class="label">Against the average</span>
+        <span class="big">${edge === null ? "—"
+          // In words rather than as a signed number: less error is a smaller
+          // figure, so "−12.2" is a win that reads at a glance as a loss.
+          : Math.abs(edge).toFixed(1)
+            + `<small> points ${edge > 0 ? "better" : "worse"}</small>`}</span>
+        <span class="says">${edge === null
+          ? "No scored run to compare yet."
+          : `The model is wrong by ${pct(m.wape)} of demand where the eight-week
+             average is wrong by ${pct(b.wape)}. ${edge > 0
+               ? "That gap is the only reason it is published."
+               : "It is not beating the average."}`}</span>
       </div>`;
 
+    mount($("horizonChart"), horizonChart(items), "Nothing forecast yet.");
+
     $("itemsHint").textContent = items.length
-      ? `${items.length} item(s) · ordered by what sells most over ${
+      ? `${plural(items.length, "item")} · ordered by what sells most over ${
           span.month || "the horizon"}` : "";
 
     $("itemRows").innerHTML = items.length ? items.map((i) => {
@@ -577,16 +893,19 @@ say something, it is left blank.
 
   function fillSkuPicker(data) {
     const items = data.items || [];
-    if (!items.length) return;
+    if (!items.length) { $("buyerPickSk").hidden = true; $("buyerSku").hidden = false; return; }
     const wanted = state.sku && items.some((i) => i.sku === state.sku)
       ? state.sku : items[0].sku;
     state.sku = wanted;
+    $("buyerPickSk").hidden = true;
+    $("buyerSku").hidden = false;
     $("buyerSku").innerHTML = items.map((i) =>
       `<option value="${escapeHtml(i.sku)}"${i.sku === wanted ? " selected" : ""}>${
         escapeHtml(i.sku)}${i.name ? " — " + escapeHtml(i.name) : ""}</option>`).join("");
   }
 
   async function loadBuyers() {
+    $("buyerRows").innerHTML = skeletonRows(6, 4);
     if (!state.sku) {
       $("buyerRows").innerHTML = `<tr><td colspan="4" class="empty">no items yet</td></tr>`;
       return;
@@ -598,10 +917,23 @@ say something, it is left blank.
         `<tr><td colspan="4" class="empty">${escapeHtml(err.message)}</td></tr>`;
       return;
     }
-    const rows = data.buyers || [];
-    $("buyerRows").innerHTML = rows.length ? rows.map((b) => `
+    // Held whole and paged here rather than re-fetched: the list is already
+    // ranked and comes back in one response, so a page is a slice of what is in
+    // hand and turning one costs nothing.
+    state.buyers = data.buyers || [];
+    state.buyerPage = 0;
+    drawBuyers();
+  }
+
+  function drawBuyers() {
+    const all = state.buyers, pages = Math.ceil(all.length / BUYERS_PER_PAGE);
+    state.buyerPage = Math.min(Math.max(0, state.buyerPage), Math.max(0, pages - 1));
+    const from = state.buyerPage * BUYERS_PER_PAGE;
+    const rows = all.slice(from, from + BUYERS_PER_PAGE);
+
+    $("buyerRows").innerHTML = rows.length ? rows.map((b, n) => `
       <tr>
-        <td>${escapeHtml(b.name || "unnamed customer")}
+        <td><span class="rank">${from + n + 1}</span>${escapeHtml(b.name || "unnamed customer")}
           <span class="sub">${escapeHtml(b.person_id.slice(0, 8))}</span></td>
         <td>${escapeHtml(b.phone || b.email || "—")}</td>
         <td><span class="prob"><span class="track"><span class="fill"
@@ -610,9 +942,28 @@ say something, it is left blank.
         <td class="num">${num(b.expected_units, 2)}</td>
       </tr>`).join("")
       : `<tr><td colspan="4" class="empty">Nobody is predicted to buy this in the horizon</td></tr>`;
+
+    const pager = $("buyerPager");
+    pager.hidden = all.length <= BUYERS_PER_PAGE;
+    if (pager.hidden) return;
+    // The range and the total, not just a page number. "1–10 of 41" answers
+    // "how many are there" without turning a single page.
+    pager.innerHTML = `
+      <span>${from + 1}–${Math.min(from + BUYERS_PER_PAGE, all.length)} of ${
+        plural(all.length, "customer")}</span>
+      <button class="ghost small" id="buyerPrev"${
+        state.buyerPage === 0 ? " disabled" : ""}>Previous</button>
+      <button class="ghost small" id="buyerNext"${
+        state.buyerPage >= pages - 1 ? " disabled" : ""}>Next</button>`;
+    $("buyerPrev").addEventListener("click", () => { state.buyerPage -= 1; drawBuyers(); });
+    $("buyerNext").addEventListener("click", () => { state.buyerPage += 1; drawBuyers(); });
   }
 
   async function loadRuns() {
+    chartBusy("recordChart", true);
+    chartBusy("perItemChart", true);
+    $("runRows").innerHTML = skeletonRows(6, 8);
+    $("perItemRows").innerHTML = skeletonRows(4, 5);
     let rows, ready;
     try { [rows, ready] = await Promise.all([api("/forecast/runs"), api("/forecast/readiness")]); }
     catch (err) {
@@ -628,7 +979,8 @@ say something, it is left blank.
         : r.passed ? `<span style="color:var(--medium)">passed, not published</span>`
         : `<span style="color:var(--high)">refused</span>`;
       return `<tr>
-        <td>${escapeHtml(new Date(r.ran_at).toLocaleString())}
+        <td>${escapeHtml(new Date(r.ran_at).toLocaleString("en-GB",
+          { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }))}
           ${r.refusal ? `<span class="sub">${escapeHtml(r.refusal)}</span>` : ""}</td>
         <td class="num">${r.weeks_history}</td>
         <td class="num">${r.train_rows}</td>
@@ -659,6 +1011,10 @@ say something, it is left blank.
           : `<span style="color:var(--muted)">nothing sold</span>`}</td>
       </tr>`;
     }).join("") : `<tr><td colspan="5" class="empty">No scored run yet</td></tr>`;
+
+    mount($("recordChart"), recordChart(rows),
+      "Two scored runs are needed before there is a line to draw.");
+    mount($("perItemChart"), perItemChart(perItem), "No scored run yet.");
 
     $("readyTiles").innerHTML = `
       <div class="tile${ready.weeks < 52 ? " warn" : ""}">
@@ -848,14 +1204,14 @@ say something, it is left blank.
 
     const regimes = plan.calendar.regimes.map((r) =>
       '<div style="display:flex;justify-content:space-between;gap:1rem;font-size:0.86rem;padding:0.15rem 0">'
-      + '<span>' + esc(r.label) + '</span><span style="color:var(--muted)">' + r.days
-      + ' day(s)</span></div>').join("");
+      + '<span>' + esc(r.label) + '</span><span style="color:var(--muted)">'
+      + plural(r.days, "day") + '</span></div>').join("");
     const notes = plan.calendar.notes.map((n) =>
       '<div style="font-size:0.86rem;padding:0.15rem 0">· ' + esc(n) + '</div>').join("")
       || '<div class="hint">Nothing in the Saudi calendar moves this month.</div>';
     $("planCalendar").innerHTML =
       '<div style="display:flex;gap:1.2rem;flex-wrap:wrap;align-items:flex-start">'
-      + '<div style="min-width:14rem"><div class="eyebrow">What ' + esc(plan.month)
+      + '<div style="min-width:14rem"><div class="eyebrow">What ' + esc(monthLong(plan.month))
       + ' is made of</div>' + regimes + '</div>'
       + '<div style="flex:1;min-width:16rem">' + notes + '</div></div>';
 
@@ -866,11 +1222,15 @@ say something, it is left blank.
       + Math.abs(b.bias * 100).toFixed(0) + "% " + (b.bias < 0 ? "light" : "heavy")
       + "</b>, which is where the cover multiplier earns its keep. Nothing here places an order.";
 
+    mount($("planChart"), planChart(plan), "Nothing to plan yet.");
+
     $("planItems").innerHTML = plan.items.map((it) => planItemBlock(it, plan)).join("")
       || '<div class="empty">Nothing to plan yet.</div>';
   }
 
   async function loadPlan() {
+    chartBusy("planChart", true);
+    $("planItems").innerHTML = `<div class="sk-stack"><span class="sk sk-line" style="width:38%"></span><span class="sk sk-line" style="width:86%"></span><span class="sk sk-line" style="width:64%"></span></div>`;
     try {
       drawPlan(await api("/forecast/plan"));
     } catch (e) {
