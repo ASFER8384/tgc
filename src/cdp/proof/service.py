@@ -146,6 +146,21 @@ class Slice:
 
 
 @dataclass(frozen=True)
+class Band:
+    """One rung of the repeat-purchase ladder.
+
+    Both numbers matter and neither means much alone: the people who have bought
+    once are always the largest group and usually the smallest share of the
+    money, and it is the gap between those two facts that says whether this is a
+    business built on regulars or on a stream of strangers.
+    """
+
+    label: str
+    people: int
+    amount: Decimal
+
+
+@dataclass(frozen=True)
 class Proof:
     stitching: Stitching
     cross_brand: CrossBrand
@@ -154,6 +169,7 @@ class Proof:
     trend: list[Point]
     brands: list[Slice]
     channels: list[Slice]
+    loyalty: list[Band]
 
 
 def _live_person() -> Select:
@@ -182,6 +198,7 @@ class ProofService:
             trend=await self.trend(),
             brands=await self.brands(),
             channels=await self.channels(),
+            loyalty=await self.loyalty(),
         )
 
     async def trend(self, weeks: int = 12) -> list[Point]:
@@ -218,6 +235,57 @@ class ProofService:
             label = "this week" if index == 0 else f"-{index}w"
             out.append(Point(week=label, amount=total, orders=count))
         return out
+
+    # Where the ladder is cut. Once and twice stand alone because the first
+    # repeat is the step that matters most and burying it in a 1-2 band hides
+    # it; above that the rungs widen, since the difference between a sixth order
+    # and a tenth is not a difference anybody acts on.
+    LOYALTY_BANDS = (
+        ("Bought once", 1, 1),
+        ("Twice", 2, 2),
+        ("3 to 5 times", 3, 5),
+        ("6 or more", 6, None),
+    )
+
+    async def loyalty(self) -> list[Band]:
+        """How many people have bought how often, and what each group is worth.
+
+        Summed across brands rather than per brand, because a woman who bought
+        once from each of the three is a returning customer of this business
+        however she looks to any one of its shops — and telling the group she is
+        three first-timers is the mistake the whole platform exists to stop.
+        """
+        rows = (
+            await self.session.execute(
+                select(
+                    PersonBrandStat.person_id,
+                    func.coalesce(func.sum(PersonBrandStat.orders), 0),
+                    func.coalesce(func.sum(PersonBrandStat.spend), 0),
+                )
+                .join(Person, Person.id == PersonBrandStat.person_id)
+                # Same exclusions as every other count here: a merged-away person
+                # would be counted beside the person they were merged into, and
+                # the shop counter is not a customer.
+                .where(Person.merged_into_id.is_(None), Person.synthetic.is_(False))
+                .group_by(PersonBrandStat.person_id)
+            )
+        ).all()
+
+        tally = {label: [0, Decimal(0)] for label, _, _ in self.LOYALTY_BANDS}
+        for _, orders, spend in rows:
+            orders = int(orders or 0)
+            if orders < 1:
+                continue
+            for label, low, high in self.LOYALTY_BANDS:
+                if orders >= low and (high is None or orders <= high):
+                    tally[label][0] += 1
+                    tally[label][1] += Decimal(spend or 0)
+                    break
+
+        return [
+            Band(label=label, people=tally[label][0], amount=tally[label][1])
+            for label, _, _ in self.LOYALTY_BANDS
+        ]
 
     async def brands(self) -> list[Slice]:
         rows = (

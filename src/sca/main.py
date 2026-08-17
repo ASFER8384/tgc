@@ -115,7 +115,20 @@ _NAV_STYLE = """<style>
 
   .tgc-bar { display: none; }
   .tgc-scrim { display: none; }
-  body { padding-left: var(--tgc-rail); }
+  /* A column at least as tall as the window, with the page's own content taking
+     whatever is left over. Without it a short page — a search that matched two
+     customers, an empty forecast — leaves the footer floating halfway up with
+     ground beneath it, which reads as content that failed to load.
+
+     Not a fixed footer: it stays under the content and goes off the bottom when
+     there is more than a screenful, rather than sitting over it. border-box so
+     the mobile bar's padding-top comes out of the 100vh instead of adding to it
+     and giving every short page a scrollbar. */
+  body {
+    padding-left: var(--tgc-rail); box-sizing: border-box;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  .app { flex: 1 0 auto; }
 
   @media (max-width: 768px) {
     .tgc-rail { transform: translateX(-100%); transition: transform 0.3s ease; }

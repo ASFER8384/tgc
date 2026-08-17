@@ -80,6 +80,10 @@
                  letter-spacing: -0.01em; }
   .brandmark span { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
   .conn { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  /* Smaller than a form's submit. This one sits in the title band beside a
+     30px rail mark, and at the default size it was the heaviest thing on a
+     screen whose subject is the table underneath it. */
+  .conn button { font-size: 0.8rem; padding: 0.3rem 0.7rem; font-weight: 600; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
   .dot.on { background: var(--ok); }
   .dot.off { background: var(--alert); }
@@ -110,11 +114,6 @@
   .panel-head { padding: 0.85rem 1rem; border-bottom: 1px solid var(--rule); display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
   .panel-head h2 { font-size: 0.95rem; font-weight: 650; margin: 0; }
   .panel-head .hint { font-size: 0.78rem; color: var(--muted); }
-  /* Under the title rather than opposite it. A word naming the unit sits on the
-     title's own line; a sentence about what the chart shows does not — opposite
-     the title it competes with it, and on a narrow card it wraps into a second
-     line that looks like a mistake. */
-  .panel-head.stacked { flex-direction: column; align-items: flex-start; gap: 0.15rem; }
   .panel-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.85rem; }
 
   .field { display: flex; flex-direction: column; gap: 0.3rem; }
@@ -633,6 +632,28 @@
   @media (max-width: 1080px) { .charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 720px) { .charts { grid-template-columns: minmax(0, 1fr); } }
 
+  /* A shape while the figures are on their way, rather than a blank panel or
+     the word "loading". The panel is already the size it will be, so nothing
+     jumps when the chart arrives — and a reader can tell a chart that is coming
+     from one that has nothing to show, which a blank box cannot say. */
+  .sk { position: relative; overflow: hidden; border-radius: 4px;
+        background: var(--sunk); }
+  .sk::after {
+    content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+    animation: sk 1.4s ease-in-out infinite;
+  }
+  @keyframes sk { to { transform: translateX(100%); } }
+  /* The bars a bar chart is about to draw, at descending widths: a stack of
+     equal blocks reads as a table rather than as a chart on its way. */
+  .sk-rows { display: flex; flex-direction: column; justify-content: center;
+             gap: 0.9rem; height: 100%; padding: 0.4rem 0; }
+  .sk-rows .sk { height: 16px; }
+  .sk-fill { height: 100%; }
+  .sk-row td { padding-top: 0.85rem; padding-bottom: 0.85rem; }
+  .sk-row:hover { background: none; cursor: default; }
+  @media (prefers-reduced-motion: reduce) { .sk::after { animation: none; } }
+
   /* Recharts fills whatever box it is given, so the height lives here and the
      chart code carries none. A ResponsiveContainer inside a box with no height
      measures zero and draws nothing, which looks exactly like no data. */
@@ -650,6 +671,16 @@
   .cust-tools input { width: 210px; font-size: 0.82rem; padding: 0.3rem 0.5rem; }
   .more { padding: 0.7rem 1rem; border-top: 1px solid var(--rule); text-align: center; }
   .more button { background: transparent; color: var(--accent); border: none; font-size: 0.82rem; padding: 0; }
+  .pager { padding: 0.6rem 1rem; border-top: 1px solid var(--rule);
+           display: flex; align-items: center; justify-content: flex-end; gap: 0.9rem; }
+  .pager .range { font-size: 0.8rem; color: var(--muted);
+                  font-variant-numeric: tabular-nums; margin-right: auto; }
+  .pager button { background: transparent; color: var(--accent); border: 1px solid var(--rule);
+                  border-radius: 3px; font-size: 0.8rem; padding: 0.25rem 0.7rem; }
+  /* Greyed rather than removed. A control that disappears at the first and last
+     page moves the other one under the cursor, so the next click lands on
+     something the reader did not aim at. */
+  .pager button:disabled { color: var(--muted); cursor: default; opacity: 0.55; }
 
   .empty { padding: 1.4rem 1rem; color: var(--muted); font-size: 0.87rem; text-align: center; }
   /* Outside the page column, like the header. Sized by the nav sheet against
@@ -692,7 +723,7 @@
         <span class="hint" id="trendHint"></span>
       </div>
       <div class="panel-body">
-        <div class="plot" id="trendPlot"></div>
+        <div class="plot" id="trendPlot"><div class="sk sk-fill"></div></div>
       </div>
     </div>
 
@@ -700,14 +731,14 @@
       <div class="panel-head">
         <h2>By brand</h2>
       </div>
-      <div class="panel-body"><div id="brandBars" class="bars"></div></div>
+      <div class="panel-body"><div id="brandBars" class="bars"><div class="sk-rows"><span class="sk" style="width:82%"></span><span class="sk" style="width:56%"></span><span class="sk" style="width:31%"></span></div></div></div>
     </div>
 
     <div class="panel">
       <div class="panel-head">
         <h2>Where she reaches you</h2>
       </div>
-      <div class="panel-body"><div id="channelBars" class="bars"></div></div>
+      <div class="panel-body"><div id="channelBars" class="bars"><div class="sk-rows"><span class="sk" style="width:82%"></span><span class="sk" style="width:56%"></span><span class="sk" style="width:31%"></span></div></div></div>
     </div>
 
     <!-- The one thing three separate Shopify stores cannot say. Each of them
@@ -716,11 +747,24 @@
          Beside "By brand" because that chart raises the question this one
          answers: those three totals are not three sets of customers. -->
     <div class="panel">
-      <div class="panel-head stacked">
+      <div class="panel-head">
         <h2>Brands per customer</h2>
-        <span class="hint" id="overlapHint"></span>
       </div>
-      <div class="panel-body"><div id="overlapBars" class="bars"></div></div>
+      <div class="panel-body"><div id="overlapBars" class="bars"><div class="sk-rows"><span class="sk" style="width:82%"></span><span class="sk" style="width:56%"></span><span class="sk" style="width:31%"></span></div></div></div>
+    </div>
+
+    <!-- The chart that changes what the desk does. Everything else here says
+         how much was sold; this says who it was sold to, and the two bars
+         pulling apart is the whole point — the smallest group of people is the
+         largest share of the money. A business that reads the other way round
+         is one buying strangers, and that is a different plan entirely. -->
+    <div class="panel wide">
+      <div class="panel-head">
+        <h2>Who the money comes from</h2>
+      </div>
+      <div class="panel-body">
+        <div class="plot" id="loyaltyPlot"><div class="sk sk-fill"></div></div>
+      </div>
     </div>
   </div>
 
@@ -1054,7 +1098,7 @@
           <h2>Customers</h2>
           <div class="cust-tools">
             <input id="custSearch" placeholder="Search name, phone or email" autocomplete="off" />
-            <span class="hint" id="custHint">one row per human</span>
+            <span class="hint" id="custHint"></span>
           </div>
         </div>
         <div class="table-wrap">
@@ -1070,8 +1114,14 @@
             </tbody>
           </table>
         </div>
-        <div class="more" id="custMore" hidden>
-          <button id="custMoreBtn" class="ghost">Show all</button>
+        <!-- Pages rather than a Show-all that fetched two hundred rows and
+             hid most of them. Which page you are on and how many there are is
+             said in words, because "next" alone leaves a reader with no idea
+             whether they are near the end. -->
+        <div class="pager" id="custPager" hidden>
+          <button id="custPrev" class="ghost">Previous</button>
+          <span class="range" id="custRange"></span>
+          <button id="custNext" class="ghost">Next</button>
         </div>
       </div>
 
@@ -1125,7 +1175,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
   const API = "";
   const $ = (id) => document.getElementById(id);
   const state = {
-    key: "", source: "pos", selected: null, showAllCustomers: false,
+    key: "", source: "pos", selected: null, custPage: 0,
     view: new URLSearchParams(location.search).get("view") || "dashboard",
     // The broadcast the desk actually sends most often, ready to go: this
     // brand's whole list, on email, with the recommendation copy loaded. Every
@@ -1216,8 +1266,20 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
   // believe these numbers is not the person who built them, and "2.4
   // identifiers per person" tells them nothing about their own shop.
   async function loadProof() {
+    const hosts = ["trendPlot", "loyaltyPlot", "brandBars", "channelBars", "overlapBars"];
     let p;
-    try { p = await api("/proof"); } catch { return; }
+    try {
+      p = await api("/proof");
+    } catch (err) {
+      // The skeletons have to come down. Left shimmering they promise figures
+      // that are not coming, and a panel that waits forever is the one failure
+      // a reader cannot tell from a slow network.
+      hosts.forEach((id) => {
+        $(id).innerHTML =
+          `<div class="empty">Could not read this: ${escapeHtml(err.message)}</div>`;
+      });
+      return;
+    }
 
     const currency = p.attribution.currency;
     // Each chart drawn on its own. One that fails must not take the others with
@@ -1226,6 +1288,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
     // before it died is indistinguishable from one with no data.
     const charts = [
       ["trendPlot", () => drawTrend(p.trend, currency)],
+      ["loyaltyPlot", () => drawLoyalty(p.loyalty, currency)],
       ["brandBars", () => drawBrands(p.brands, currency)],
       // Channels are ranked by contact, not money: messaging and the mall stand
       // produce almost no orders and a great deal of relationship, which is the
@@ -1409,6 +1472,63 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
       `${withCurrency(total, currency)} over ${points.length} week${points.length === 1 ? "" : "s"}`;
   }
 
+  // Two measures of the same four groups, both as a share of their own whole,
+  // which is what lets them share one axis. Counting people in one axis and
+  // riyals in another would be a second scale drawn to whatever makes the
+  // picture look best — the chart would say whatever its author wanted.
+  //
+  // The colours were checked rather than chosen by eye: blue against amber
+  // separates by ΔE 21 for the commonest colour blindness, where the brown and
+  // green that first suggested themselves would have collapsed into one.
+  const PEOPLE_HUE = "#356ea9";
+  const MONEY_HUE = "#b26a15";
+
+  function drawLoyalty(bands, currency) {
+    const host = $("loyaltyPlot");
+    const people = (bands || []).reduce((n, b) => n + b.people, 0);
+    const money = (bands || []).reduce((n, b) => n + Number(b.amount), 0);
+    if (!people || !money) { mount(host, null, "No purchases recorded yet."); return; }
+
+    const data = (bands || []).map((b) => ({
+      label: b.label,
+      peopleShare: Math.round((b.people / people) * 1000) / 10,
+      moneyShare: Math.round((Number(b.amount) / money) * 1000) / 10,
+      people: b.people,
+      amount: Number(b.amount),
+    }));
+
+    mount(host, h(R.ResponsiveContainer, { width: "100%", height: "100%" },
+      h(R.BarChart, { data, margin: { top: 8, right: 8, left: 0, bottom: 0 } },
+        h(R.CartesianGrid, { stroke: RULE, strokeDasharray: "2 4", vertical: false }),
+        h(R.XAxis, { dataKey: "label", tickLine: false, axisLine: { stroke: RULE },
+                     tick: { fill: INK, fontSize: 11 } }),
+        h(R.YAxis, { tickLine: false, axisLine: false, width: 44,
+                     tick: { fill: INK, fontSize: 11 },
+                     tickFormatter: (v) => `${v}%` }),
+        h(R.Tooltip, {
+          cursor: { fill: "rgba(0,0,0,0.04)" },
+          contentStyle: {
+            background: themed("--panel", "#fff"), border: `1px solid ${RULE}`,
+            borderRadius: "6px", fontSize: "0.78rem",
+            boxShadow: "0 6px 20px rgba(0,0,0,0.08)",
+          },
+          labelStyle: { color: INK, fontWeight: 600, marginBottom: "0.2rem" },
+          // The share is what the bar shows; the count behind it is what makes
+          // the share mean anything, so both go in the readout.
+          formatter: (value, name, item) => name === "Customers"
+            ? [`${value}% · ${item.payload.people} people`, name]
+            : [`${value}% · ${withCurrency(item.payload.amount, currency)}`, name],
+        }),
+        // Two series, so a legend is not optional — colour alone would leave a
+        // reader who cannot separate the hues with nothing to go on.
+        h(R.Legend, { iconType: "square", wrapperStyle: { fontSize: "0.78rem", color: INK } }),
+        h(R.Bar, { dataKey: "peopleShare", name: "Customers", fill: PEOPLE_HUE,
+                   radius: [3, 3, 0, 0], maxBarSize: 46 }),
+        h(R.Bar, { dataKey: "moneyShare", name: "Revenue", fill: MONEY_HUE,
+                   radius: [3, 3, 0, 0], maxBarSize: 46 }))),
+      "No purchases recorded yet.");
+  }
+
   function drawBrands(rows, currency) {
     const host = $("brandBars");
     if (!rows || !rows.length) { mount(host, null, "Nothing yet."); return; }
@@ -1472,7 +1592,6 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
   function drawOverlap(cb) {
     const host = $("overlapBars");
     if (!cb || !cb.buyers) {
-      $("overlapHint").textContent = "";
       mount(host, null, "No purchases recorded yet.");
       return;
     }
@@ -1502,11 +1621,6 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
           data.map((d) => h(R.Cell, { key: d.label, fill: d.fill }))))),
       "No purchases recorded yet.");
 
-    // The number the chart exists to make: counted per store rather than per
-    // person, these buyers would be billed, mailed and reported as more people
-    // than there are.
-    $("overlapHint").textContent =
-      `${cb.buyers} people · ${cb.counted_separately} if counted per store`;
   }
 
   // Distinct from the table's `money`, which formats a bare number: this one
@@ -1929,28 +2043,61 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
   // opens on the customers worth the most and gets out of the way; anyone else
   // is reached by searching for her, which is how she is actually looked up —
   // somebody is on the phone and gives a name or a number.
-  const CUSTOMERS_SHOWN = 6;
+  // A page, not a preview. Twenty-five fills the table without making the
+  // window scroll to reach the pager underneath it.
+  const CUSTOMERS_PER_PAGE = 25;
+
+  // Rows the shape of the rows that are coming, rather than one spinner in the
+  // middle of an empty table. The table keeps its height, so the page does not
+  // jump when the customers arrive, and the columns are already where they will
+  // be — which is what makes a wait feel like a wait rather than a fault.
+  //
+  // Widths vary down the column: a grid of identical blocks reads as a rendered
+  // table of blank data rather than as something on its way.
+  const SK_WIDTHS = ["70%", "45%", "30%", "55%", "40%"];
+  function skeletonRows(rows, cols) {
+    const cell = (c, r) =>
+      `<td><span class="sk" style="display:block;height:12px;width:${
+        SK_WIDTHS[(c + r) % SK_WIDTHS.length]}"></span></td>`;
+    return Array.from({ length: rows }, (_, r) =>
+      `<tr class="sk-row">${
+        Array.from({ length: cols }, (_, c) => cell(c, r)).join("")}</tr>`).join("");
+  }
 
   async function loadCustomers() {
     const tbody = $("customers");
-    tbody.innerHTML = "<tr><td colspan='5' class='empty'><span class='spin'></span> loading…</td></tr>";
+    tbody.innerHTML = skeletonRows(6, 5);
     try {
       const term = $("custSearch").value.trim();
-      const all = await api("/persons?limit=200" + (term ? "&q=" + encodeURIComponent(term) : ""));
-      const rows = state.showAllCustomers || term ? all : all.slice(0, CUSTOMERS_SHOWN);
+      // Cut in the database, not here. The old version fetched two hundred and
+      // showed six, which meant the list simply ended at two hundred however
+      // many customers there were.
+      const offset = state.custPage * CUSTOMERS_PER_PAGE;
+      const page = await api(
+        `/persons?limit=${CUSTOMERS_PER_PAGE}&offset=${offset}`
+        + (term ? "&q=" + encodeURIComponent(term) : ""));
+      const rows = page.people;
       $("custHint").textContent = term
-        ? `${all.length} match${all.length === 1 ? "" : "es"}`
-        : `${all.length} people · one row per human`;
-      if (!all.length) {
+        ? `${page.total} match${page.total === 1 ? "" : "es"}`
+        : `${page.total} people`;
+      if (!page.total) {
         tbody.innerHTML = `<tr><td colspan='5' class='empty'>${term ? "Nobody by that name or number." : "No customers yet."}</td></tr>`;
-        $("custMore").hidden = true;
+        $("custPager").hidden = true;
         return;
       }
-      // Hidden while searching: the count would be measuring the wrong set.
-      $("custMore").hidden = !!term || all.length <= CUSTOMERS_SHOWN;
-      $("custMoreBtn").textContent = state.showAllCustomers
-        ? "Show top " + CUSTOMERS_SHOWN
-        : `Show all ${all.length}`;
+      // A page past the end, which happens when a search narrows the list under
+      // the page somebody is standing on. Step back rather than show an empty
+      // table with a pager claiming there are more.
+      if (!rows.length && state.custPage > 0) {
+        state.custPage = 0;
+        return loadCustomers();
+      }
+      const last = Math.max(0, Math.ceil(page.total / CUSTOMERS_PER_PAGE) - 1);
+      $("custPager").hidden = page.total <= CUSTOMERS_PER_PAGE;
+      $("custRange").textContent =
+        `${offset + 1}–${offset + rows.length} of ${page.total}`;
+      $("custPrev").disabled = state.custPage <= 0;
+      $("custNext").disabled = state.custPage >= last;
       tbody.innerHTML = "";
       rows.forEach((r) => {
         const tr = document.createElement("tr");
@@ -3007,10 +3154,15 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
     if (e.key === "Escape" && !$("profilePanel").hidden) closeProfile();
   });
 
-  $("custMoreBtn").addEventListener("click", () => {
-    state.showAllCustomers = !state.showAllCustomers;
+  const turnPage = (by) => {
+    state.custPage = Math.max(0, state.custPage + by);
     loadCustomers();
-  });
+    // Back to the top of the table. A new page that starts wherever the last
+    // one was scrolled to reads as the same page with different rows.
+    $("customers").closest(".panel").scrollIntoView({ block: "start" });
+  };
+  $("custPrev").addEventListener("click", () => turnPage(-1));
+  $("custNext").addEventListener("click", () => turnPage(1));
 
   // Debounced: the search runs against the identifier table, and firing it on
   // every keystroke would ask the database a question nobody has finished
@@ -3018,6 +3170,9 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
   let searchTimer;
   $("custSearch").addEventListener("input", () => {
     clearTimeout(searchTimer);
+    // Back to the first page. A search run from page four answers with page four
+    // of the matches, which for most searches is nothing at all.
+    state.custPage = 0;
     searchTimer = setTimeout(loadCustomers, 220);
   });
 

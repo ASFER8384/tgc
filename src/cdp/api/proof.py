@@ -55,6 +55,15 @@ class SliceOut(BaseModel):
     count: int
 
 
+class BandOut(BaseModel):
+    label: str
+    people: int
+    # A string for the same reason the attribution totals are: this figure is
+    # meant to be checkable against the store's own reports, and a float would
+    # round a riyal total in a way nobody can reproduce.
+    amount: str
+
+
 class ProofOut(BaseModel):
     stitching: StitchingOut
     cross_brand: CrossBrandOut
@@ -63,6 +72,7 @@ class ProofOut(BaseModel):
     trend: list[PointOut]
     brands: list[SliceOut]
     channels: list[SliceOut]
+    loyalty: list[BandOut]
 
 
 @router.get("/proof", response_model=ProofOut)
@@ -112,5 +122,9 @@ async def proof(session: SessionDep, actor: ActorDep) -> ProofOut:
         ],
         channels=[
             SliceOut(label=s.label, amount=str(s.amount), count=s.count) for s in result.channels
+        ],
+        loyalty=[
+            BandOut(label=b.label, people=b.people, amount=str(b.amount))
+            for b in result.loyalty
         ],
     )

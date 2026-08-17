@@ -67,10 +67,26 @@ class PersonSummary(BaseModel):
     last_order_at: datetime | None
 
 
-@router.get("", response_model=list[PersonSummary])
+class PersonPage(BaseModel):
+    """A page of customers, and how many there are to page through.
+
+    The total is on the response rather than fetched separately because the two
+    have to agree: a count taken in its own request can be answered after a sale
+    has landed, and the last page then holds people the count says are not
+    there.
+    """
+
+    total: int
+    offset: int
+    limit: int
+    people: list[PersonSummary]
+
+
+@router.get("", response_model=PersonPage)
 async def list_persons(
-    session: SessionDep, actor: ActorDep, limit: int = 100, q: str | None = None
-) -> list[PersonSummary]:
+    session: SessionDep, actor: ActorDep,
+    limit: int = 100, offset: int = 0, q: str | None = None,
+) -> PersonPage:
     # Merge losers keep their row and point at the winner; the list shows humans,
     # so those are excluded rather than shown twice. Synthetic records go for the
     # same reason and are not the same thing: a shop counter is not a person who
@@ -97,15 +113,26 @@ async def list_persons(
     # Ranked in the database, not after the fetch: sorting a page that was itself
     # chosen arbitrarily would put the biggest customers off the end of the list
     # as soon as there are more of them than the limit.
+    # Counted before the page is cut, and off the same filters: a total taken
+    # from a different query is a total that disagrees with the list under it the
+    # first time somebody searches.
+    total = await session.scalar(
+        select(func.count()).select_from(query.order_by(None).subquery())
+    ) or 0
+
     query = (
         query.outerjoin(ProfileTraits, ProfileTraits.person_id == Person.id)
+        # Ordered by a column that can tie, so a second, unique key goes with it.
+        # Without it the database may return the same person on two pages and
+        # another on none — a page boundary is exactly where that shows up.
         .order_by(func.coalesce(ProfileTraits.ltv, 0).desc(), Person.id)
+        .offset(max(0, offset))
         .limit(limit)
     )
     people = list(await session.scalars(query))
     ids = [p.id for p in people]
     if not ids:
-        return []
+        return PersonPage(total=total, offset=offset, limit=limit, people=[])
 
     contact: dict[str, dict[str, str]] = {}
     for row in await session.scalars(
@@ -153,7 +180,7 @@ async def list_persons(
         )
     # Already ordered by the query. Re-sorting here would only be a second, and
     # eventually disagreeing, opinion about what "top customers" means.
-    return summaries
+    return PersonPage(total=total, offset=offset, limit=limit, people=summaries)
 
 
 @router.get("/{person_id}", response_model=PersonProfile)
