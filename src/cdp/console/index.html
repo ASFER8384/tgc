@@ -691,6 +691,10 @@
      in for rather than as a bar that happens to be nearby. */
   .sk-pill { display: inline-block; height: 38px; border-radius: 999px; }
   .sk-num { display: inline-block; height: 9px; width: 18px; vertical-align: -1px; }
+  /* For panels whose content is lines of text rather than rows or bars. */
+  .sk-stack { display: flex; flex-direction: column; gap: 0.8rem; padding: 0.9rem 0; }
+  .sk-stack .sk { height: 12px; }
+  .sk-line { display: inline-block; height: 12px; vertical-align: -1px; }
   .sk-row td { padding-top: 0.85rem; padding-bottom: 0.85rem; }
   .sk-row:hover { background: none; cursor: default; }
   @media (prefers-reduced-motion: reduce) { .sk::after { animation: none; } }
@@ -997,7 +1001,7 @@
         </div>
         <div class="bm-preview" id="bcPreview">
           <div class="muted" id="bcEmpty">Pick an audience and write a message to preview it.</div>
-          <div id="bcReach"></div>
+          <div id="bcReach"><div class="sk-stack"><span class="sk sk-line" style="width:46%"></span><span class="sk sk-line" style="width:72%"></span></div></div>
         </div>
       </div>
 
@@ -1092,7 +1096,7 @@
 
         <section class="au-card">
           <div class="au-title">Saved segments <span id="sgCountLabel"></span></div>
-          <div id="sgList"></div>
+          <div id="sgList"><div class="sk-stack"><span class="sk sk-line" style="width:58%"></span><span class="sk sk-line" style="width:42%"></span><span class="sk sk-line" style="width:66%"></span></div></div>
         </section>
       </div>
     </div>
@@ -1101,7 +1105,35 @@
   <!-- Automations. Same builder as the client's other console: one trigger, an
        ordered list of steps, a stop condition, save. -->
   <div class="broadcast automations" data-view="automation">
-    <div class="auto-list" id="autoList"></div>
+    <!-- The loading shape ships in the markup as well as being written by
+         the loader. The loader does not run until there is a key to fetch
+         with, so on a cold load this panel was empty until then — and an
+         empty automation list is a real state, so it read as "you have
+         none" rather than "still coming". -->
+    <div class="auto-list" id="autoList">
+      <div class="sk-auto">
+        <div class="lines">
+          <span class="sk" style="height:13px;width:42%"></span>
+          <span class="sk" style="height:11px;width:66%"></span>
+        </div>
+        <div class="acts">
+          <span class="sk" style="height:26px;width:52px"></span>
+          <span class="sk" style="height:26px;width:64px"></span>
+          <span class="sk" style="height:26px;width:44px"></span>
+        </div>
+      </div>
+      <div class="sk-auto">
+        <div class="lines">
+          <span class="sk" style="height:13px;width:34%"></span>
+          <span class="sk" style="height:11px;width:58%"></span>
+        </div>
+        <div class="acts">
+          <span class="sk" style="height:26px;width:52px"></span>
+          <span class="sk" style="height:26px;width:64px"></span>
+          <span class="sk" style="height:26px;width:44px"></span>
+        </div>
+      </div>
+    </div>
 
     <section class="au-card" id="autoBuilder" hidden>
       <div class="au-row-between">
@@ -1339,7 +1371,11 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
     // Recording a touchpoint adds to one customer, so the button only belongs
     // where the customers are.
     $("openCapture").hidden = view !== "customers";
-    if (view === "automation") loadAutomations();
+    // Only once there is a key. This runs on arrival, before connect() has
+    // one, so a fetch sent from here comes back 401 and writes its failure
+    // where the answer goes — and a reader who saw only that first frame
+    // saw a broken page. connect() re-runs applyView once connected.
+    if (state.key && view === "automation") loadAutomations();
     if (view === "segments") loadSavedSegments();
   }
 
@@ -1540,7 +1576,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
         tip((value, name, item) => name === "amount"
           ? [`${withCurrency(value, currency)} · ${item.payload.orders} orders`, "Revenue"]
           : [value, name]),
-        h(R.Area, {
+        h(R.Area, { isAnimationActive: false,
           type: "monotone", dataKey: "amount", stroke: accent, strokeWidth: 2,
           fill: "url(#trendFill)",
           // No dot on every week — a series of forty weeks becomes a dotted line
@@ -1603,9 +1639,9 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
         // Two series, so a legend is not optional — colour alone would leave a
         // reader who cannot separate the hues with nothing to go on.
         h(R.Legend, { iconType: "square", wrapperStyle: { fontSize: "0.78rem", color: INK } }),
-        h(R.Bar, { dataKey: "peopleShare", name: "Customers", fill: PEOPLE_HUE,
+        h(R.Bar, { isAnimationActive: false, dataKey: "peopleShare", name: "Customers", fill: PEOPLE_HUE,
                    radius: [3, 3, 0, 0], maxBarSize: 46 }),
-        h(R.Bar, { dataKey: "moneyShare", name: "Revenue", fill: MONEY_HUE,
+        h(R.Bar, { isAnimationActive: false, dataKey: "moneyShare", name: "Revenue", fill: MONEY_HUE,
                    radius: [3, 3, 0, 0], maxBarSize: 46 }))),
       "No purchases recorded yet.");
   }
@@ -1632,7 +1668,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
           axisLine: false, tick: { fill: INK, fontSize: 11 },
         }),
         tip((value) => [withCurrency(value, currency), "Lifetime"]),
-        h(R.Bar, { dataKey: "amount", radius: [0, 4, 4, 0], barSize: 18 },
+        h(R.Bar, { isAnimationActive: false, dataKey: "amount", radius: [0, 4, 4, 0], barSize: 18 },
           // Per-brand colour, applied by name rather than by position, so a
           // filter that reorders the rows does not repaint them.
           data.map((d) => h(R.Cell, { key: d.key, fill: BRAND_HUE[d.key] || INK }))))),
@@ -1662,7 +1698,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
         // One hue, because these are one measure of one thing. A colour per
         // channel would imply the channels are categories being compared on
         // something other than the length of the bar.
-        h(R.Bar, { dataKey: "count", fill: accent, radius: [0, 4, 4, 0], barSize: 16 }))),
+        h(R.Bar, { isAnimationActive: false, dataKey: "count", fill: accent, radius: [0, 4, 4, 0], barSize: 16 }))),
       "Nothing yet.");
   }
 
@@ -1698,7 +1734,7 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
         tip((value) => [
           `${value.toLocaleString("en-US")} of ${cb.buyers} buyers `
           + `(${Math.round((value / cb.buyers) * 100)}%)`, "Shoppers"]),
-        h(R.Bar, { dataKey: "people", radius: [0, 4, 4, 0], barSize: 16 },
+        h(R.Bar, { isAnimationActive: false, dataKey: "people", radius: [0, 4, 4, 0], barSize: 16 },
           data.map((d) => h(R.Cell, { key: d.label, fill: d.fill }))))),
       "No purchases recorded yet.");
 

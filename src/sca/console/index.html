@@ -769,7 +769,7 @@
         <h2>How this works</h2>
         <span class="hint">what to buy, who from, and when it lands</span>
       </div>
-      <div class="how" id="how"></div>
+      <div class="how" id="how"><div class="sk-stack"><span class="sk sk-line" style="width:64%"></span><span class="sk sk-line" style="width:44%"></span><span class="sk sk-line" style="width:52%"></span></div></div>
     </div>
 
     <div class="grid">
@@ -898,7 +898,19 @@
       </div>
       <div class="table-wrap"><table>
         <thead><tr id="itemHead"><th>Item</th><th class="num">Total</th><th></th></tr></thead>
-        <tbody id="itemRows"></tbody>
+        <!-- The loading shape ships in the markup. It used to be written by
+             loadInventory, which does not run until there is a key to fetch
+             with, so a cold load showed a table with a header and nothing
+             under it. Three columns because that is what the header has
+             before the shelves arrive and widen it. -->
+        <tbody id="itemRows">
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+        </tbody>
       </table></div>
     </div>
 
@@ -4626,11 +4638,11 @@ person rather than guessed.
         $("dot").hidden = true;
         $("connLabel").hidden = true;
         await refreshAll();
-        // The view was applied before there was a key to fetch anything with, so
-        // arriving straight at /procure?view=settings would otherwise sit on
-        // "loading" until the reader clicked something else and back.
-        if (state.view === "settings") await loadSettings();
-        loadGuidance();
+        // The view was applied before there was a key to fetch anything with,
+        // so whatever it needs is asked for now — otherwise arriving straight
+        // at /procure?view=items sits on its loading shape until the reader
+        // clicks something else and back.
+        loadForView(state.view);
         return;
       }
       localStorage.removeItem(KEY_STORAGE);
@@ -5047,6 +5059,14 @@ person rather than guessed.
     settings: ["Settings", "the policy every suggestion on the desk is made under"],
   };
 
+  // What each view needs fetched, in one place, so connect() and a navigation
+  // ask for the same things rather than drifting apart.
+  function loadForView(view) {
+    if (view === "settings") loadSettings();
+    if (view === "items") loadInventory();
+    if (view === "desk") loadGuidance();
+  }
+
   window.applyView = function applyView(view) {
     if (!VIEWS[view]) view = "desk";
     state.view = view;
@@ -5067,9 +5087,12 @@ person rather than guessed.
     // Fetched on arrival rather than with the rest of the desk: policy changes
     // when somebody changes it, and refreshing a queue of orders is no reason to
     // ask for it again.
-    if (view === "settings") loadSettings();
-    if (view === "items") loadInventory();
-    if (view === "desk") loadGuidance();
+    // Only once there is a key. On a cold load this runs before connect() has
+    // one, and a fetch sent without it comes back 401 — so the first thing on
+    // screen was "invalid or missing X-API-Key", replaced a moment later by
+    // the real answer. A reader who saw only the first frame saw a broken
+    // page. connect() calls this again once it is connected.
+    if (state.key) loadForView(view);
     // Kept in step with the address, which the rail changes without reloading —
     // so arriving here by the back button would otherwise leave the previous
     // section lit while a different one is on screen.
