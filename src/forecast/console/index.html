@@ -186,6 +186,25 @@
 
   .empty { padding: 1.3rem 1rem; text-align: center; color: var(--muted); font-size: 0.86rem; }
 
+  /* Inside the "how this number was reached" fold. It was one auto-fit grid, so
+     three plots took a row and the customer table dropped below into a single
+     narrow column with two thirds of the width empty beside it. The plots share
+     a row and the table spans the whole of the next one. */
+  .deep-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+               gap: 1.1rem 1.4rem; padding-top: 0.7rem; align-items: start; }
+  .deep-grid > .deep-wide { grid-column: 1 / -1; }
+  .deep-grid figure { margin: 0; min-width: 0; }
+  .deep-grid figcaption { font-size: 0.78rem; color: var(--muted); line-height: 1.45;
+                          padding-bottom: 0.45rem; }
+  .deep-grid svg { display: block; width: 100%; height: auto; }
+  .deep-wide .table-wrap { max-height: 17rem; overflow: auto; }
+  /* Keys written into the caption rather than drawn as a legend box: there are
+     three states on one chart and naming them where they are described is
+     shorter than a legend and cannot drift out of step with it. */
+  .key-next { color: var(--high); font-weight: 600; }
+  .key-in { color: var(--series); font-weight: 600; }
+  .key-thin { color: var(--muted); font-weight: 600; }
+
   /* A whole customer list is a scroll nobody finishes. The count stays on
      screen so the page never hides how many there are. */
   .pager { display: flex; align-items: center; justify-content: flex-end; gap: 0.6rem;
@@ -1071,7 +1090,7 @@ say something, it is left blank.
     const bars = rows.map((r, i) => {
       const y = i * (o.row + o.gap);
       const w = Math.max(1, Math.round(plot * Math.abs(r.value) / max));
-      const fill = r.mark ? "var(--high)" : "var(--accent)";
+      const fill = r.mark ? "var(--series)" : "var(--accent)";
       return '<g><text x="' + (o.label - 8) + '" y="' + (y + o.row * 0.72) + '" text-anchor="end" font-size="11" fill="currentColor">' + esc(r.label) + '</text>'
         + '<rect x="' + o.label + '" y="' + (y + 3) + '" width="' + w + '" height="' + (o.row - 6) + '" rx="3" fill="' + fill + '" opacity="' + (r.faded ? 0.35 : 0.9) + '"></rect>'
         + '<text x="' + (o.label + w + 6) + '" y="' + (y + o.row * 0.72) + '" font-size="11" fill="currentColor" opacity="0.75">' + esc(r.text == null ? r.value : r.text) + o.unit + '</text></g>';
@@ -1090,7 +1109,7 @@ say something, it is left blank.
     const rows = history.slice(-18);
     if (!rows.length) return "";
     const max = Math.max(...rows.map((r) => r.units), forecast) || 1;
-    const w = 560, h = 130, pad = 18;
+    const w = 560, h = 158, pad = 18;
     const step = (w - pad) / (rows.length + 1);
     const bw = Math.max(4, step * 0.62);
     let out = "";
@@ -1098,7 +1117,7 @@ say something, it is left blank.
       const bh = Math.max(1, (h - 34) * r.units / max);
       out += '<rect x="' + (pad + i * step) + '" y="' + (h - 22 - bh) + '" width="' + bw + '" height="' + bh + '" rx="2" fill="var(--accent)" opacity="0.85"><title>' + esc(r.month) + ": " + r.units + '</title></rect>';
       if (i % 3 === 0) {
-        out += '<text x="' + (pad + i * step) + '" y="' + (h - 8) + '" font-size="9" fill="currentColor" opacity="0.6">' + esc(r.month.slice(2)) + '</text>';
+        out += '<text x="' + (pad + i * step) + '" y="' + (h - 8) + '" font-size="10" fill="currentColor" opacity="0.65">' + esc(monthTiny(r.month)) + '</text>';
       }
     });
     const fh = Math.max(1, (h - 34) * forecast / max);
@@ -1115,6 +1134,14 @@ say something, it is left blank.
                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const LONG_MONTHS = ["January", "February", "March", "April", "May", "June", "July",
                        "August", "September", "October", "November", "December"];
+
+  // "Feb 25" — short enough to sit under a bar without turning the axis into
+  // a wall of text, and still a month rather than a code.
+  function monthTiny(month) {
+    const [year, index] = String(month || "").split("-");
+    return MONTHS[Number(index) - 1]
+      ? MONTHS[Number(index) - 1] + " " + String(year).slice(2) : month;
+  }
 
   function monthShort(month) {
     const [year, index] = String(month || "").split("-");
@@ -1178,19 +1205,21 @@ say something, it is left blank.
       + '<td>' + mill + '</td></tr></tfoot></table></div>'
       + '<details style="margin-top:0.5rem"><summary style="cursor:pointer;font-size:0.84rem">'
       + 'How this number was reached, and who buys it</summary>'
-      + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(19rem,1fr));gap:1rem;padding-top:0.6rem">'
-      + '<figure style="margin:0"><figcaption style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">'
-      + 'Units a month, with next month dashed</figcaption>'
+      + '<div class="deep-grid">'
+      + '<figure><figcaption>Units a month, with '
+      + '<span class="key-next">next month</span> dashed</figcaption>'
       + historyChart(it.monthly_history, it.expected, plan.month) + '</figure>'
-      + '<figure style="margin:0"><figcaption style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">'
-      + 'How hard each part of the year trades, per day, against 1.0. Red bars fall in '
-      + esc(monthLong(plan.month)) + '; faded bars rest on under a fortnight of history.</figcaption>'
+      + '<figure><figcaption>How hard each part of the year trades, per day, '
+      + 'against 1.0. <span class="key-in">Marked</span> parts fall in '
+      + esc(monthLong(plan.month)) + '; <span class="key-thin">faded</span> ones rest on '
+      + 'under a fortnight of history.</figcaption>'
       + barChart(seasonRows, { baseline: 1, title: "Seasonal multipliers", label: 150 }) + '</figure>'
-      + (sizeRows.length ? '<figure style="margin:0"><figcaption style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">The order, by size</figcaption>'
+      + (sizeRows.length ? '<figure><figcaption>The order, by size</figcaption>'
           + barChart(sizeRows, { title: "Order by size", label: 84 }) + '</figure>' : "")
-      + (buyers ? '<div><div style="font-size:0.8rem;color:var(--muted);padding-bottom:0.3rem">Who bought it in the last year</div>'
-          + '<table><thead><tr><th>Customer</th><th class="num">Units</th><th>Shop</th>'
-          + '<th>Usual size</th><th>Last</th></tr></thead><tbody>' + buyers + '</tbody></table></div>' : "")
+      + (buyers ? '<div class="deep-wide"><figcaption>Who bought it in the last year</figcaption>'
+          + '<div class="table-wrap"><table><thead><tr><th>Customer</th>'
+          + '<th class="num">Units</th><th>Shop</th>'
+          + '<th>Usual size</th><th>Last</th></tr></thead><tbody>' + buyers + '</tbody></table></div></div>' : "")
       + '</div></details></div>';
   }
 

@@ -428,7 +428,8 @@ async def build_plan(
         if len(recent) < 3:
             plan.confidence = "thin"
             plan.notes.append(
-                f"Only {len(recent)} complete month(s) of recent history behind the level."
+                f"Only {len(recent)} complete month{'' if len(recent) == 1 else 's'}"
+                " of recent history behind the level."
             )
 
         # Size share, pooled across the shops. Measured rather than assumed: the
@@ -489,7 +490,8 @@ async def build_plan(
                 )
             if observed < THIN_UNITS:
                 note = (note + " " if note else "") + (
-                    f"Only {observed} unit(s) sold here in {SHARE_MONTHS} months — "
+                    f"Only {observed} unit{'' if observed == 1 else 's'} sold here"
+                    f" in {SHARE_MONTHS} months — "
                     "a thin basis for a share."
                 )
             plan.locations.append(LocationLine(
