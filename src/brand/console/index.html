@@ -219,6 +219,26 @@
              padding: 0.7rem 0.85rem; font-family: var(--mono); font-size: 0.76rem;
              white-space: pre-wrap; word-break: break-word; }
   .empty { padding: 1.3rem 1rem; text-align: center; color: var(--muted); font-size: 0.86rem; }
+
+  /* A shape while the rows are on their way. The word "loading" in a cell
+     that spans the table collapses it to one row and expands it again the
+     moment the answer lands, which moves everything under it. */
+  .sk { position: relative; overflow: hidden; border-radius: 4px; background: var(--sunk); }
+  .sk::after {
+    content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent,
+      color-mix(in srgb, var(--panel) 70%, transparent), transparent);
+    animation: sweep 1.25s infinite;
+  }
+  @keyframes sweep { 100% { transform: translateX(100%); } }
+  .sk-line { display: inline-block; height: 12px; vertical-align: -1px; }
+  .sk-row td { padding-top: 0.8rem; padding-bottom: 0.8rem; }
+  /* Bounded: a width is a share of the cell and these cells are not alike.
+     The same share is a bar most of the table wide in the site column and a
+     chip too small to read as a word in a count. */
+  .sk-row .sk-line { max-width: 170px; min-width: 30px; }
+  .sk-stack { display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; }
+  @media (prefers-reduced-motion: reduce) { .sk::after { animation: none; } }
   .bar { display: flex; gap: 0.5rem; flex-wrap: wrap; }
   /* Outside the page column, like the header. Sized by the nav sheet against
      the rail's own footer. */
@@ -260,7 +280,13 @@
       <div class="table-wrap"><table>
         <thead><tr><th>Site</th><th>Kind</th><th>Reads as</th><th class="num">Checked</th>
           <th class="num">Open</th><th>Last seen</th><th></th></tr></thead>
-        <tbody id="sites"><tr><td colspan="7" class="empty">loading</td></tr></tbody>
+        <tbody id="sites">
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+        </tbody>
       </table></div>
     </div>
   </div>
@@ -281,7 +307,13 @@
       <div class="table-wrap"><table>
         <thead><tr><th>Code</th><th>Rule</th><th>Class</th><th>Severity</th>
           <th>Applies to</th><th></th></tr></thead>
-        <tbody id="standards"><tr><td colspan="6" class="empty">loading</td></tr></tbody>
+        <tbody id="standards">
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+          <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+        </tbody>
       </table></div>
     </div>
   </div>
@@ -294,7 +326,7 @@
           <h2>Waiting to be reviewed</h2>
           <span class="hint" id="pendingHint"></span>
         </div>
-        <div class="obslist" id="pending"><div class="empty">loading</div></div>
+        <div class="obslist" id="pending"><div class="sk-stack"><span class="sk sk-line" style="width:64%"></span><span class="sk sk-line" style="width:42%"></span><span class="sk sk-line" style="width:78%"></span><span class="sk sk-line" style="width:50%"></span></div></div>
       </div>
       <div class="panel" id="reviewPane">
         <div class="empty">Pick an observation to review it against the standard.</div>
@@ -309,7 +341,7 @@
         <h2>Open findings</h2>
         <span class="hint" id="findingsHint"></span>
       </div>
-      <div id="findings"><div class="empty">loading</div></div>
+      <div id="findings"><div class="sk-stack"><span class="sk sk-line" style="width:58%"></span><span class="sk sk-line" style="width:82%"></span><span class="sk sk-line" style="width:44%"></span><span class="sk sk-line" style="width:70%"></span></div></div>
     </div>
   </div>
 
@@ -324,7 +356,7 @@
         <h2>What keeps going wrong</h2>
         <span class="hint" id="historyHint"></span>
       </div>
-      <div id="history"><div class="empty">loading</div></div>
+      <div id="history"><div class="sk-stack"><span class="sk sk-line" style="width:52%"></span><span class="sk sk-line" style="width:76%"></span><span class="sk sk-line" style="width:38%"></span><span class="sk sk-line" style="width:66%"></span></div></div>
     </div>
   </div>
 
@@ -501,13 +533,31 @@ what a model would have to be trained on later.
   }
 
   // ------------------------------------------------------------------ sites
+  // The loading shape the markup ships, rebuilt for a reload. Without it a
+  // refresh left the previous answer on screen while the call was in flight,
+  // so a stale table looked like a settled one.
+  // The count is known by the time it is drawn, so the page can say "1 rule"
+  // rather than "1 rule(s)".
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
+
+  const SK_W = ["68%", "40%", "26%", "52%"];
+  function skeletonRows(rows, cols) {
+    return Array.from({ length: rows }, (_, r) =>
+      `<tr class="sk-row">${Array.from({ length: cols }, (_, c) =>
+        `<td><span class="sk sk-line" style="display:block;width:${
+          SK_W[(c + r) % SK_W.length]}"></span></td>`).join("")}</tr>`).join("");
+  }
+  const skeletonStack = (...widths) => `<div class="sk-stack">${widths.map((w) =>
+    `<span class="sk sk-line" style="width:${w}"></span>`).join("")}</div>`;
+
   async function loadSites() {
+    $("sites").innerHTML = skeletonRows(5, 7);
     const e = await api("/brand/sites");
     state.sites = e.sites;
 
     const tiles = [
       { label: "Sites", big: e.sites_total,
-        says: `${e.standards_active} live rule(s) in the standard` },
+        says: `${plural(e.standards_active, "live rule")} in the standard` },
       { label: "Never observed", big: e.sites_never_observed,
         says: e.sites_never_observed
           ? "nobody has looked at these at all"
@@ -553,13 +603,14 @@ what a model would have to be trained on later.
     $("sites").querySelectorAll("[data-capture]").forEach((b) =>
       b.addEventListener("click", () => openCapture(b.dataset.capture)));
     $("sitesHint").textContent =
-      `${e.sites_total} site(s) · worst first, unchecked above clean`;
+      `${plural(e.sites_total, "site")} · worst first, unchecked above clean`;
   }
 
   // -------------------------------------------------------------- standards
   async function loadStandards() {
+    $("standards").innerHTML = skeletonRows(5, 6);
     const rows = await api("/brand/standards");
-    $("standardsHint").textContent = `${rows.length} live rule(s)`;
+    $("standardsHint").textContent = plural(rows.length, "live rule");
     $("standards").innerHTML = rows.length ? rows.map((s) => `
       <tr>
         <td><strong>${s.code}</strong>
@@ -583,13 +634,14 @@ what a model would have to be trained on later.
 
   // ----------------------------------------------------------------- review
   async function loadPending() {
+    $("pending").innerHTML = skeletonStack("64%", "42%", "78%", "50%");
     const rows = await api("/brand/observations?pending=true");
     $("pendingHint").textContent = `${rows.length} waiting`;
     $("pending").innerHTML = rows.length ? rows.map((o) => `
       <div class="row ${o.id === state.selected ? "on" : ""}" data-obs="${o.id}"
            role="button" tabindex="0">
         <span><span class="who">${o.site}</span>
-          <span class="where">${day(o.captured_at)} · ${o.source} · ${o.images} photo(s)</span></span>
+          <span class="where">${day(o.captured_at)} · ${o.source} · ${plural(o.images, "photo")}</span></span>
       </div>`).join("")
       : `<div class="empty">Nothing waiting. Add an observation from a site.</div>`;
 
@@ -710,7 +762,7 @@ what a model would have to be trained on later.
     // Unanswered rules are named rather than hidden: they are the difference
     // between a site that passed and a site that was partly looked at.
     el.textContent = answered === total
-      ? `all ${total} rule(s) answered`
+      ? `all ${plural(total, "rule")} answered`
       : `${answered} of ${total} answered · the rest stay unchecked`;
   }
 
@@ -727,7 +779,7 @@ what a model would have to be trained on later.
         method: "POST", body: JSON.stringify({ checks }),
       });
       show($("reviewOut"),
-        `${out.checked} rule(s) applied — ${out.passed} passed, ${out.failed} failed.` +
+        `${plural(out.checked, "rule")} applied — ${out.passed} passed, ${out.failed} failed.` +
         (out.findings_raised.length ? `\nRaised: ${out.findings_raised.join(", ")}` : "") +
         (out.already_open.length
           ? `\nAlready open, not raised again: ${out.already_open.join(", ")}` : ""));
@@ -737,6 +789,7 @@ what a model would have to be trained on later.
 
   // --------------------------------------------------------------- findings
   async function loadFindings() {
+    $("findings").innerHTML = skeletonStack("58%", "82%", "44%", "70%");
     const rows = await api("/brand/findings");
     $("findingsHint").textContent = `${rows.length} open`;
     $("findings").innerHTML = rows.length ? rows.map((f) => `
@@ -871,7 +924,7 @@ what a model would have to be trained on later.
         if (!res.ok) failed.push(file.name);
       }
       show($("captureOut"),
-        `Added. ${files.length - failed.length} of ${files.length} photo(s) stored.` +
+        `Added. ${files.length - failed.length} of ${plural(files.length, "photo")} stored.` +
         (failed.length ? `\nFailed: ${failed.join(", ")}` : "") +
         "\nIt is now waiting to be reviewed.");
       await refreshAll();
@@ -896,6 +949,7 @@ what a model would have to be trained on later.
   // read to answer a question, not watched.
   async function loadHistory() {
     if (!state.key) return;
+    $("history").innerHTML = skeletonStack("52%", "76%", "38%", "66%");
     let rows;
     try {
       rows = await api("/brand/findings/history");
@@ -905,7 +959,7 @@ what a model would have to be trained on later.
     }
     const repeats = rows.filter((r) => r.times > 1).length;
     $("historyHint").textContent = rows.length
-      ? `${rows.length} site and rule pair(s) · ${repeats} that went wrong more than once`
+      ? `${plural(rows.length, "site and rule pair")} · ${repeats} that went wrong more than once`
       : "";
 
     $("history").innerHTML = rows.length ? rows.map((r) => `
