@@ -372,9 +372,9 @@
           gap: 0.6rem; }
   /* Its own space above. The tiles are a row of separate cards and this is a
      single block: butted straight against them they read as one control, and
-     the panel looked like a sixth tile that had lost its border. The same
-     1.25rem the table below it sits on, so the page keeps one rhythm. */
-  .how-panel { margin-top: 1.25rem; }
+     the panel looked like a sixth tile that had lost its border. That space is
+     now the view's own gap — this margin sat on top of it and made the one
+     seam on the page twice as wide as every other. */
   /* Nothing in it yet is nothing to show. Its grey ground was drawing a bar
      across the page while the page was still loading. */
   .how-panel .how:empty { display: none; }
@@ -748,7 +748,7 @@
       <div class="how" id="how"></div>
     </div>
 
-    <div class="grid" style="margin-top:1.25rem">
+    <div class="grid">
       <div style="display:flex; flex-direction:column; gap:1.25rem;">
         <!-- Only the lines that need a decision. The full catalogue is one rail
              entry away, and a table where most rows say "nothing to do" trains
