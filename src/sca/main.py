@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 import brand
 import brand.api as brand_api
@@ -453,6 +454,22 @@ def create_app() -> FastAPI:
     @app.get("/", include_in_schema=False)
     async def home() -> RedirectResponse:
         return RedirectResponse("/dashboard", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+    # The charting library, served from here rather than a CDN. Three reasons and
+    # they all point the same way: the consoles are opened on a laptop that is
+    # sometimes on a shop's wifi and sometimes not; a chart that goes blank when
+    # unpkg is unreachable looks like the data is missing rather than the script;
+    # and a script tag pointing at somebody else's server is a third party that
+    # can change what runs inside a page holding an API key.
+    #
+    # Cached hard, unlike the console pages: these are versioned, immutable files
+    # and re-downloading half a megabyte on every view of the dashboard is the
+    # cost that makes people stop opening it.
+    app.mount(
+        "/static",
+        StaticFiles(directory=Path(__file__).parent / "static"),
+        name="static",
+    )
 
     @app.get("/dashboard", include_in_schema=False)
     async def dashboard_page() -> HTMLResponse:

@@ -56,7 +56,10 @@
     font-family: var(--sans); font-size: 15px; line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
-  .app { max-width: 1240px; margin: 0 auto; padding: 1.5rem 1.25rem 5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+  /* Enough under the footer to clear the toast, which is fixed to the bottom
+     right — and no more. The old 5rem was sized for a page that ended in a tall
+     panel; under a one-line footer it reads as the page having lost something. */
+  .app { max-width: 1240px; margin: 0 auto; padding: 1.5rem 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
 
   /* header */
   .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
@@ -589,9 +592,9 @@
      in it collapses too, so the remaining panel gets the full width instead of
      sitting next to a gap. */
   /* Hide what is not on this view, and otherwise leave every element its own
-     display. Setting one here instead would have to win against `.proof` and
-     `.charts`, which declare their own grid at the same specificity further
-     down the sheet — and quietly lose. */
+     display. Setting one here instead would have to win against `.charts`,
+     which declares its own grid at the same specificity further down the
+     sheet — and quietly lose. */
   [data-view]:not(.on) { display: none !important; }
   /* `hidden` still wins: the profile drawer stays closed until a customer is
      picked, whatever view is showing. */
@@ -599,32 +602,23 @@
   .grid > .col:not(.on) { display: none !important; }
   .grid.single { grid-template-columns: minmax(0, 1fr); }
 
-  /* charts — drawn from tokens so both themes work, and with no library, since
-     the page is served whole and a CDN script would be one more thing to fail
-     in front of a client. */
+  /* charts — Recharts, served from this origin. Vendored rather than pulled
+     from a CDN for the same reason the page is served whole: a script fetched
+     from somebody else's server is one more thing to fail in front of a client,
+     and the colours still come from this sheet's own tokens. */
   .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; }
   .charts .wide { grid-column: 1 / -1; }
 
-  .plot { display: flex; align-items: flex-end; gap: 3px; height: 132px; }
-  .plot .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end;
-               align-items: center; gap: 4px; height: 100%; min-width: 0; }
-  .plot .col i { display: block; width: 100%; border-radius: 2px 2px 0 0;
-                 background: var(--accent); opacity: 0.55; min-height: 2px; }
-  .plot .col:last-child i { opacity: 1; }
-  .plot .col b { font-family: var(--mono); font-size: 0.6rem; font-weight: 400; color: var(--muted);
-                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  .plot .col:hover i { opacity: 1; }
-
-  .bars { display: flex; flex-direction: column; gap: 0.6rem; }
-  .bar-row { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.6rem; align-items: baseline; }
-  .bar-row .lbl { font-size: 0.85rem; text-transform: capitalize; }
-  .bar-row .val { font-variant-numeric: tabular-nums; font-size: 0.8rem; color: var(--muted); }
-  .bar-row .track { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--sunk);
-                    border: 1px solid var(--rule); overflow: hidden; }
-  .bar-row .track i { display: block; height: 100%; background: var(--accent); }
-  .bar-row .track i.aleena { background: var(--aleena); }
-  .bar-row .track i.rawash { background: var(--rawash); }
-  .bar-row .track i.aynola { background: var(--aynola); }
+  /* Recharts fills whatever box it is given, so the height lives here and the
+     chart code carries none. A ResponsiveContainer inside a box with no height
+     measures zero and draws nothing, which looks exactly like no data. */
+  .plot { height: 220px; }
+  .bars { height: 200px; }
+  .plot .empty, .bars .empty { display: flex; align-items: center; justify-content: center;
+                               height: 100%; }
+  /* The library sets its own focus ring on the SVG when a chart is tabbed into,
+     which lands as a hard blue rectangle in a page that has none anywhere else. */
+  .recharts-wrapper:focus, .recharts-surface:focus { outline: none; }
 
   /* delivery log */
 
@@ -632,17 +626,6 @@
   .cust-tools input { width: 210px; font-size: 0.82rem; padding: 0.3rem 0.5rem; }
   .more { padding: 0.7rem 1rem; border-top: 1px solid var(--rule); text-align: center; }
   .more button { background: transparent; color: var(--accent); border: none; font-size: 0.82rem; padding: 0; }
-
-  /* proof strip — the three questions a sceptic asks, answered from live data */
-  .proof { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; }
-  .proof .panel-body { gap: 0.35rem; }
-  .proof .big { font-family: var(--display); font-size: 1.9rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
-  .proof .big small { font-family: var(--sans); font-size: 0.9rem; font-weight: 400; color: var(--muted); }
-  .proof .says { font-size: 0.83rem; color: var(--ink-soft); }
-  .proof .breakdown { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
-  .proof .warn { color: var(--alert); }
-  .bar { height: 5px; border-radius: 3px; background: var(--sunk); border: 1px solid var(--rule); overflow: hidden; }
-  .bar i { display: block; height: 100%; background: var(--accent); }
 
   .empty { padding: 1.4rem 1rem; color: var(--muted); font-size: 0.87rem; text-align: center; }
   footer { color: var(--muted); font-size: 0.78rem; border-top: 1px solid var(--rule); padding-top: 0.9rem; }
@@ -669,49 +652,6 @@
       <span class="conn-label" id="connLabel" hidden></span>
       <input class="key-field" id="apiKey" type="password" placeholder="API key" autocomplete="off" hidden />
       <button id="connect" hidden>Connect</button>
-    </div>
-  </div>
-
-  <!-- Everything below this strip is a promise. This strip is the evidence, and
-       it is measured from whatever is in the database right now rather than
-       written down once — a figure that looks wrong here is a real problem, not
-       a demo that needs re-recording. -->
-  <div class="proof" data-view="dashboard">
-    <div class="panel">
-      <div class="panel-head">
-        <h2>One customer, many records</h2>
-        <span class="hint">identity</span>
-      </div>
-      <div class="panel-body">
-        <div class="big" id="pfStitch">—</div>
-        <div class="says" id="pfStitchSays">Connect to measure.</div>
-        <div class="breakdown" id="pfStitchSub"></div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2>One woman, three brands</h2>
-        <span class="hint">overlap</span>
-      </div>
-      <div class="panel-body">
-        <div class="big" id="pfShare">—</div>
-        <div class="bar"><i id="pfBar" style="width:0"></i></div>
-        <div class="says" id="pfShareSays">Connect to measure.</div>
-        <div class="breakdown" id="pfShareSub"></div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2>Messages the rules stopped</h2>
-        <span class="hint">consent</span>
-      </div>
-      <div class="panel-body">
-        <div class="big" id="pfStopped">—</div>
-        <div class="says" id="pfStoppedSays">Connect to measure.</div>
-        <div class="breakdown" id="pfStoppedSub"></div>
-      </div>
     </div>
   </div>
 
@@ -1130,6 +1070,18 @@
   </footer>
 </div>
 
+<!-- Recharts and the React it is built on, served from this origin. Vendored
+     rather than pulled from a CDN: the console is opened on laptops that are not
+     always online, a chart that vanishes when unpkg is unreachable reads as
+     missing data rather than a missing script, and a script tag pointing at
+     somebody else's server is a third party who can change what runs inside a
+     page that holds an API key. Order matters — Recharts reads all three off
+     the window when it loads. -->
+<script src="/static/vendor/react.js"></script>
+<script src="/static/vendor/react-dom.js"></script>
+<script src="/static/vendor/react-is.js"></script>
+<script src="/static/vendor/recharts.js"></script>
+
 <script>
   const API = "";
   const $ = (id) => document.getElementById(id);
@@ -1222,64 +1174,27 @@
     let p;
     try { p = await api("/proof"); } catch { return; }
 
-    const s = p.stitching;
-    // Strong records only. Counting cart tokens here would say seventeen
-    // records per customer when fourteen of them are browser sessions nobody
-    // can be reached on — a bigger number that falls apart on the first
-    // question about it.
-    $("pfStitch").innerHTML = `${s.strong} <small>records →</small> ${s.people} <small>people</small>`;
-    // The ratio is the claim, not the merge count. Most records land on the
-    // right person the moment they arrive, because the phone or email already
-    // belongs to her — a merge only happens when two separate profiles had
-    // grown up apart and later turned out to be one woman. Zero merges beside a
-    // high ratio is resolution working early, not resolution doing nothing.
-    $("pfStitchSays").textContent = s.identifiers_per_person > 1
-      ? `Each customer arrives as ${s.identifiers_per_person} separate records on average — `
-        + `phone, email, till receipt, WhatsApp. The console shows one woman.`
-      : "Each record is still its own customer — nothing has been joined yet.";
-    const notes = [];
-    if (s.weak) notes.push(`${s.weak} anonymous browser session(s) held separately`);
-    if (s.merges) notes.push(`${s.merges} separate profile(s) later found to be one person`);
-    if (s.open_reviews) notes.push(`<span class="warn">${s.open_reviews} too risky to guess — waiting for a human</span>`);
-    $("pfStitchSub").innerHTML = notes.join(" · ");
-
-    // Replaces revenue-attached, which could only ever read 100% here because
-    // every seeded order carries a customer. This one is the claim three
-    // separate Shopify stores cannot make at all: each knows its own buyers,
-    // and only something holding all three knows they are the same women.
-    const a = p.attribution;
-    const cb = p.cross_brand;
-    const pct = Math.round(cb.share * 100);
-    $("pfShare").innerHTML = cb.buyers ? `${pct}%` : "—";
-    $("pfBar").style.width = pct + "%";
-    $("pfShareSays").textContent = cb.buyers
-      ? `${cb.two_or_more} of ${cb.buyers} buyers shop more than one brand. `
-        + `Three separate stores would count them as ${cb.counted_separately} customers.`
-      : "No purchases recorded yet.";
-    $("pfShareSub").textContent = cb.all_three
-      ? `${cb.all_three} buy from all three · one consent decision each, not three`
-      : "";
-
-    const r = p.refusals;
-    const stopped = r.skipped_no_consent + r.skipped_identifier_risk;
-    $("pfStopped").innerHTML = `${stopped} <small>stopped ·</small> ${r.delivered} <small>sent</small>`;
-    $("pfStoppedSays").textContent = stopped
-      ? "Blocked before the message left, not filtered afterwards."
-      : "Nothing blocked yet — no campaign has run.";
-    // The two reasons are kept apart because they have different fixes: one is
-    // answered by asking her, the other by getting a number she confirmed.
-    const parts = [];
-    if (r.skipped_no_consent) parts.push(`${r.skipped_no_consent} never agreed`);
-    if (r.skipped_identifier_risk) parts.push(`${r.skipped_identifier_risk} number may not be hers`);
-    if (r.risky_identifiers) parts.push(`${r.risky_identifiers} flagged at capture`);
-    $("pfStoppedSub").textContent = parts.join(" · ");
-
-    drawTrend(p.trend, a.currency);
-    drawBars($("brandBars"), p.brands, a.currency, "amount", true);
-    // Channels are ranked by contact, not money: messaging and the mall stand
-    // produce almost no orders and a great deal of relationship, which is the
-    // reason for holding them at all.
-    drawBars($("channelBars"), p.channels, a.currency, "count", false);
+    const currency = p.attribution.currency;
+    // Each chart drawn on its own. One that fails must not take the others with
+    // it — the first version of this lost the touchpoints chart to a throw in
+    // the brand chart above it, and a panel that is blank because the statement
+    // before it died is indistinguishable from one with no data.
+    const charts = [
+      ["trendPlot", () => drawTrend(p.trend, currency)],
+      ["brandBars", () => drawBrands(p.brands, currency)],
+      // Channels are ranked by contact, not money: messaging and the mall stand
+      // produce almost no orders and a great deal of relationship, which is the
+      // reason for holding them at all.
+      ["channelBars", () => drawTouchpoints(p.channels)],
+    ];
+    for (const [id, draw] of charts) {
+      try {
+        draw();
+      } catch (err) {
+        console.error(`${id} could not be drawn`, err);
+        $(id).innerHTML = `<div class="empty">This chart could not be drawn.</div>`;
+      }
+    }
   }
 
   // The permission in the words she would have read, not the column name. Nobody
@@ -1344,42 +1259,164 @@
     activation: "Mall stand", email: "Email", ads: "Ads", support: "Support",
   };
 
+  // ---------------------------------------------------------------- charts
+  // Recharts, served from this origin rather than a CDN. The library is React's,
+  // so these are the only three React roots on the page — everything else here
+  // is plain DOM and stays that way. `h` rather than JSX because there is no
+  // build step: this file is served as it is written.
+  const h = React.createElement;
+  const R = Recharts;
+
+  // One hue per brand, fixed. Colour has to follow the entity and not its rank,
+  // or a quiet month for Aleena repaints every other brand on the page and the
+  // reader learns nothing except that something moved.
+  const BRAND_HUE = {
+    aleena: "#8c5a2b", rawash: "#3f6f5f", aynola: "#6b5b95",
+  };
+  const INK = "#6b6257";
+  const RULE = "#e3ddd3";
+
+  // Read off the page rather than hardcoded, so the charts follow the console's
+  // own theme instead of drifting from it the first time somebody retunes one.
+  const themed = (name, fallback) =>
+    getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
+
+  function mount(host, element, empty) {
+    if (!element) { host.innerHTML = `<div class='empty'>${empty}</div>`; return; }
+    // One root per host, kept: re-creating it on every refresh leaks the old one
+    // and makes React warn about a container it is already rendering into.
+    if (!host._root) { host.innerHTML = ""; host._root = ReactDOM.createRoot(host); }
+    // A chart that fails says so. React unmounts the tree it could not render,
+    // which empties the container — and an empty panel is indistinguishable from
+    // one with no data, so the failure would read as "no touchpoints yet".
+    host._root.render(h(ChartBoundary, { host }, element));
+  }
+
+  class ChartBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { failed: null }; }
+    static getDerivedStateFromError(error) { return { failed: error }; }
+    componentDidCatch(error) { console.error("chart failed", error); }
+    render() {
+      if (!this.state.failed) return this.props.children;
+      return h("div", { className: "empty" },
+        `This chart could not be drawn: ${this.state.failed.message}`);
+    }
+  }
+
+  // The panel that sits behind a tooltip, written here rather than left to the
+  // library's default: the default is white with a grey border on every site
+  // that uses it, and this console is not white.
+  const tip = (fmt) => h(R.Tooltip, {
+    cursor: { fill: "rgba(0,0,0,0.04)" },
+    contentStyle: {
+      background: themed("--panel", "#fff"), border: `1px solid ${RULE}`,
+      borderRadius: "6px", fontSize: "0.78rem", boxShadow: "0 6px 20px rgba(0,0,0,0.08)",
+    },
+    labelStyle: { color: INK, fontWeight: 600, marginBottom: "0.2rem" },
+    formatter: fmt,
+  });
+
   function drawTrend(points, currency) {
     const host = $("trendPlot");
     if (!points || !points.length) {
-      host.innerHTML = "<div class='empty'>No sales recorded yet.</div>";
       $("trendHint").textContent = "";
+      mount(host, null, "No sales recorded yet.");
       return;
     }
-    const peak = Math.max(...points.map((p) => Number(p.amount))) || 1;
-    host.innerHTML = points.map((p) => {
-      const v = Number(p.amount);
-      return `<div class="col" title="${p.week}: ${withCurrency(p.amount, currency)} · ${p.orders} orders">
-                <i style="height:${Math.max(2, Math.round((v / peak) * 100))}%"></i>
-                <b>${p.week}</b>
-              </div>`;
-    }).join("");
+    const data = points.map((p) => ({
+      week: p.week, amount: Number(p.amount), orders: p.orders,
+    }));
+    const accent = themed("--accent", "#8c5a2b");
+
+    mount(host, h(R.ResponsiveContainer, { width: "100%", height: "100%" },
+      h(R.AreaChart, { data, margin: { top: 8, right: 8, left: 0, bottom: 0 } },
+        // A fill that fades out downward, so the line stays the thing being read
+        // and the area only says which side of it is "under".
+        h("defs", null, h("linearGradient", { id: "trendFill", x1: 0, y1: 0, x2: 0, y2: 1 },
+          h("stop", { offset: "0%", stopColor: accent, stopOpacity: 0.28 }),
+          h("stop", { offset: "100%", stopColor: accent, stopOpacity: 0 }))),
+        // Horizontal only. Vertical gridlines on a weekly series draw a fence in
+        // front of the shape somebody came to read.
+        h(R.CartesianGrid, { stroke: RULE, strokeDasharray: "2 4", vertical: false }),
+        h(R.XAxis, {
+          dataKey: "week", tickLine: false, axisLine: { stroke: RULE },
+          tick: { fill: INK, fontSize: 11 }, interval: "preserveStartEnd",
+        }),
+        h(R.YAxis, {
+          tickLine: false, axisLine: false, width: 56,
+          tick: { fill: INK, fontSize: 11 },
+          tickFormatter: (v) => v >= 1000 ? `${Math.round(v / 1000)}k` : v,
+        }),
+        tip((value, name, item) => name === "amount"
+          ? [`${withCurrency(value, currency)} · ${item.payload.orders} orders`, "Revenue"]
+          : [value, name]),
+        h(R.Area, {
+          type: "monotone", dataKey: "amount", stroke: accent, strokeWidth: 2,
+          fill: "url(#trendFill)",
+          // No dot on every week — a series of forty weeks becomes a dotted line
+          // and the one being hovered stops standing out.
+          dot: false, activeDot: { r: 4, strokeWidth: 2, stroke: themed("--panel", "#fff") },
+        }))), "No sales recorded yet.");
+
     const total = points.reduce((sum, p) => sum + Number(p.amount), 0);
     $("trendHint").textContent =
       `${withCurrency(total, currency)} over ${points.length} week${points.length === 1 ? "" : "s"}`;
   }
 
-  function drawBars(host, rows, currency, by, tint) {
-    if (!rows || !rows.length) { host.innerHTML = "<div class='empty'>Nothing yet.</div>"; return; }
-    const peak = Math.max(...rows.map((r) => Number(r[by]))) || 1;
-    host.innerHTML = rows.map((r) => {
-      const value = Number(r[by]);
-      const shown = by === "amount"
-        ? withCurrency(r.amount, currency)
-        : `${r.count.toLocaleString("en-US")} touchpoints`;
-      const label = CHANNEL_LABEL[r.label] || r.label;
-      return `<div class="bar-row">
-                <span class="lbl">${label}</span>
-                <span class="val">${shown}</span>
-                <span class="track"><i class="${tint ? r.label : ""}"
-                      style="width:${Math.max(2, Math.round((value / peak) * 100))}%"></i></span>
-              </div>`;
-    }).join("");
+  function drawBrands(rows, currency) {
+    const host = $("brandBars");
+    if (!rows || !rows.length) { mount(host, null, "Nothing yet."); return; }
+    const data = rows.map((r) => ({
+      label: titleCase(r.label), key: r.label, amount: Number(r.amount),
+    }));
+
+    mount(host, h(R.ResponsiveContainer, { width: "100%", height: "100%" },
+      // Horizontal bars: brand names are words, and words on a vertical axis are
+      // read without tilting the head or the label.
+      h(R.BarChart, { data, layout: "vertical", margin: { top: 4, right: 16, left: 0, bottom: 0 } },
+        h(R.CartesianGrid, { stroke: RULE, strokeDasharray: "2 4", horizontal: false }),
+        h(R.XAxis, {
+          type: "number", tickLine: false, axisLine: false,
+          tick: { fill: INK, fontSize: 11 },
+          tickFormatter: (v) => v >= 1000 ? `${Math.round(v / 1000)}k` : v,
+        }),
+        h(R.YAxis, {
+          type: "category", dataKey: "label", width: 74, tickLine: false,
+          axisLine: false, tick: { fill: INK, fontSize: 11 },
+        }),
+        tip((value) => [withCurrency(value, currency), "Lifetime"]),
+        h(R.Bar, { dataKey: "amount", radius: [0, 4, 4, 0], barSize: 18 },
+          // Per-brand colour, applied by name rather than by position, so a
+          // filter that reorders the rows does not repaint them.
+          data.map((d) => h(R.Cell, { key: d.key, fill: BRAND_HUE[d.key] || INK }))))),
+      "Nothing yet.");
+  }
+
+  // Not drawChannels: a function of that name already exists further down for
+  // the broadcast channel picker, and function declarations hoist — the later
+  // one silently replaced this and the panel drew nothing, with no error,
+  // because the call landed in a function that ignores its argument.
+  function drawTouchpoints(rows) {
+    const host = $("channelBars");
+    if (!rows || !rows.length) { mount(host, null, "Nothing yet."); return; }
+    const data = rows.map((r) => ({
+      label: CHANNEL_LABEL[r.label] || r.label, count: Number(r.count),
+    }));
+    const accent = themed("--accent", "#8c5a2b");
+
+    mount(host, h(R.ResponsiveContainer, { width: "100%", height: "100%" },
+      h(R.BarChart, { data, layout: "vertical", margin: { top: 4, right: 16, left: 0, bottom: 0 } },
+        h(R.CartesianGrid, { stroke: RULE, strokeDasharray: "2 4", horizontal: false }),
+        h(R.XAxis, { type: "number", tickLine: false, axisLine: false,
+                     tick: { fill: INK, fontSize: 11 }, allowDecimals: false }),
+        h(R.YAxis, { type: "category", dataKey: "label", width: 96, tickLine: false,
+                     axisLine: false, tick: { fill: INK, fontSize: 11 } }),
+        tip((value) => [`${value.toLocaleString("en-US")} touchpoints`, "Contact"]),
+        // One hue, because these are one measure of one thing. A colour per
+        // channel would imply the channels are categories being compared on
+        // something other than the length of the bar.
+        h(R.Bar, { dataKey: "count", fill: accent, radius: [0, 4, 4, 0], barSize: 16 }))),
+      "Nothing yet.");
   }
 
   // Distinct from the table's `money`, which formats a bare number: this one
