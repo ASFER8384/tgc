@@ -348,6 +348,10 @@
   .sk-line { display: inline-block; height: 12px; vertical-align: -1px; }
   .sk-row td { padding-top: 0.85rem; padding-bottom: 0.85rem; }
   .sk-row:hover { background: none; }
+  /* Bounded, because the widths are a share of the cell and the cells are not
+     alike. A share of the item column drew a bar most of the table wide; the
+     same share of a number column drew a chip too small to read as a word. */
+  .sk-row .sk-line { max-width: 180px; min-width: 30px; }
   .sk-stack { display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; }
   @media (prefers-reduced-motion: reduce) { .sk::after { animation: none; } }
   .panel-head { padding: 0.8rem 1rem; border-bottom: 1px solid var(--rule); display: flex;
@@ -732,7 +736,27 @@
     <!-- The argument, measured. Elapsed time is governed by how many times a
          message has to cross the gap, not by how fast anything here parses, so
          these are the numbers the system is answerable for. -->
-    <div class="cost" id="cost"></div>
+    <!-- The loading shape is in the markup rather than written by the script,
+         so the row has its height from the first paint. Left to the script it
+         was blank until the first fetch resolved, and the page visibly lost a
+         row and then got it back. -->
+    <div class="cost" id="cost">
+      <div class="tile"><span class="sk sk-line" style="display:block;width:62%"></span>
+        <span class="sk sk-line" style="display:block;width:38%;height:30px"></span>
+        <span class="sk sk-line" style="display:block;width:88%"></span></div>
+      <div class="tile"><span class="sk sk-line" style="display:block;width:70%"></span>
+        <span class="sk sk-line" style="display:block;width:38%;height:30px"></span>
+        <span class="sk sk-line" style="display:block;width:74%"></span></div>
+      <div class="tile"><span class="sk sk-line" style="display:block;width:48%"></span>
+        <span class="sk sk-line" style="display:block;width:38%;height:30px"></span>
+        <span class="sk sk-line" style="display:block;width:92%"></span></div>
+      <div class="tile"><span class="sk sk-line" style="display:block;width:56%"></span>
+        <span class="sk sk-line" style="display:block;width:38%;height:30px"></span>
+        <span class="sk sk-line" style="display:block;width:66%"></span></div>
+      <div class="tile"><span class="sk sk-line" style="display:block;width:78%"></span>
+        <span class="sk sk-line" style="display:block;width:38%;height:30px"></span>
+        <span class="sk sk-line" style="display:block;width:80%"></span></div>
+    </div>
 
     <!-- Where every number on this page comes from, in the buyer's own terms.
          Directly under the tiles, because the question it answers — "why is it
@@ -762,7 +786,11 @@
             <thead><tr><th>Item</th><th class="num">Sold</th><th class="num">Stock</th>
               <th class="num">Weeks cover</th><th class="num">Buy</th>
               <th class="num">Value</th><th>Supplier</th><th class="acts"></th></tr></thead>
-            <tbody id="suggestions"><tr><td colspan="8" class="empty">loading</td></tr></tbody>
+            <tbody id="suggestions">
+              <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+              <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+              <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+            </tbody>
           </table></div>
           <!-- What produced each line. A suggestion is a number until somebody
                can see whether it came from the forecast or from a threshold they
@@ -789,7 +817,12 @@
             <thead><tr><th>Order</th><th>Supplier</th><th>Revised</th><th>Status</th>
               <th class="num">Value</th>
               <th>Promised</th><th class="acts"></th></tr></thead>
-            <tbody id="orders"><tr><td colspan="7" class="empty">loading</td></tr></tbody>
+            <tbody id="orders">
+              <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td></tr>
+              <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td></tr>
+              <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td></tr>
+              <tr class="sk-row"><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td><td><span class="sk sk-line" style="display:block;width:40%"></span></td><td><span class="sk sk-line" style="display:block;width:26%"></span></td><td><span class="sk sk-line" style="display:block;width:52%"></span></td><td><span class="sk sk-line" style="display:block;width:68%"></span></td></tr>
+            </tbody>
           </table></div>
         </div>
       </div>
@@ -895,7 +928,7 @@
           <h2>Suppliers</h2>
           <span class="hint">least shared time first</span>
         </div>
-        <div class="suplist" id="zones"><div class="empty">loading</div></div>
+        <div class="suplist" id="zones"><div class="sk-stack"><span class="sk sk-line" style="width:54%"></span><span class="sk sk-line" style="width:78%"></span><span class="sk sk-line" style="width:38%"></span></div></div>
       </div>
       <div class="panel" id="supDetail">
         <div class="empty">Pick a supplier to see what an order to them would do.</div>
@@ -914,14 +947,14 @@
           <h2>Policy</h2>
           <span class="hint" id="setEnv"></span>
         </div>
-        <div class="setgroups" id="setGroups"><div class="empty">loading</div></div>
+        <div class="setgroups" id="setGroups"><div class="sk-stack"><span class="sk sk-line" style="width:70%"></span><span class="sk sk-line" style="width:52%"></span><span class="sk sk-line" style="width:64%"></span></div></div>
       </div>
       <div class="panel">
         <div class="panel-head">
           <h2 id="setTitle">Settings</h2>
           <span class="hint" id="setHint"></span>
         </div>
-        <div class="setfields" id="setFields"><div class="empty">loading</div></div>
+        <div class="setfields" id="setFields"><div class="sk-stack"><span class="sk sk-line" style="width:44%"></span><span class="sk sk-line" style="width:86%"></span><span class="sk sk-line" style="width:60%"></span><span class="sk sk-line" style="width:74%"></span></div></div>
         <div class="setbar">
           <button id="setSave">Save</button>
           <span class="hint" id="setState"></span>
@@ -1430,19 +1463,17 @@ person rather than guessed.
     : h < 1 ? `${Math.max(1, Math.round(h * 60))}m` : h < 48 ? `${h.toFixed(1)}h`
     : `${(h / 24).toFixed(1)}d`);
 
-  // Five tiles in the shape they will land in, so the row keeps its height and
-  // the panels below it do not jump down the page when the numbers arrive.
-  const COST_SKELETON = Array.from({ length: 5 }, (_, n) => `
-    <div class="tile">
-      <span class="sk sk-line" style="display:block;width:${[62, 70, 48, 56, 78][n]}%"></span>
-      <span class="sk sk-line" style="display:block;width:38%;height:30px"></span>
-      <span class="sk sk-line" style="display:block;width:${[88, 74, 92, 66, 80][n]}%"></span>
-    </div>`).join("");
-
   async function loadCoordination() {
     let c;
-    if (!$("cost").children.length) $("cost").innerHTML = COST_SKELETON;
-    try { c = await api("/coordination"); } catch { $("cost").innerHTML = ""; return; }
+    // A row that failed to load says so. Emptying it removed the row from the
+    // page, which reads as "there was nothing to report" — the one thing a
+    // failed read cannot tell you.
+    try { c = await api("/coordination"); } catch {
+      $("cost").innerHTML = `<div class="tile"><span class="says">Could not read the
+        desk figures. They are counted from the orders, so the orders below are
+        unaffected.</span></div>`;
+      return;
+    }
     const cy = c.cycle, b = c.book || {};
 
     // The state of the order book, read left to right in the order a buyer
@@ -2566,6 +2597,10 @@ person rather than guessed.
   }
 
   async function loadSuggestions() {
+    // The loading shape on every read, not only the first. Pressing Refresh
+    // left the previous answer on screen while three calls were in flight, so
+    // the table looked settled and was out of date.
+    $("suggestions").innerHTML = skeletonRows(3, 8);
     // Both calls, one table. The plan knows what to buy but only reports the
     // lines that need buying; the catalogue knows everything but not what to do
     // about it. Joined on SKU here rather than in the API, because each endpoint
@@ -2779,6 +2814,7 @@ person rather than guessed.
   const SHOW_VIEW_MESSAGE = false;
 
   async function loadOrders() {
+    $("orders").innerHTML = skeletonRows(4, 7);
     const rows = await api("/purchase-orders");
     $("orderHint").textContent = `${rows.length} orders`;
     $("orders").innerHTML = rows.length ? rows.map((o) => {
