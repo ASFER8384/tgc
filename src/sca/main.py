@@ -96,6 +96,23 @@ _NAV_STYLE = """<style>
   }
   body > footer { min-height: var(--tgc-foot); }
 
+  /* Held at the top while the page scrolls under it, so the rail's head and the
+     page's title stay one band rather than the left half staying put and the
+     right half sliding away.
+
+     Sticky rather than fixed: fixed would take it out of flow and the first
+     panel would start underneath it, which then wants a top padding on body
+     that has to be kept in step with the height by hand. Sticky keeps the space
+     it occupies.
+
+     It needs its own background — it is transparent otherwise, and the charts
+     would scroll through the title — and a z-index under the rail's, so the
+     drawer and the dialogs still cover it. */
+  .top {
+    position: sticky; top: 0; z-index: 900;
+    background: var(--ground);
+  }
+
   .tgc-bar { display: none; }
   .tgc-scrim { display: none; }
   body { padding-left: var(--tgc-rail); }
@@ -115,6 +132,9 @@ _NAV_STYLE = """<style>
     .tgc-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; }
     .tgc-scrim.open { display: block; }
     body { padding-left: 0; padding-top: 48px; }
+    /* Under the bar rather than at zero: the bar is fixed over the page, so a
+       title stuck to the top of the scroll area would slide beneath it. */
+    .top { top: 48px; }
   }
   @media (prefers-reduced-motion: reduce) { .tgc-rail { transition: none; } }
 </style>"""
