@@ -581,6 +581,17 @@
   .au-chip[disabled] { opacity: 0.55; cursor: not-allowed; }
 
   .auto-list { display: flex; flex-direction: column; gap: 8px; }
+  /* The one action that makes something new, at the end of the row rather than
+     the start. Everything under it is a list of things that already exist, and
+     a button at the top left reads as a heading for them. */
+  .au-newrow { justify-content: flex-end; }
+  /* A row the shape of an automation: its name, the line under it, and the
+     controls that sit at the far end. */
+  .sk-auto { display: flex; align-items: center; justify-content: space-between;
+             gap: 1rem; padding: 1rem 1.1rem; border: 1px solid var(--rule);
+             border-radius: 8px; background: var(--panel); }
+  .sk-auto .lines { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; }
+  .sk-auto .acts { display: flex; gap: 0.5rem; }
   .auto-row {
     display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
     background: var(--bc-card); border: 1px solid #ececec; border-radius: 14px; padding: 14px 18px;
@@ -2978,12 +2989,29 @@ Demo environment with fabricated customers. Identity is resolved on phone, email
     return s && s.brand ? ` · ${BRAND_NAME(s.brand)}` : "";
   }
 
+  // Two rows the shape of the automations that are coming. Not one spinner:
+  // this list is usually short, so a spinner in an empty panel and a genuinely
+  // empty panel look the same for as long as the request takes.
+  const AUTO_SKELETON = Array.from({ length: 2 }, (_, i) => `
+    <div class="sk-auto">
+      <div class="lines">
+        <span class="sk" style="height:13px;width:${i ? "34%" : "42%"}"></span>
+        <span class="sk" style="height:11px;width:${i ? "58%" : "66%"}"></span>
+      </div>
+      <div class="acts">
+        <span class="sk" style="height:26px;width:52px"></span>
+        <span class="sk" style="height:26px;width:64px"></span>
+        <span class="sk" style="height:26px;width:44px"></span>
+      </div>
+    </div>`).join("");
+
   async function loadAutomations() {
     const host = $("autoList");
+    host.innerHTML = AUTO_SKELETON;
     try {
       const rows = await api("/automations");
       host.innerHTML =
-        `<div class="au-saverow"><button type="button" class="au-primary" id="autoNew">+ New automation</button></div>` +
+        `<div class="au-saverow au-newrow"><button type="button" class="au-primary" id="autoNew">+ New automation</button></div>` +
         (rows.length ? rows.map((a) => `
           <div class="auto-row">
             <div>
