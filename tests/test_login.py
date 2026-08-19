@@ -155,16 +155,17 @@ async def test_a_signed_in_person_is_not_shown_the_form_again(client):
     assert response.headers["location"] == "/dashboard"
 
 
-async def test_a_service_with_no_accounts_says_so(monkeypatch, sessionmaker_fixture):
-    """The state the deployed service was in: the variable set on a laptop and
-    never on the server. "That email and password do not match" is true there
-    and useless — it sends somebody hunting for a typo."""
+async def test_the_page_never_explains_the_service_to_a_stranger(
+    monkeypatch, sessionmaker_fixture
+):
+    """A console with no accounts refuses like any other failure and says nothing
+    about why. Whoever runs the service is told in the log at start-up; whoever
+    finds the URL is not told which variables it reads or what feeds them."""
     monkeypatch.setenv("SCA_CONSOLE_USERS", "")
     get_settings.cache_clear()
     app = create_app()
-    transport = ASGITransport(app=app)
     async with AsyncClient(
-        transport=transport, base_url="http://test", follow_redirects=False
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=False
     ) as bare:
         first_load = await bare.get("/login")
         attempt = await bare.post(
@@ -172,10 +173,11 @@ async def test_a_service_with_no_accounts_says_so(monkeypatch, sessionmaker_fixt
         )
     get_settings.cache_clear()
 
-    assert attempt.status_code == 503
+    assert first_load.status_code == 200
+    assert attempt.status_code == 401
     for response in (first_load, attempt):
-        assert "SCA_CONSOLE_USERS" in response.text
-        assert "do not match" not in response.text
+        for leak in ["SCA_", "make_user", "python -m", ".env", "environment"]:
+            assert leak not in response.text, leak
 
 
 async def test_the_reference_is_behind_the_gate_too(client):
