@@ -467,6 +467,15 @@ def _nav(active: str, env: str, default_view: str, user: str) -> str:
 # restart clears it and two workers each keep their own count — worth saying
 # plainly, and still the difference between thousands of guesses a minute and a
 # handful. A shared store is the upgrade, when there is a reason for one.
+# Shown wherever an empty account list is the reason a sign-in cannot succeed.
+# It names the variable, because the fault is almost always that it was set on a
+# laptop and never on the server — .env is not deployed, deliberately.
+_NO_ACCOUNTS = (
+    "No accounts are configured on this service, so nobody can sign in yet. "
+    "Set <code>SCA_CONSOLE_USERS</code> in the environment — "
+    "<code>python -m scripts.make_user you@example.com</code> prints the line."
+)
+
 _ATTEMPT_LIMIT = 6
 _ATTEMPT_WINDOW = 300.0
 _attempts: dict[str, list[float]] = {}
@@ -593,14 +602,7 @@ def create_app() -> FastAPI:
         # out of a session that is working.
         if _who(request):
             return RedirectResponse(_safe_next(next), status_code=status.HTTP_303_SEE_OTHER)
-        note = ""
-        if not users:
-            note = (
-                "No accounts exist yet. Run "
-                "<code>python -m scripts.make_user you@example.com</code> and put the "
-                "line it prints in <code>SCA_CONSOLE_USERS</code>."
-            )
-        return _login_html(_safe_next(next), note)
+        return _login_html(_safe_next(next), _NO_ACCOUNTS if not users else "")
 
     @app.post("/login", include_in_schema=False)
     async def login_submit(
@@ -616,6 +618,13 @@ def create_app() -> FastAPI:
                 "Too many attempts. Wait five minutes and try again.",
                 status.HTTP_429_TOO_MANY_REQUESTS,
             )
+        # Said before the attempt is judged, because "that email and password do
+        # not match" is true and useless when there is nothing to match against:
+        # it sends somebody hunting for a typo when the actual fault is a
+        # variable nobody set on the server. This is not the same as naming which
+        # addresses exist — there are none.
+        if not users:
+            return _login_html(target, _NO_ACCOUNTS, status.HTTP_503_SERVICE_UNAVAILABLE)
         who = auth.authenticate(email, password, users)
         if not who:
             _record_failure(key)

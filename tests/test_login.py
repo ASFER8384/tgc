@@ -155,6 +155,29 @@ async def test_a_signed_in_person_is_not_shown_the_form_again(client):
     assert response.headers["location"] == "/dashboard"
 
 
+async def test_a_service_with_no_accounts_says_so(monkeypatch, sessionmaker_fixture):
+    """The state the deployed service was in: the variable set on a laptop and
+    never on the server. "That email and password do not match" is true there
+    and useless — it sends somebody hunting for a typo."""
+    monkeypatch.setenv("SCA_CONSOLE_USERS", "")
+    get_settings.cache_clear()
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport, base_url="http://test", follow_redirects=False
+    ) as bare:
+        first_load = await bare.get("/login")
+        attempt = await bare.post(
+            "/login", data={"email": EMAIL, "password": PASSWORD, "next": "/dashboard"}
+        )
+    get_settings.cache_clear()
+
+    assert attempt.status_code == 503
+    for response in (first_load, attempt):
+        assert "SCA_CONSOLE_USERS" in response.text
+        assert "do not match" not in response.text
+
+
 async def test_the_reference_is_behind_the_gate_too(client):
     """It returns no data, but it is a complete map of the API — every path and
     every field name — and that is the reconnaissance step, not the break-in."""
