@@ -168,6 +168,31 @@ class Settings(BaseSettings):
     # limit the file is skipped and said so, never truncated.
     mail_max_attachment_bytes: int = 10_000_000
 
+    # Who may open a console, as `email:hash,email:hash`. Hashes are made by
+    # `python -m scripts.make_user`, never typed by hand and never a password in
+    # plain text — this file is on every host the service runs on and in every
+    # backup of one.
+    #
+    # Empty means nobody can sign in, and the sign-in page says so along with the
+    # command that fixes it. That is the right failure: an empty list defaulting
+    # to an open door is how a demonstration account outlives the demonstration.
+    #
+    # There is no registration route anywhere in this service. Accounts are made
+    # by whoever can edit the environment, which is the only control a system
+    # with no email verification and no roles can actually enforce.
+    console_users: str = ""
+
+    # What the session cookie is signed with. Unset means a fresh random secret
+    # per process: sign-ins survive a page load but not a restart or a second
+    # worker, which is fine on a laptop and wrong anywhere with more than one of
+    # either. Set it in any environment somebody else signs in to.
+    session_secret: str | None = None
+
+    # How long a sign-in lasts. Nothing is stored server side, so this is also
+    # the longest a stolen cookie is worth having — the reason it is a day and
+    # not a fortnight.
+    session_hours: int = 12
+
     # Serve the API key inside the console page so it connects without anybody
     # typing one. This is not a convenience setting, it is an authentication
     # setting: the consoles are served to anyone who has the URL, so with this on

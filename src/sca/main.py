@@ -1,11 +1,16 @@
+import html
 import json
 import logging
 import re
+import secrets
+import time
 from pathlib import Path
+from urllib.parse import quote
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Form, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import brand
@@ -14,6 +19,7 @@ import cdp
 import forecast
 import forecast.api as forecast_api
 from cdp.api import automations, ingest, persons, proof, segments
+from sca import auth
 from sca.api import catalog, coordination, demo, inbound, inventory, orders, sales
 from sca.api import settings as settings_api
 from sca.api import whatsapp as whatsapp_api
@@ -86,6 +92,20 @@ _NAV_STYLE = """<style>
   .tgc-rail .foot i {
     width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none;
   }
+  /* Who is signed in, on the one line the foot has. An address is longer than
+     176px of rail more often than not, so it is cut with an ellipsis rather
+     than allowed to wrap and push the sign-out button off the bottom — the
+     whole of it is in the title, and the part that identifies a person is at
+     the front anyway. */
+  .tgc-rail .foot .who {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .tgc-rail .foot form { margin-left: auto; display: flex; flex: none; }
+  .tgc-rail .foot button {
+    background: none; border: none; padding: 4px; cursor: pointer; color: var(--muted);
+    display: flex; border-radius: 5px;
+  }
+  .tgc-rail .foot button:hover { color: var(--alert); background: var(--panel); }
 
   /* The page's half of each band. `min-height`, not `height`: the footer's
      sentence wraps on a narrow window and a fixed height would cut it in half
@@ -359,7 +379,7 @@ _PAGE_TITLE = {
 }
 
 
-def _nav(active: str, env: str, default_view: str) -> str:
+def _nav(active: str, env: str, default_view: str, user: str) -> str:
     """`active` is the page; the rail marks the destination within it from the
     query, so that reloading a section keeps its own item lit."""
     links = "".join(
@@ -392,7 +412,17 @@ def _nav(active: str, env: str, default_view: str) -> str:
     <div><b>TGC Platform</b><span>Aleena · Rawash · Aynola</span></div>
   </div>
   <nav>{links}</nav>
-  <div class="foot"><i></i>{env}</div>
+  <div class="foot">
+    <i title="{env}"></i><span class="who" title="{user} · {env}">{user}</span>
+    <form method="post" action="/logout">
+      <button type="submit" title="Sign out" aria-label="Sign out">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+        </svg>
+      </button>
+    </form>
+  </div>
 </aside>
 <script>
   function tgcRail(open) {{
@@ -432,6 +462,44 @@ def _nav(active: str, env: str, default_view: str) -> str:
 </script>"""
 
 
+# Sign-in attempts per address, so a password guessed at speed runs into a wall
+# well before it runs out of passwords. In memory and per process, which means a
+# restart clears it and two workers each keep their own count — worth saying
+# plainly, and still the difference between thousands of guesses a minute and a
+# handful. A shared store is the upgrade, when there is a reason for one.
+_ATTEMPT_LIMIT = 6
+_ATTEMPT_WINDOW = 300.0
+_attempts: dict[str, list[float]] = {}
+
+
+def _throttled(email: str) -> bool:
+    """True when this address has failed too often lately. Keyed by address
+    rather than by IP: a team behind one office connection shares an address at
+    the door, and locking the office out because one person fat-fingered their
+    password is the failure mode that gets a control switched off."""
+    now = time.time()
+    recent = [t for t in _attempts.get(email, ()) if now - t < _ATTEMPT_WINDOW]
+    _attempts[email] = recent
+    return len(recent) >= _ATTEMPT_LIMIT
+
+
+def _record_failure(email: str) -> None:
+    _attempts.setdefault(email, []).append(time.time())
+
+
+def _safe_next(target: str | None) -> str:
+    """Where to go after signing in, refusing anywhere that is not this site.
+
+    A `next` parameter is a redirect somebody else can write — it arrives in a
+    link — so anything with a scheme or a host in it is dropped rather than
+    followed. "//evil.example" is the one that catches people out: no scheme, and
+    a browser still treats it as another origin.
+    """
+    if not target or not target.startswith("/") or target.startswith("//"):
+        return "/dashboard"
+    return target
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
@@ -441,6 +509,15 @@ def create_app() -> FastAPI:
             "Customer profiles and supplier coordination on one database: who "
             "buys, and what has to be bought to serve them."
         ),
+        # Turned off here and served again below, behind the sign-in. The
+        # reference returns no customer and no order, but it is a complete map of
+        # the API — every path, every field name, every shape — and handing that
+        # to whoever finds the URL is the reconnaissance step done for them.
+        # /health stays open: uptime checks call it, and it says only whether the
+        # service is up and which environment it is.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
 
     app.add_middleware(
@@ -468,19 +545,167 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok", "env": settings.env}
 
+    # Read once at start-up rather than per request: the accounts come from the
+    # environment, so they cannot change without a restart anyway, and hashing a
+    # password is the only expensive thing on the sign-in path.
+    users = auth.parse_users(settings.console_users)
+    log = logging.getLogger("sca")
+    if not users:
+        log.warning(
+            "no console accounts configured: nobody can sign in. Create one with "
+            "`python -m scripts.make_user you@example.com` and put the line it "
+            "prints in SCA_CONSOLE_USERS."
+        )
+
+    # A secret per process when none is configured. Signing still works; a cookie
+    # issued by a previous process, or by the other worker, does not verify. The
+    # symptom is being signed out at random, which is worth naming here because
+    # it looks like a bug in the sign-in rather than a missing variable.
+    session_secret = settings.session_secret or secrets.token_urlsafe(32)
+    if not settings.session_secret and settings.env != "local":
+        log.warning(
+            "SCA_SESSION_SECRET is unset in env=%s: sessions are signed with a key "
+            "generated at start-up, so every restart and every extra worker signs "
+            "everyone out.",
+            settings.env,
+        )
+
+    login_page = Path(__file__).parent / "console" / "login.html"
+
+    def _who(request: Request) -> str | None:
+        """The signed-in address, or None. The only question the page routes ask."""
+        return auth.read(request.cookies.get(auth.COOKIE), session_secret)
+
+    def _login_html(next_to: str, note: str = "", code: int = 200) -> HTMLResponse:
+        page = login_page.read_text(encoding="utf-8")
+        # Escaped on the way in. `next` comes from the address bar and lands in an
+        # attribute; a message can quote an address somebody typed.
+        page = page.replace("__NEXT__", html.escape(next_to, quote=True))
+        page = page.replace("__ENV__", html.escape(settings.env))
+        if note:
+            page = page.replace("<!--NOTE-->", f'<p class="note">{note}</p>', 1)
+        return HTMLResponse(page, status_code=code, headers={"Cache-Control": "no-store"})
+
+    @app.get("/login", include_in_schema=False)
+    async def login_form(request: Request, next: str = "/dashboard") -> Response:
+        # Already signed in: the sign-in page is not a destination, it is a gate,
+        # and showing a form to somebody who is through it invites them to sign
+        # out of a session that is working.
+        if _who(request):
+            return RedirectResponse(_safe_next(next), status_code=status.HTTP_303_SEE_OTHER)
+        note = ""
+        if not users:
+            note = (
+                "No accounts exist yet. Run "
+                "<code>python -m scripts.make_user you@example.com</code> and put the "
+                "line it prints in <code>SCA_CONSOLE_USERS</code>."
+            )
+        return _login_html(_safe_next(next), note)
+
+    @app.post("/login", include_in_schema=False)
+    async def login_submit(
+        email: str = Form(...),
+        password: str = Form(...),
+        next: str = Form("/dashboard"),
+    ) -> Response:
+        target = _safe_next(next)
+        key = email.strip().lower()
+        if _throttled(key):
+            return _login_html(
+                target,
+                "Too many attempts. Wait five minutes and try again.",
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        who = auth.authenticate(email, password, users)
+        if not who:
+            _record_failure(key)
+            # One message for a wrong password and for an address that does not
+            # exist. Telling them apart is a way of asking this service which of
+            # a list of addresses are real.
+            return _login_html(
+                target, "That email and password do not match.", status.HTTP_401_UNAUTHORIZED
+            )
+        _attempts.pop(key, None)
+        # 303, not 307: the browser must switch to GET for the dashboard rather
+        # than reposting the credentials to it.
+        response = RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+        response.set_cookie(
+            auth.COOKIE,
+            auth.issue(who, session_secret, settings.session_hours),
+            max_age=settings.session_hours * 3600,
+            httponly=True,          # script on the page can never read it
+            samesite="lax",         # not sent from another site's form or fetch
+            secure=settings.env != "local",  # https only, except on a laptop
+            path="/",
+        )
+        return response
+
+    # POST, and only POST. A sign-out on a GET is a link an image tag can fire,
+    # and the browser's own prefetching has been known to fire it too.
+    @app.post("/logout", include_in_schema=False)
+    async def logout() -> Response:
+        response = RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+        response.delete_cookie(auth.COOKIE, path="/")
+        return response
+
+    # The API reference, behind the same gate as the consoles. Same three
+    # addresses as FastAPI's own, so every existing bookmark and every link in
+    # the README still lands in the right place — it just asks who you are first.
+    def _reference_gate(request: Request, at: str) -> Response | None:
+        if _who(request):
+            return None
+        return RedirectResponse(
+            "/login?next=" + quote(at), status_code=status.HTTP_303_SEE_OTHER
+        )
+
+    @app.get("/openapi.json", include_in_schema=False)
+    async def openapi_schema(request: Request) -> Response:
+        gate = _reference_gate(request, "/docs")
+        return gate or JSONResponse(app.openapi())
+
+    @app.get("/docs", include_in_schema=False)
+    async def swagger_ui(request: Request) -> Response:
+        gate = _reference_gate(request, "/docs")
+        # The assets come from the same /static mount as the charting library,
+        # for the same reasons: no CDN in the page, and it keeps working on a
+        # shop's wifi. Falls back to the CDN if they have not been vendored.
+        return gate or get_swagger_ui_html(
+            openapi_url="/openapi.json", title="TGC Platform — API reference"
+        )
+
+    @app.get("/redoc", include_in_schema=False)
+    async def redoc_ui(request: Request) -> Response:
+        gate = _reference_gate(request, "/redoc")
+        return gate or get_redoc_html(
+            openapi_url="/openapi.json", title="TGC Platform — API reference"
+        )
+
+
     supplier_console = Path(__file__).parent / "console" / "index.html"
     customer_console = Path(cdp.__file__).parent / "console" / "index.html"
     brand_console = Path(brand.__file__).parent / "console" / "index.html"
     forecast_console = Path(forecast.__file__).parent / "console" / "index.html"
 
-    def render(page: Path, active: str, route: str) -> HTMLResponse:
+    def render(request: Request, page: Path, active: str, route: str) -> Response:
         """One page, plus the rail that says which half you are looking at.
 
         ``route`` rather than ``active`` decides which section opens, because
         /dashboard and /cdp serve the same document and arrive at different
         destinations in it.
+
+        Nobody signed in gets the sign-in page instead, carrying where they were
+        going: a link to a supplier sent in a message should land on that
+        supplier after signing in, not on the dashboard with the reason for
+        opening the link lost.
         """
-        html = page.read_text(encoding="utf-8")
+        user = _who(request)
+        if not user:
+            return RedirectResponse(
+                "/login?next=" + quote(request.url.path + ("?" + request.url.query
+                                                           if request.url.query else "")),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+        markup = page.read_text(encoding="utf-8")
         # The key is injected as the page is served and never written into either
         # file, so it stays out of the repository and out of git history, and
         # rotating it is one environment variable rather than a commit.
@@ -491,17 +716,19 @@ def create_app() -> FastAPI:
         head = _NAV_STYLE
         if settings.env == "local" or settings.console_auto_connect:
             head += f"<script>window.__SCA_DEV_KEY__ = {json.dumps(settings.api_key)};</script>"
-        html = html.replace("</head>", head + "</head>", 1)
+        markup = markup.replace("</head>", head + "</head>", 1)
         title = _PAGE_TITLE.get(route)
         if title:
-            html = re.sub(r"<title>[^<]*</title>", f"<title>{title}</title>", html, count=1)
+            markup = re.sub(r"<title>[^<]*</title>", f"<title>{title}</title>", markup, count=1)
         default_view = _DEFAULT_VIEW.get(route, "dashboard")
-        html = html.replace(
-            "<body>", "<body>" + _nav(active, settings.env, default_view), 1
+        markup = markup.replace(
+            "<body>", "<body>" + _nav(active, settings.env, default_view, user), 1
         )
         # No caching: the console changes far more often than the API, and a
-        # stale copy looks like a bug in the API rather than in the browser.
-        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+        # stale copy looks like a bug in the API rather than in the browser. It
+        # also now carries a name, and a shared laptop should not show the last
+        # person's back button their colleague's console.
+        return HTMLResponse(markup, headers={"Cache-Control": "no-store"})
 
     # The dashboard answers for both halves — customers on one side of it, the
     # supplier network on the other — so it has its own address rather than
@@ -529,28 +756,28 @@ def create_app() -> FastAPI:
     )
 
     @app.get("/dashboard", include_in_schema=False)
-    async def dashboard_page() -> HTMLResponse:
-        return render(customer_console, "cdp", "/dashboard")
+    async def dashboard_page(request: Request) -> Response:
+        return render(request, customer_console, "cdp", "/dashboard")
 
     @app.get("/cdp", include_in_schema=False)
-    async def customer_page() -> HTMLResponse:
-        return render(customer_console, "cdp", "/cdp")
+    async def customer_page(request: Request) -> Response:
+        return render(request, customer_console, "cdp", "/cdp")
 
     @app.get("/procure", include_in_schema=False)
-    async def procurement_page() -> HTMLResponse:
-        return render(supplier_console, "sca", "/procure")
+    async def procurement_page(request: Request) -> Response:
+        return render(request, supplier_console, "sca", "/procure")
 
     # Not /brand: the API router already owns that prefix, and a page served
     # there would shadow the endpoints the page itself calls.
     @app.get("/brand-console", include_in_schema=False)
-    async def brand_page() -> HTMLResponse:
-        return render(brand_console, "brand", "/brand-console")
+    async def brand_page(request: Request) -> Response:
+        return render(request, brand_console, "brand", "/brand-console")
 
     # Same reason as the brand page: the API router owns /forecast, and a page
     # served there would shadow the endpoints the page itself calls.
     @app.get("/forecast-console", include_in_schema=False)
-    async def forecast_page() -> HTMLResponse:
-        return render(forecast_console, "forecast", "/forecast-console")
+    async def forecast_page(request: Request) -> Response:
+        return render(request, forecast_console, "forecast", "/forecast-console")
 
     app.include_router(brand_api.router)
     app.include_router(forecast_api.router)

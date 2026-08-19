@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sign in — TGC Platform</title>
+<style>
+  /* The consoles' own tokens, copied rather than shared: this page is served
+     before the rail is, so it cannot inherit anything from it, and a sign-in
+     screen that looked like a different product than the one behind it would be
+     the first thing a reader distrusted. */
+  :root {
+    --ground: #f4f6f6; --panel: #ffffff; --sunk: #eaeeed;
+    --ink: #12201f; --ink-soft: #3c4d4b; --muted: #667874; --rule: #d7dedd;
+    --accent: #0e6a61; --accent-ink: #ffffff; --accent-soft: #e2efec;
+    --alert: #9d3826; --alert-ink: #ffffff; --alert-soft: #f7e8e4;
+    --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1413; --panel: #151e1d; --sunk: #1b2624;
+      --ink: #e7efec; --ink-soft: #c2d0cc; --muted: #8fa39e; --rule: #2a3735;
+      --accent: #52bfaf; --accent-ink: #08211e; --accent-soft: #17302d;
+      --alert: #e29076; --alert-ink: #22120d; --alert-soft: #2e211c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink);
+    font: 14px/1.5 var(--sans);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    width: 100%; max-width: 380px; background: var(--panel);
+    border: 1px solid var(--rule); border-radius: 14px; padding: 28px;
+  }
+  .mark {
+    width: 38px; height: 38px; border-radius: 9px; background: var(--accent);
+    color: var(--accent-ink); display: flex; align-items: center; justify-content: center;
+    margin-bottom: 18px;
+  }
+  h1 { font: 600 21px/1.2 var(--display); margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-soft); margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 9px 11px; margin-bottom: 15px; font: inherit;
+    color: var(--ink); background: var(--ground);
+    border: 1px solid var(--rule); border-radius: 8px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+  button {
+    width: 100%; padding: 10px; font: 600 14px var(--sans); cursor: pointer;
+    color: var(--accent-ink); background: var(--accent);
+    border: 1px solid var(--accent); border-radius: 8px;
+  }
+  button:hover { filter: brightness(1.08); }
+  /* Server-rendered and only present when there is something to say, so the
+     layout does not hold an empty row open waiting for a failure. */
+  .note {
+    background: var(--alert-soft); color: var(--alert); border: 1px solid var(--alert);
+    border-radius: 8px; padding: 9px 11px; font-size: 13px; margin-bottom: 18px;
+  }
+  .note code { font: 12px var(--mono); word-break: break-all; }
+  footer { color: var(--muted); font-size: 11px; margin-top: 18px; text-align: center; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="mark">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    </div>
+    <h1>TGC Platform</h1>
+    <p class="sub">Aleena · Rawash · Aynola</p>
+    <!--NOTE-->
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="__NEXT__" />
+      <label for="email">Email</label>
+      <!-- autofocus on the first field, and autocomplete names the browser
+           knows, so a password manager fills both rather than neither. -->
+      <input id="email" name="email" type="email" autocomplete="username"
+             required autofocus />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password"
+             autocomplete="current-password" required />
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+  <!-- No "create an account" and no "forgot password", because neither exists.
+       Accounts are made by whoever holds the environment; a link promising
+       otherwise would be a dead end at the worst moment. -->
+  <footer>Accounts are issued by your administrator · __ENV__</footer>
+</body>
+</html>

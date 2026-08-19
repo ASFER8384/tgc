@@ -36,6 +36,8 @@ What works end to end today:
 - **Exceptions with actions**: date slips, price mismatches, short shipments,
   silence from a supplier, and messages the parser could not read.
 - **Shipment tracking** behind a carrier interface, with a working mock.
+- **Sign-in on the consoles**: a session cookie, accounts configured in the
+  environment, no registration page anywhere in the service.
 - **Console** at `/`: supplier clocks, what is below cover, orders, exceptions,
   and a box to paste a supplier email into and watch it be read.
 
@@ -56,6 +58,36 @@ docker compose up -d                              # postgres :5434, redis :6381
 ```
 
 Console at `http://localhost:8001/`, API reference at `/docs`.
+
+### Signing in
+
+The consoles are behind a sign-in. There is no registration page and no password
+reset — accounts are made by whoever can edit `.env`:
+
+```bash
+.venv/Scripts/python -m scripts.make_user buyer@example.com
+# paste the printed line into SCA_CONSOLE_USERS, comma separated for several
+```
+
+Set `SCA_SESSION_SECRET` to 32 or more random characters anywhere other than a
+laptop; without it the signing key is regenerated per process, so every restart
+and every extra worker signs everybody out. `SCA_SESSION_HOURS` is how long a
+sign-in lasts (12 by default) and, since nothing is stored server side, also how
+long a stolen cookie is worth having.
+
+The gate is on the pages and on the API reference at `/docs`, `/redoc` and
+`/openapi.json` — that one holds no data but is a complete map of the API, and
+handing it to whoever finds the URL is the reconnaissance done for them. Without
+signing in, three things answer and no more: the redirect to `/login`, `/login`
+itself, and `/health`, which says whether the service is up and nothing else. A
+test sweeps every route the app declares and fails if that list ever grows.
+
+The JSON API still authenticates on `X-API-Key` exactly as before, which is what
+keeps scripts, the WhatsApp webhook and the test suite working. It is also why
+the pages had to be gated: with `SCA_CONSOLE_AUTO_CONNECT` on, the key is served
+inside the page, so whoever can open the page has the key — and anyone who
+opened a console *before* the sign-in existed still holds a copy of it. Rotate
+`SCA_API_KEY` once, and those copies stop working.
 
 ```bash
 .venv/Scripts/python -m pytest -q                 # 285 tests, no container needed
@@ -160,10 +192,15 @@ acceptable if everything it did can be listed afterwards.
   than silently accepted.
 - Sending is recorded, not performed: no SMTP or supplier API is wired yet.
 - The sweep runs when called, from the console button or a cron. No scheduler.
-- One shared API key. Buying approval in particular needs real named users, and
-  it is the same gap on the settings page: every policy change is audited
-  against "api-key-user", which records that somebody moved the approval
-  threshold without recording who.
+- The sign-in knows who opened the console; the API underneath it still does
+  not. Every action is audited against "api-key-user", so the settings page
+  records that somebody moved the approval threshold without recording who, and
+  buying approval has no named person behind it. Closing that means carrying the
+  signed-in address from the page into the API call, which is the next step and
+  is why the sign-in exists at all rather than only to keep strangers out.
+- Sessions are signed, not stored, so there is no way to revoke one before it
+  expires. Rotating `SCA_SESSION_SECRET` signs everybody out at once, which is
+  the blunt version of that.
 
 ## Roadmap
 
