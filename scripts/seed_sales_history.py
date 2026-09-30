@@ -53,11 +53,15 @@ import hmac
 import json
 import math
 import random
+import zlib
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 import httpx
+
+# The shops a counter sale can come off, as in stock_locations.
+HOME_SHOPS = ("riyadh", "jeddah")
 
 # Weight, unit price and typical basket per SKU. A lip tube sells often and in
 # multiples; an embroidered abaya sells rarely and one at a time. Demand that
@@ -595,6 +599,11 @@ class Seeder:
             # its shops on Shopify POS.
             "source": "pos" if store else "activation",
             "channel": "retail" if store else "event",
+            # A shop sale must name its shelf; the API refuses to guess. Each
+            # customer has a home shop, fixed by her phone so reruns agree.
+            "location": HOME_SHOPS[zlib.crc32(person.phone.encode()) % len(HOME_SHOPS)]
+            if store
+            else None,
             "move_stock": False,
             "receipt": f"seed-{order['order_id']}",
             "occurred_at": order["when"].isoformat(),
